@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "infra-cost-analyzer",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-05-05",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "infra-cost-analyzer",
+      "database_id": "e52d3a7c-244b-4d06-8282-874c990ac392"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

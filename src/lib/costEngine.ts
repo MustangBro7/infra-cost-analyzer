@@ -1,0 +1,542 @@
+import type { AnalysisResult, NormalizedCostRow, Provider, ProviderBreakdown, RepoSignal, WorkspaceStore } from "./types"
+import { buildProviderConnections } from "./providerCatalog"
+import { readWorkspace } from "./localStore"
+import { listVercelBillingCharges } from "./vercelClient"
+import { listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
+import { queryGcpBillingExportCosts } from "./gcpClient"
+
+const BASE_MONTHLY_COST: Partial<Record<Provider, number>> = {
+  github: 4,
+  vercel: 28,
+  aws: 96,
+  gcp: 88,
+  azure: 92,
+  cloudflare: 18,
+  digitalocean: 24,
+  docker: 0,
+}
+
+const SERVICE_NAME: Partial<Record<Provider, string>> = {
+  github: "Actions and repository services",
+  vercel: "Frontend hosting and serverless usage",
+  aws: "Cloud resources matched from IaC",
+  gcp: "Google Cloud project usage",
+  azure: "Azure subscription usage",
+  cloudflare: "Workers, Pages, D1, R2, and network",
+  digitalocean: "App Platform, Droplets, and bandwidth",
+  docker: "Container image evidence",
+}
+
+function period() {
+  const now = new Date()
+  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0))
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+  }
+}
+
+function scoreToCost(signal: RepoSignal, providerSignalIndex: number): number {
+  const base = BASE_MONTHLY_COST[signal.provider] ?? 12
+  if (base === 0) return 0
+  const multiplier = 0.55 + signal.confidence * 0.7
+  const diminishing = Math.max(0.28, 1 - providerSignalIndex * 0.16)
+  return Number((base * multiplier * diminishing).toFixed(2))
+}
+
+function attributionFor(signal: RepoSignal): { attribution: NormalizedCostRow["attribution"]; reason: string } {
+  if (signal.confidence >= 0.96) {
+    return {
+      attribution: "verified",
+      reason: "Strong repo-level deployment configuration was found. Provider billing access can turn this into exact live cost.",
+    }
+  }
+  if (signal.confidence >= 0.86) {
+    return {
+      attribution: "user_confirmed",
+      reason: "Infrastructure-as-code or workflow evidence is strong, but a provider resource mapping should be confirmed.",
+    }
+  }
+  return {
+    attribution: "inferred",
+    reason: "Detected from names, package references, workflow commands, or documentation. Treat as probable until connected.",
+  }
+}
+
+export function estimateCosts(signals: RepoSignal[]): NormalizedCostRow[] {
+  const currentPeriod = period()
+  const providerCounts = new Map<Provider, number>()
+
+  return signals
+    .filter((signal) => signal.provider !== "unknown" && signal.provider !== "docker")
+    .map((signal) => {
+      const index = providerCounts.get(signal.provider) ?? 0
+      providerCounts.set(signal.provider, index + 1)
+      const attribution = attributionFor(signal)
+      return {
+        provider: signal.provider,
+        serviceName: SERVICE_NAME[signal.provider] ?? "Provider cost",
+        resourceId: signal.matchedResource ? `${signal.provider}/${signal.matchedResource}` : null,
+        resourceName: signal.matchedResource ?? signal.sourcePath,
+        billingPeriodStart: currentPeriod.from,
+        billingPeriodEnd: currentPeriod.to,
+        cost: scoreToCost(signal, index),
+        currency: "USD",
+        attribution: attribution.attribution,
+        attributionReason: attribution.reason,
+        signalId: signal.id,
+        source: "estimate",
+      }
+    })
+}
+
+export function summarizeByProvider(costRows: NormalizedCostRow[], signals: RepoSignal[]): ProviderBreakdown[] {
+  const signalCounts = signals.reduce((acc, signal) => {
+    acc.set(signal.provider, (acc.get(signal.provider) ?? 0) + 1)
+    return acc
+  }, new Map<Provider, number>())
+
+  const rows = costRows.reduce((acc, row) => {
+    const current = acc.get(row.provider) ?? {
+      provider: row.provider,
+      total: 0,
+      exact: 0,
+      inferred: 0,
+      signalCount: signalCounts.get(row.provider) ?? 0,
+    }
+    current.total += row.cost
+    if (row.attribution === "inferred") {
+      current.inferred += row.cost
+    } else {
+      current.exact += row.cost
+    }
+    acc.set(row.provider, current)
+    return acc
+  }, new Map<Provider, ProviderBreakdown>())
+
+  return [...rows.values()]
+    .map((row) => ({
+      ...row,
+      total: Number(row.total.toFixed(2)),
+      exact: Number(row.exact.toFixed(2)),
+      inferred: Number(row.inferred.toFixed(2)),
+    }))
+    .sort((a, b) => b.total - a.total)
+}
+
+export async function buildAnalysis(
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
+  env: NodeJS.ProcessEnv,
+  userId = "usr_test"
+): Promise<AnalysisResult> {
+  const workspace = await readWorkspace(userId)
+  return finalizeAnalysis(repoScan, env, workspace, estimateCosts(repoScan.signals), [])
+}
+
+export async function buildAnalysisWithLiveData(
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
+  env: NodeJS.ProcessEnv,
+  userId: string
+): Promise<AnalysisResult> {
+  const estimatedRows = estimateCosts(repoScan.signals)
+  const workspace = await readWorkspace(userId)
+  const results = await Promise.all([
+    loadVercelLive(workspace, repoScan),
+    loadCloudflareLive(workspace),
+    loadGcpLive(workspace),
+  ])
+  let costRows = estimatedRows
+  for (const result of results) {
+    if (result.rows.length > 0) {
+      costRows = [...costRows.filter((row) => row.provider !== result.sync.provider), ...result.rows]
+    }
+  }
+  return finalizeAnalysis(repoScan, env, workspace, costRows, results.map((result) => result.sync))
+}
+
+function finalizeAnalysis(
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
+  env: NodeJS.ProcessEnv,
+  workspace: WorkspaceStore,
+  costRows: NormalizedCostRow[],
+  liveSync: AnalysisResult["liveSync"]
+): AnalysisResult {
+  const providerBreakdown = summarizeByProvider(costRows, repoScan.signals)
+  const exactCost = costRows
+    .filter((row) => row.attribution !== "inferred")
+    .reduce((sum, row) => sum + row.cost, 0)
+  const totalCost = costRows.reduce((sum, row) => sum + row.cost, 0)
+  const averageConfidence =
+    repoScan.signals.length === 0
+      ? 0
+      : repoScan.signals.reduce((sum, signal) => sum + signal.confidence, 0) / repoScan.signals.length
+
+  const actions = buildActions(repoScan.signals, costRows)
+  return {
+    repo: repoScan.repo,
+    period: period(),
+    summary: {
+      totalCost: Number(totalCost.toFixed(2)),
+      exactCost: Number(exactCost.toFixed(2)),
+      inferredCost: Number((totalCost - exactCost).toFixed(2)),
+      detectedProviders: new Set(repoScan.signals.map((signal) => signal.provider).filter((provider) => provider !== "docker")).size,
+      signals: repoScan.signals.length,
+      confidence: Number((averageConfidence * 100).toFixed(0)),
+    },
+    signals: repoScan.signals,
+    providerConnections: buildProviderConnections(repoScan.signals, env, workspace),
+    providerBreakdown,
+    costRows,
+    actions,
+    liveSync,
+  }
+}
+
+type LiveResult = { rows: NormalizedCostRow[]; sync: AnalysisResult["liveSync"][number] }
+
+function notConnected(provider: Provider, message: string): LiveResult {
+  return {
+    rows: [],
+    sync: { provider, status: "not_connected", message, rows: 0, syncedAt: null },
+  }
+}
+
+async function loadVercelLive(
+  workspace: WorkspaceStore,
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>
+): Promise<LiveResult> {
+  const vercel = workspace.connections.vercel
+  if (!vercel?.accessToken || vercel.status !== "connected") {
+    return notConnected("vercel", "Connect Vercel to pull live FOCUS billing rows.")
+  }
+
+  const currentPeriod = period()
+  const metadata = vercel.metadata as { teamId?: string | null; slug?: string | null; teams?: Array<{ id: string; slug: string }> }
+  const scopes = buildVercelBillingScopes(metadata)
+
+  try {
+    const allCharges = []
+    const errors: string[] = []
+    for (const scope of scopes) {
+      try {
+        allCharges.push(...(await listVercelBillingCharges(vercel.accessToken, { ...currentPeriod, ...scope })))
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : "Unknown Vercel billing error.")
+      }
+    }
+
+    if (allCharges.length === 0 && errors.length > 0) {
+      throw new Error(errors[0])
+    }
+
+    const rows = normalizeVercelCharges(allCharges, repoScan, currentPeriod)
+    if (rows.length === 0) {
+      return {
+        rows: [],
+        sync: {
+          provider: "vercel",
+          status: "empty",
+          message: "Vercel billing returned no charge rows for the current month. Keeping estimated Vercel rows.",
+          rows: 0,
+          syncedAt: new Date().toISOString(),
+        },
+      }
+    }
+
+    return {
+      rows,
+      sync: {
+        provider: "vercel",
+        status: "success",
+        message: `Loaded ${rows.length} live Vercel billing rows. Estimated Vercel rows were replaced.`,
+        rows: rows.length,
+        syncedAt: new Date().toISOString(),
+      },
+    }
+  } catch (error) {
+    return {
+      rows: [],
+      sync: {
+        provider: "vercel",
+        status: "error",
+        message: error instanceof Error ? error.message : "Failed to sync Vercel billing. Keeping estimated Vercel rows.",
+        rows: 0,
+        syncedAt: new Date().toISOString(),
+      },
+    }
+  }
+}
+
+const CLOUDFLARE_MONTHLY_FACTOR: Record<string, number> = {
+  weekly: 4.345,
+  monthly: 1,
+  quarterly: 1 / 3,
+  yearly: 1 / 12,
+}
+
+export function normalizeCloudflareSubscriptions(
+  subscriptions: CloudflareSubscription[],
+  account: CloudflareAccount,
+  currentPeriod: { from: string; to: string }
+): NormalizedCostRow[] {
+  return subscriptions
+    .map((subscription, index): NormalizedCostRow | null => {
+      const price = typeof subscription.price === "number" ? subscription.price : Number.parseFloat(String(subscription.price ?? ""))
+      if (!Number.isFinite(price) || price <= 0) return null
+      const factor = CLOUDFLARE_MONTHLY_FACTOR[subscription.frequency?.toLowerCase() ?? "monthly"] ?? 1
+      const planName =
+        subscription.rate_plan?.public_name ||
+        subscription.product?.public_name ||
+        subscription.product?.name ||
+        "Cloudflare subscription"
+      return {
+        provider: "cloudflare",
+        serviceName: planName,
+        resourceId: subscription.id ? `cloudflare/${account.id}/${subscription.id}` : null,
+        resourceName: account.name,
+        billingPeriodStart: currentPeriod.from,
+        billingPeriodEnd: currentPeriod.to,
+        cost: Number((price * factor).toFixed(4)),
+        currency: subscription.currency ?? "USD",
+        attribution: "verified",
+        attributionReason:
+          "Live Cloudflare subscription price for this account, normalized to a monthly amount. Usage-based overage is not included.",
+        signalId: `cloudflare-live:${account.id}:${subscription.id ?? index}`,
+        source: "live",
+      }
+    })
+    .filter((row): row is NormalizedCostRow => Boolean(row))
+}
+
+async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult> {
+  const cloudflare = workspace.connections.cloudflare
+  if (!cloudflare?.accessToken || cloudflare.status !== "connected") {
+    return notConnected("cloudflare", "Connect Cloudflare to pull live subscription costs.")
+  }
+
+  const currentPeriod = period()
+  try {
+    const metadata = cloudflare.metadata as { accounts?: Array<{ id: string; name: string }> }
+    let accounts: CloudflareAccount[] = metadata.accounts ?? []
+    if (accounts.length === 0) {
+      accounts = await listCloudflareAccounts(cloudflare.accessToken)
+    }
+    if (accounts.length === 0) {
+      return {
+        rows: [],
+        sync: {
+          provider: "cloudflare",
+          status: "empty",
+          message: "Token verified but no accounts are readable. Grant the token Account Settings: Read and reconnect.",
+          rows: 0,
+          syncedAt: new Date().toISOString(),
+        },
+      }
+    }
+
+    const rows: NormalizedCostRow[] = []
+    const errors: string[] = []
+    for (const account of accounts.slice(0, 5)) {
+      try {
+        const subscriptions = await listCloudflareSubscriptions(cloudflare.accessToken, account.id)
+        rows.push(...normalizeCloudflareSubscriptions(subscriptions, account, currentPeriod))
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : "Unknown Cloudflare subscriptions error.")
+      }
+    }
+
+    if (rows.length === 0 && errors.length > 0) {
+      throw new Error(errors[0])
+    }
+    if (rows.length === 0) {
+      return {
+        rows: [],
+        sync: {
+          provider: "cloudflare",
+          status: "empty",
+          message: "Cloudflare returned no paid subscriptions for this account. Keeping estimated Cloudflare rows.",
+          rows: 0,
+          syncedAt: new Date().toISOString(),
+        },
+      }
+    }
+
+    return {
+      rows,
+      sync: {
+        provider: "cloudflare",
+        status: "success",
+        message: `Loaded ${rows.length} live Cloudflare subscription rows. Estimated Cloudflare rows were replaced.`,
+        rows: rows.length,
+        syncedAt: new Date().toISOString(),
+      },
+    }
+  } catch (error) {
+    return {
+      rows: [],
+      sync: {
+        provider: "cloudflare",
+        status: "error",
+        message: error instanceof Error ? error.message : "Failed to sync Cloudflare subscriptions. Keeping estimated rows.",
+        rows: 0,
+        syncedAt: new Date().toISOString(),
+      },
+    }
+  }
+}
+
+async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
+  const gcp = workspace.connections.gcp
+  if (!gcp?.accessToken || gcp.status !== "connected") {
+    return notConnected("gcp", "Connect Google Cloud to pull exact cost rows from the billing export.")
+  }
+
+  const metadata = gcp.metadata as { billingExportTable?: string | null }
+  const tableId = metadata.billingExportTable
+  if (!tableId) {
+    return notConnected(
+      "gcp",
+      "Google Cloud is connected. Add your BigQuery billing export table to pull exact cost rows."
+    )
+  }
+
+  const currentPeriod = period()
+  try {
+    const exportRows = await queryGcpBillingExportCosts(gcp.accessToken, tableId, currentPeriod)
+    const rows = exportRows
+      .filter((row) => Number.isFinite(row.cost) && Math.abs(row.cost) >= 0.005)
+      .map(
+        (row, index): NormalizedCostRow => ({
+          provider: "gcp",
+          serviceName: row.serviceName,
+          resourceId: row.projectId ? `gcp/${row.projectId}/${row.serviceName}` : null,
+          resourceName: row.projectId ?? row.serviceName,
+          billingPeriodStart: currentPeriod.from,
+          billingPeriodEnd: currentPeriod.to,
+          cost: Number(row.cost.toFixed(4)),
+          currency: row.currency,
+          attribution: "verified",
+          attributionReason: "Live row aggregated from the Cloud Billing BigQuery export, net of credits.",
+          signalId: `gcp-live:${index}`,
+          source: "live",
+        })
+      )
+
+    if (rows.length === 0) {
+      return {
+        rows: [],
+        sync: {
+          provider: "gcp",
+          status: "empty",
+          message: "The billing export has no cost rows for the current month yet. Keeping estimated GCP rows.",
+          rows: 0,
+          syncedAt: new Date().toISOString(),
+        },
+      }
+    }
+
+    return {
+      rows,
+      sync: {
+        provider: "gcp",
+        status: "success",
+        message: `Loaded ${rows.length} live Google Cloud cost rows from the billing export. Estimated GCP rows were replaced.`,
+        rows: rows.length,
+        syncedAt: new Date().toISOString(),
+      },
+    }
+  } catch (error) {
+    return {
+      rows: [],
+      sync: {
+        provider: "gcp",
+        status: "error",
+        message: error instanceof Error ? error.message : "Failed to query the GCP billing export. Keeping estimated rows.",
+        rows: 0,
+        syncedAt: new Date().toISOString(),
+      },
+    }
+  }
+}
+
+function buildVercelBillingScopes(metadata: { teamId?: string | null; slug?: string | null; teams?: Array<{ id: string; slug: string }> }) {
+  if (metadata.teamId || metadata.slug) {
+    return [{ teamId: metadata.teamId ?? null, slug: metadata.slug ?? null }]
+  }
+  if (metadata.teams?.length) {
+    return metadata.teams.slice(0, 5).map((team) => ({ teamId: team.id, slug: null }))
+  }
+  return [{ teamId: null, slug: null }]
+}
+
+function normalizeVercelCharges(
+  charges: Array<Awaited<ReturnType<typeof listVercelBillingCharges>>[number]>,
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
+  currentPeriod: { from: string; to: string }
+): NormalizedCostRow[] {
+  const repoTerms = new Set([
+    repoScan.repo.name.toLowerCase(),
+    `${repoScan.repo.owner}/${repoScan.repo.name}`.toLowerCase(),
+    repoScan.repo.owner.toLowerCase(),
+  ])
+
+  return charges
+    .map((charge, index): NormalizedCostRow | null => {
+      const cost = numberValue(charge.EffectiveCost ?? charge.BilledCost ?? charge.ListCost)
+      if (!Number.isFinite(cost) || cost === 0) return null
+      const resourceName = stringValue(charge.ResourceName) ?? stringValue(charge.ResourceId) ?? "Vercel billing charge"
+      const haystack = `${resourceName} ${charge.ResourceId ?? ""} ${charge.ServiceName ?? ""} ${JSON.stringify(charge.Tags ?? {})}`.toLowerCase()
+      const repoMatched = [...repoTerms].some((term) => term.length > 2 && haystack.includes(term))
+      return {
+        provider: "vercel",
+        serviceName: stringValue(charge.ServiceName) ?? "Vercel billing charge",
+        resourceId: stringValue(charge.ResourceId),
+        resourceName,
+        billingPeriodStart: dateOnly(stringValue(charge.ChargePeriodStart)) ?? currentPeriod.from,
+        billingPeriodEnd: dateOnly(stringValue(charge.ChargePeriodEnd)) ?? currentPeriod.to,
+        cost: Number(cost.toFixed(4)),
+        currency: stringValue(charge.BillingCurrency) ?? "USD",
+        attribution: repoMatched ? "verified" : "user_confirmed",
+        attributionReason: repoMatched
+          ? "Live Vercel FOCUS billing row matched the selected repository or linked project metadata."
+          : "Live Vercel FOCUS billing row from the connected account. Confirm mapping if Vercel did not expose repo-specific fields.",
+        signalId: `vercel-live:${index}`,
+        source: "live",
+      }
+    })
+    .filter((row): row is NormalizedCostRow => Boolean(row))
+}
+
+function numberValue(value: unknown): number {
+  if (typeof value === "number") return value
+  if (typeof value === "string") return Number.parseFloat(value)
+  return Number.NaN
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null
+}
+
+function dateOnly(value: string | null): string | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().slice(0, 10)
+}
+
+function buildActions(signals: RepoSignal[], costRows: NormalizedCostRow[]): string[] {
+  const providers = [...new Set(signals.map((signal) => signal.provider).filter((provider) => provider !== "docker"))]
+  const inferred = costRows.filter((row) => row.attribution === "inferred")
+  const actions = [
+    "Install the GitHub App in production so scans come from repository permissions instead of local filesystem access.",
+  ]
+
+  for (const provider of providers) {
+    actions.push(`Connect ${provider.toUpperCase()} billing access to replace estimated ${provider} rows with live provider costs.`)
+  }
+  if (inferred.length > 0) {
+    actions.push(`Review ${inferred.length} inferred mappings and confirm or ignore them before using these numbers for chargeback.`)
+  }
+  return [...new Set(actions)].slice(0, 6)
+}
