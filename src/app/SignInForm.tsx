@@ -3,11 +3,11 @@
 import * as React from "react"
 import { CloudCog, Loader2, LogIn } from "lucide-react"
 
-async function signIn(email: string, name: string) {
+async function signIn(email: string, name: string, accessCode: string) {
   const response = await fetch("/api/auth/sign-in", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, name }),
+    body: JSON.stringify({ email, name, accessCode: accessCode || undefined }),
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
@@ -18,6 +18,7 @@ async function signIn(email: string, name: string) {
 export function SignInForm() {
   const [email, setEmail] = React.useState("")
   const [name, setName] = React.useState("")
+  const [accessCode, setAccessCode] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
 
@@ -39,7 +40,7 @@ export function SignInForm() {
             setBusy(true)
             setError(null)
             try {
-              await signIn(email, name)
+              await signIn(email, name, accessCode)
               window.location.href = "/"
             } catch (err) {
               setError(err instanceof Error ? err.message : "Failed to sign in.")
@@ -62,6 +63,13 @@ export function SignInForm() {
             onChange={(event) => setName(event.target.value)}
             placeholder="workspace name"
             autoComplete="name"
+          />
+          <input
+            type="password"
+            value={accessCode}
+            onChange={(event) => setAccessCode(event.target.value)}
+            placeholder="access code (if this deployment requires one)"
+            autoComplete="off"
           />
           <button type="submit" className="command-button" disabled={busy}>
             {busy ? <Loader2 className="spin" aria-hidden /> : <LogIn aria-hidden />}

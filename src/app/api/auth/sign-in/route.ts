@@ -8,7 +8,15 @@ export const dynamic = "force-dynamic"
 
 export async function POST(request: NextRequest) {
   try {
-    const payload = (await request.json()) as { email?: string; name?: string | null }
+    const payload = (await request.json()) as { email?: string; name?: string | null; accessCode?: string }
+
+    // When APP_ACCESS_CODE is set (production), sign-in requires it. The app
+    // has no passwords, so this is what keeps a public deployment private.
+    const requiredCode = process.env.APP_ACCESS_CODE
+    if (requiredCode && payload.accessCode !== requiredCode) {
+      return NextResponse.json({ error: "This deployment requires a valid access code." }, { status: 401 })
+    }
+
     const { user, session } = await signInLocalUser({
       email: payload.email ?? "",
       name: payload.name ?? null,
