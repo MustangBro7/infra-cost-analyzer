@@ -3,6 +3,9 @@
   "name": "infra-cost-analyzer-cron",
   "main": "index.mjs",
   "compatibility_date": "2025-05-05",
+  // Force the subrequest to the main Worker out to the public edge; without this
+  // a same-account Worker-to-Worker fetch on workers.dev can 404.
+  "compatibility_flags": ["global_fetch_strictly_public"],
   // Every 6 hours. The handler calls the main app's protected /api/cron/refresh,
   // which re-pulls free provider usage only (never the billed Cost Explorer).
   "triggers": {
