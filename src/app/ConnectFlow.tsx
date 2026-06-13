@@ -4,23 +4,28 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   CheckCircle2,
+  CheckSquare,
   ChevronDown,
   ClipboardCopy,
   Cloud,
   CloudCog,
   DatabaseZap,
+  Eye,
   ExternalLink,
+  FolderGit2,
   Github,
   KeyRound,
   Loader2,
   PlugZap,
   ShieldCheck,
+  Square,
   Unplug,
 } from "lucide-react"
 import type { ConnectionEvent, GitHubRepoSummary, Provider } from "@/lib/types"
 
 interface PublicState {
   selectedRepoFullName: string | null
+  syncedRepoFullNames: string[]
   githubRepos: GitHubRepoSummary[]
   events: ConnectionEvent[]
   connections: Record<string, {
@@ -179,6 +184,7 @@ export function ConnectFlow({ initialState }: { initialState: PublicState }) {
   const vercel = state.connections.vercel
   const cloudflare = state.connections.cloudflare
   const gcp = state.connections.gcp
+  const syncedRepoSet = React.useMemo(() => new Set(state.syncedRepoFullNames), [state.syncedRepoFullNames])
 
   return (
     <section className="panel connect-panel" aria-label="Connection workflow">
@@ -269,27 +275,64 @@ export function ConnectFlow({ initialState }: { initialState: PublicState }) {
             ) : null}
           </div>
           {state.githubRepos.length > 0 ? (
-            <label className="field">
-              <span>Selected repository</span>
-              <select
-                value={state.selectedRepoFullName ?? ""}
-                onChange={(event) =>
-                  run("repo-select", async () => {
-                    await jsonRequest("/api/github/select-repo", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ fullName: event.target.value }),
-                    })
-                  })
-                }
-              >
-                {state.githubRepos.map((repo) => (
-                  <option key={repo.fullName} value={repo.fullName}>
-                    {repo.fullName}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="repo-manager" aria-label="Synced GitHub repositories">
+              <div className="repo-manager-heading">
+                <span>Synced repositories</span>
+                <strong>
+                  {state.syncedRepoFullNames.length}/{state.githubRepos.length}
+                </strong>
+              </div>
+              <div className="repo-picker-list">
+                {state.githubRepos.map((repo) => {
+                  const synced = syncedRepoSet.has(repo.fullName)
+                  const selected = state.selectedRepoFullName === repo.fullName
+                  return (
+                    <article key={repo.fullName} className={selected ? "repo-picker-row selected" : "repo-picker-row"}>
+                      <button
+                        type="button"
+                        className={synced ? "repo-sync-toggle on" : "repo-sync-toggle"}
+                        disabled={Boolean(busy)}
+                        aria-pressed={synced}
+                        aria-label={`${synced ? "Stop syncing" : "Sync"} ${repo.fullName}`}
+                        onClick={() =>
+                          run(`repo-${synced ? "unsync" : "sync"}`, async () => {
+                            await jsonRequest("/api/github/select-repo", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ fullName: repo.fullName, action: synced ? "unsync" : "sync" }),
+                            })
+                            setMessage(`${synced ? "Removed" : "Added"} ${repo.fullName} ${synced ? "from" : "to"} synced projects.`)
+                          })
+                        }
+                      >
+                        {synced ? <CheckSquare aria-hidden /> : <Square aria-hidden />}
+                      </button>
+                      <div>
+                        <strong>{repo.fullName}</strong>
+                        <span>{repo.private ? "Private" : "Public"} · {repo.defaultBranch}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="repo-open-button"
+                        disabled={Boolean(busy)}
+                        aria-label={`Open ${repo.fullName}`}
+                        onClick={() =>
+                          run("repo-select", async () => {
+                            await jsonRequest("/api/github/select-repo", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ fullName: repo.fullName, action: "select" }),
+                            })
+                          })
+                        }
+                      >
+                        {selected ? <FolderGit2 aria-hidden /> : <Eye aria-hidden />}
+                      </button>
+                    </article>
+                  )
+                })}
+              </div>
+            </div>
           ) : null}
         </article>
 

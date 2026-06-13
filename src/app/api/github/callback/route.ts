@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
       lastError: null,
       metadata: {
         repositories: repos.length,
+        syncedRepoFullNames: selected ? [selected] : [],
         tokenExpiresAt: token.expires_at,
       },
     })

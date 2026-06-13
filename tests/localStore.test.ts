@@ -43,3 +43,55 @@ test("local store persists safe public provider state", async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("local store tracks multiple synced GitHub repositories", async () => {
+  const { dir, filePath } = setStorePath()
+  try {
+    const {
+      publicStore,
+      saveGitHubRepos,
+      selectGitHubRepo,
+      setStorePathForTests,
+      syncGitHubRepo,
+      unsyncGitHubRepo,
+    } = await import("../src/lib/localStore")
+    setStorePathForTests(filePath)
+    const repos = [
+      {
+        id: 1,
+        owner: "acme",
+        name: "api",
+        fullName: "acme/api",
+        private: true,
+        defaultBranch: "main",
+        htmlUrl: "https://github.com/acme/api",
+      },
+      {
+        id: 2,
+        owner: "acme",
+        name: "web",
+        fullName: "acme/web",
+        private: false,
+        defaultBranch: "main",
+        htmlUrl: "https://github.com/acme/web",
+      },
+    ]
+
+    await saveGitHubRepos("usr_multi", repos, "acme/api")
+    await syncGitHubRepo("usr_multi", "acme/web")
+    await selectGitHubRepo("usr_multi", "acme/web")
+
+    let state = await publicStore("usr_multi")
+    assert.deepEqual(state.syncedRepoFullNames.sort(), ["acme/api", "acme/web"])
+    assert.equal(state.selectedRepoFullName, "acme/web")
+
+    await unsyncGitHubRepo("usr_multi", "acme/web")
+    state = await publicStore("usr_multi")
+    assert.deepEqual(state.syncedRepoFullNames, ["acme/api"])
+    assert.equal(state.selectedRepoFullName, "acme/api")
+  } finally {
+    const { setStorePathForTests } = await import("../src/lib/localStore")
+    setStorePathForTests(null)
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

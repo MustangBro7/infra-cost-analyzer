@@ -130,6 +130,7 @@ export interface WorkspaceStore {
   connections: Partial<Record<Provider, StoredConnection>>
   githubRepos: GitHubRepoSummary[]
   selectedRepoFullName: string | null
+  syncedRepoFullNames: string[]
   events: ConnectionEvent[]
 }
 

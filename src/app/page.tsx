@@ -1,26 +1,24 @@
 import {
-  AlertTriangle,
+  ArrowLeft,
   ArrowUpRight,
   CheckCircle2,
+  ChevronDown,
   CloudCog,
-  Code2,
   DatabaseZap,
-  GitBranch,
+  FolderGit2,
   Github,
-  KeyRound,
-  Network,
   RefreshCw,
-  ShieldCheck,
-  Wifi,
+  ShieldAlert,
+  Signal,
 } from "lucide-react"
-import { ConnectFlow } from "./ConnectFlow"
+import { RepoSyncPanel } from "./RepoSyncPanel"
 import { SignInForm } from "./SignInForm"
 import { SignOutButton } from "./SignOutButton"
 import { buildAnalysisWithLiveData } from "@/lib/costEngine"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore } from "@/lib/localStore"
 import { scanRepositorySafe } from "@/lib/repoScanner"
-import type { AnalysisResult, NormalizedCostRow, Provider, RepoSignal } from "@/lib/types"
+import type { AnalysisResult, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -45,184 +43,271 @@ function money(value: number) {
   }).format(value)
 }
 
-function percent(value: number) {
-  return `${Math.max(0, Math.min(100, Math.round(value)))}%`
-}
-
 function providerClass(provider: Provider) {
   return `provider provider-${provider}`
 }
 
-function statusLabel(status: string) {
-  if (status === "connected") return "Ready"
-  if (status === "setup_required") return "Setup"
-  if (status === "not_detected") return "Idle"
-  return "Unavailable"
+function currentRepoFullName(analysis: AnalysisResult) {
+  return `${analysis.repo.owner}/${analysis.repo.name}`
 }
 
-function Stat({ label, value, detail }: { label: string; value: string; detail: string }) {
+function repoList(state: Awaited<ReturnType<typeof publicStore>>, analysis: AnalysisResult) {
+  const synced = new Set(state.syncedRepoFullNames)
+  const syncedRepos = state.githubRepos.filter((repo) => synced.has(repo.fullName))
+  if (syncedRepos.length) return syncedRepos
+  return [{
+    id: 0,
+    owner: analysis.repo.owner,
+    name: analysis.repo.name,
+    fullName: currentRepoFullName(analysis),
+    private: true,
+    defaultBranch: "local",
+    htmlUrl: analysis.repo.remoteUrl ?? analysis.repo.path,
+  }]
+}
+
+function providerTotal(provider: Provider, rows: NormalizedCostRow[]) {
+  return rows.filter((row) => row.provider === provider).reduce((sum, row) => sum + row.cost, 0)
+}
+
+function providerSignals(provider: Provider, signals: RepoSignal[]) {
+  return signals.filter((signal) => signal.provider === provider)
+}
+
+function providerRows(provider: Provider, rows: NormalizedCostRow[]) {
+  return rows.filter((row) => row.provider === provider)
+}
+
+function statusText(connection: ProviderConnection) {
+  if (connection.status === "connected") return "Connected"
+  if (connection.detected) return "Detected"
+  if (connection.status === "setup_required") return "Needs billing connection"
+  return "Not detected"
+}
+
+function Header({ subtitle }: { subtitle: string }) {
   return (
-    <div className="stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{detail}</small>
-    </div>
+    <header className="topbar clean">
+      <div className="brand">
+        <span className="brand-mark">
+          <CloudCog aria-hidden />
+        </span>
+        <div>
+          <strong>Infra Cost Analyzer</strong>
+          <small>{subtitle}</small>
+        </div>
+      </div>
+      <div className="top-actions">
+        <a href="/api/analyze" className="link-button">
+          API JSON <ArrowUpRight aria-hidden />
+        </a>
+        <a href="/" className="icon-button" aria-label="Refresh repositories">
+          <RefreshCw aria-hidden />
+        </a>
+        <SignOutButton />
+      </div>
+    </header>
   )
 }
 
-function ProviderGrid({ analysis }: { analysis: AnalysisResult }) {
+function RepositoryDashboard({
+  analysis,
+  repos,
+  selectedRepo,
+  state,
+}: {
+  analysis: AnalysisResult
+  repos: GitHubRepoSummary[]
+  selectedRepo: string | null
+  state: Awaited<ReturnType<typeof publicStore>>
+}) {
+  const knownRepo = currentRepoFullName(analysis)
+  const knownTotal = repos.some((repo) => repo.fullName === knownRepo) ? analysis.summary.totalCost : 0
+  const providerCount = new Set(analysis.providerConnections.filter((connection) => connection.detected).map((connection) => connection.provider)).size
+
   return (
-    <section className="panel provider-panel" aria-label="Provider connections">
-      <div className="section-heading">
+    <>
+      <section className="repo-home-summary" aria-label="Synced repository summary">
         <div>
-          <p>Provider Access</p>
-          <h2>Detected services and billing readiness</h2>
+          <p>Synced Repositories</p>
+          <h1>{repos.length} repos</h1>
         </div>
-        <KeyRound aria-hidden />
-      </div>
-      <div className="provider-grid">
-        {analysis.providerConnections.map((connection) => (
-          <article key={connection.provider} className={connection.detected ? "provider-tile detected" : "provider-tile"}>
-            <div className="provider-row">
-              <span className={providerClass(connection.provider)}>{connection.label.slice(0, 2).toUpperCase()}</span>
-              <span className={`status status-${connection.status}`}>{statusLabel(connection.status)}</span>
-            </div>
-            <h3>{connection.label}</h3>
-            <p>{connection.detected ? connection.setupNotes : "No repo signal found in this scan."}</p>
-          </article>
-        ))}
-      </div>
-    </section>
+        <div className="repo-home-metric">
+          <span>Known MTD cost</span>
+          <strong>{money(knownTotal)}</strong>
+        </div>
+        <div className="repo-home-metric">
+          <span>Detected providers</span>
+          <strong>{providerCount}</strong>
+        </div>
+      </section>
+
+      <section className="repo-home-grid" aria-label="Synced repositories">
+        {repos.map((repo) => {
+          const hasCost = repo.fullName === knownRepo
+          return (
+            <a key={repo.fullName} href={`/?repo=${encodeURIComponent(repo.fullName)}`} className={repo.fullName === selectedRepo ? "repo-home-card active" : "repo-home-card"}>
+              <div className="repo-home-card-head">
+                <Github aria-hidden />
+                <span>{repo.private ? "Private" : "Public"}</span>
+              </div>
+              <h2>{repo.fullName}</h2>
+              <p>{repo.defaultBranch}</p>
+              <div className="repo-card-metrics">
+                <strong>{hasCost ? money(analysis.summary.totalCost) : "Pending scan"}</strong>
+                <span>{hasCost ? `${analysis.summary.signals} signals` : "Synced, awaiting remote scan"}</span>
+              </div>
+            </a>
+          )
+        })}
+      </section>
+
+      <RepoSyncPanel initialState={state} />
+    </>
   )
 }
 
-function CostRows({ rows }: { rows: NormalizedCostRow[] }) {
-  return (
-    <section className="panel" aria-label="Cost rows">
-      <div className="section-heading">
-        <div>
-          <p>Normalized Costs</p>
-          <h2>Repo-attributed charge rows</h2>
-        </div>
-        <DatabaseZap aria-hidden />
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Provider</th>
-              <th>Service</th>
-              <th>Resource</th>
-              <th>Attribution</th>
-              <th>Source</th>
-              <th className="numeric">MTD</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={`${row.provider}-${row.signalId}-${row.resourceName}`}>
-                <td>
-                  <span className={providerClass(row.provider)}>{PROVIDER_LABELS[row.provider]}</span>
-                </td>
-                <td>{row.serviceName}</td>
-                <td>{row.resourceName}</td>
-                <td>
-                  <span className={`pill pill-${row.attribution}`}>{row.attribution.replace("_", " ")}</span>
-                </td>
-                <td>
-                  <span className={`pill pill-${row.source === "live" ? "verified" : "inferred"}`}>{row.source ?? "estimate"}</span>
-                </td>
-                <td className="numeric">{money(row.cost)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  )
-}
+function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult; connection: ProviderConnection }) {
+  const rows = providerRows(connection.provider, analysis.costRows)
+  const signals = providerSignals(connection.provider, analysis.signals)
+  const total = providerTotal(connection.provider, analysis.costRows)
 
-function Signals({ signals }: { signals: RepoSignal[] }) {
   return (
-    <section className="panel" aria-label="Repository signals">
-      <div className="section-heading">
+    <details className="provider-accordion" open={connection.detected || rows.length > 0}>
+      <summary>
+        <span className={providerClass(connection.provider)}>{PROVIDER_LABELS[connection.provider]}</span>
         <div>
-          <p>Repository Scan</p>
-          <h2>Evidence found in source control</h2>
+          <strong>{money(total)}</strong>
+          <small>{statusText(connection)} · {signals.length} repo signals · {rows.length} cost rows</small>
         </div>
-        <Code2 aria-hidden />
-      </div>
-      <div className="signal-list">
-        {signals.slice(0, 14).map((signal) => (
-          <article key={signal.id} className="signal">
-            <div>
-              <span className={providerClass(signal.provider)}>{PROVIDER_LABELS[signal.provider]}</span>
-              <h3>{signal.title}</h3>
-              <p>{signal.sourcePath}</p>
-            </div>
-            <div className="confidence">
-              <strong>{percent(signal.confidence * 100)}</strong>
-              <span>{signal.signalType}</span>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function Breakdown({ analysis }: { analysis: AnalysisResult }) {
-  const max = Math.max(1, ...analysis.providerBreakdown.map((row) => row.total))
-  return (
-    <section className="panel breakdown" aria-label="Provider cost breakdown">
-      <div className="section-heading">
-        <div>
-          <p>Cost Split</p>
-          <h2>Provider-level estimate</h2>
-        </div>
-        <Network aria-hidden />
-      </div>
-      <div className="bars">
-        {analysis.providerBreakdown.map((row) => (
-          <div key={row.provider} className="bar-row">
-            <div className="bar-label">
-              <span>{PROVIDER_LABELS[row.provider]}</span>
-              <strong>{money(row.total)}</strong>
-            </div>
-            <div className="bar-track">
-              <div className={`bar-fill fill-${row.provider}`} style={{ width: `${(row.total / max) * 100}%` }} />
-            </div>
-            <small>
-              {money(row.exact)} exact or confirmable · {money(row.inferred)} inferred
-            </small>
+        <ChevronDown aria-hidden />
+      </summary>
+      <div className="provider-detail-body">
+        {connection.status !== "connected" && connection.detected ? (
+          <div className="provider-warning">
+            <ShieldAlert aria-hidden />
+            <span>{connection.setupNotes}</span>
           </div>
-        ))}
+        ) : null}
+
+        <div className="provider-detail-grid">
+          <section>
+            <h3>Resources and cost</h3>
+            {rows.length ? (
+              <div className="resource-list">
+                {rows.map((row) => (
+                  <article key={`${row.provider}-${row.serviceName}-${row.resourceName}-${row.signalId}`} className="resource-row">
+                    <div>
+                      <strong>{row.serviceName}</strong>
+                      <span>{row.resourceName ?? row.resourceId ?? "Unmapped resource"}</span>
+                      <small>{row.attribution.replace("_", " ")} · {row.source ?? "estimate"}</small>
+                    </div>
+                    <b>{money(row.cost)}</b>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-provider-block">
+                <DatabaseZap aria-hidden />
+                <span>No cost rows for this provider yet.</span>
+              </div>
+            )}
+          </section>
+          <section>
+            <h3>Repo evidence</h3>
+            {signals.length ? (
+              <div className="signal-compact-list">
+                {signals.map((signal) => (
+                  <article key={signal.id}>
+                    <Signal aria-hidden />
+                    <div>
+                      <strong>{signal.title}</strong>
+                      <span>{signal.sourcePath}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-provider-block">
+                <Signal aria-hidden />
+                <span>No repo evidence found for this provider.</span>
+              </div>
+            )}
+          </section>
+        </div>
       </div>
-    </section>
+    </details>
   )
 }
 
-function LiveSync({ analysis }: { analysis: AnalysisResult }) {
+function RepoDetail({
+  analysis,
+  repo,
+  state,
+}: {
+  analysis: AnalysisResult
+  repo: GitHubRepoSummary | null
+  state: Awaited<ReturnType<typeof publicStore>>
+}) {
+  const scannedRepo = currentRepoFullName(analysis)
+  const selectedName = repo?.fullName ?? scannedRepo
+  const hasScan = selectedName === scannedRepo
+  const relevantProviders = analysis.providerConnections.filter((connection) => {
+    return connection.detected || connection.status === "connected" || providerRows(connection.provider, analysis.costRows).length > 0
+  })
+
   return (
-    <section className="panel sync-panel" aria-label="Live billing sync">
-      <div className="section-heading">
+    <>
+      <a href="/" className="back-link">
+        <ArrowLeft aria-hidden />
+        All synced repos
+      </a>
+
+      <section className="repo-detail-hero" aria-label="Repository detail">
         <div>
-          <p>Live Billing</p>
-          <h2>Provider sync status</h2>
+          <p>Repository Deep Dive</p>
+          <h1>{selectedName}</h1>
+          <span>{hasScan ? analysis.repo.path : "Synced repository. Remote scan data is not available yet."}</span>
         </div>
-        <Wifi aria-hidden />
-      </div>
-      <div className="sync-list">
-        {analysis.liveSync.map((sync) => (
-          <article key={sync.provider} className={`sync-card sync-${sync.status}`}>
-            <span className={providerClass(sync.provider)}>{PROVIDER_LABELS[sync.provider]}</span>
-            <strong>{sync.status.replace("_", " ")}</strong>
-            <p>{sync.message}</p>
-            <small>{sync.syncedAt ? `${sync.rows} rows · ${sync.syncedAt}` : `${sync.rows} rows`}</small>
-          </article>
-        ))}
-      </div>
-    </section>
+        <div className="repo-detail-totals">
+          <div>
+            <span>MTD cost</span>
+            <strong>{hasScan ? money(analysis.summary.totalCost) : "Pending"}</strong>
+          </div>
+          <div>
+            <span>Providers</span>
+            <strong>{hasScan ? relevantProviders.length : 0}</strong>
+          </div>
+          <div>
+            <span>Signals</span>
+            <strong>{hasScan ? analysis.summary.signals : 0}</strong>
+          </div>
+        </div>
+      </section>
+
+      {hasScan ? (
+        <section className="provider-deep-dive" aria-label="Provider cost breakdown">
+          <div className="deep-dive-heading">
+            <div>
+              <p>Hosting Providers</p>
+              <h2>Expand a provider for resources and cost breakdown</h2>
+            </div>
+            <CheckCircle2 aria-hidden />
+          </div>
+          {relevantProviders.map((connection) => (
+            <ProviderAccordion key={connection.provider} analysis={analysis} connection={connection} />
+          ))}
+        </section>
+      ) : (
+        <section className="provider-deep-dive pending-scan">
+          <FolderGit2 aria-hidden />
+          <h2>Remote repo scanning is the next backend step</h2>
+          <p>This repository is synced and appears on your dashboard. Cost/provider detail will populate after the GitHub API scanner reads this repo’s files.</p>
+        </section>
+      )}
+
+      <RepoSyncPanel initialState={state} />
+    </>
   )
 }
 
@@ -235,98 +320,24 @@ async function getAnalysis(searchParams: Promise<Record<string, string | string[
 
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await currentUserFromCookies()
-  if (!user) {
-    return <SignInForm />
-  }
+  if (!user) return <SignInForm />
 
-  const analysis = await getAnalysis(searchParams, user.id)
+  const params = await searchParams
+  const rawRepo = params.repo
+  const requestedRepo = Array.isArray(rawRepo) ? rawRepo[0] : rawRepo
+  const analysis = await getAnalysis(Promise.resolve(params), user.id)
   const state = { user, ...(await publicStore(user.id)) }
-  const exactShare = analysis.summary.totalCost > 0 ? (analysis.summary.exactCost / analysis.summary.totalCost) * 100 : 0
+  const repos = repoList(state, analysis)
+  const selectedRepo = requestedRepo ? repos.find((repo) => repo.fullName === requestedRepo) ?? null : null
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">
-            <CloudCog aria-hidden />
-          </span>
-          <div>
-            <strong>Infra Cost Analyzer</strong>
-            <small>{user.email} · {analysis.repo.owner}/{analysis.repo.name}</small>
-          </div>
-        </div>
-        <div className="top-actions">
-          <a href="/api/analyze" className="link-button">
-            API JSON <ArrowUpRight aria-hidden />
-          </a>
-          <a href={`/?_=${Date.now()}`} className="icon-button" aria-label="Refresh scan">
-            <RefreshCw aria-hidden />
-          </a>
-          <SignOutButton />
-        </div>
-      </header>
-
-      <section className="hero-band" aria-label="Repository cost summary">
-        <div className="repo-card">
-          <div className="repo-icon">
-            <Github aria-hidden />
-          </div>
-          <div>
-            <p>Connected Repository</p>
-            <h1>{analysis.repo.owner}/{analysis.repo.name}</h1>
-            <span>{analysis.repo.path}</span>
-          </div>
-        </div>
-        <div className="hero-metrics">
-          <Stat label="Month to date" value={money(analysis.summary.totalCost)} detail={`${analysis.period.from} to ${analysis.period.to}`} />
-          <Stat label="Exact / confirmable" value={money(analysis.summary.exactCost)} detail={`${percent(exactShare)} of detected spend`} />
-          <Stat label="Infra signals" value={`${analysis.summary.signals}`} detail={`${analysis.summary.detectedProviders} providers detected`} />
-          <Stat label="Confidence" value={`${analysis.summary.confidence}%`} detail="before live billing connections" />
-        </div>
-      </section>
-
-      <section className="notice-row" aria-label="Readiness notices">
-        <div className="notice strong">
-          <ShieldCheck aria-hidden />
-          <span>Standalone project. No GPay code, data, domains, or deployment config is used.</span>
-        </div>
-        <div className="notice">
-          <AlertTriangle aria-hidden />
-          <span>Rows marked inferred require provider billing authorization or mapping confirmation.</span>
-        </div>
-      </section>
-
-      <ConnectFlow initialState={state} />
-
-      <LiveSync analysis={analysis} />
-
-      <section className="main-grid">
-        <Breakdown analysis={analysis} />
-        <ProviderGrid analysis={analysis} />
-      </section>
-
-      <section className="main-grid lower">
-        <Signals signals={analysis.signals} />
-        <CostRows rows={analysis.costRows} />
-      </section>
-
-      <section className="panel action-panel" aria-label="Next actions">
-        <div className="section-heading">
-          <div>
-            <p>Deployment Checklist</p>
-            <h2>What remains before production cost accuracy</h2>
-          </div>
-          <GitBranch aria-hidden />
-        </div>
-        <div className="actions">
-          {analysis.actions.map((action) => (
-            <div key={action} className="action">
-              <CheckCircle2 aria-hidden />
-              <span>{action}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+    <main className="app-shell repo-app">
+      <Header subtitle={user.email} />
+      {requestedRepo ? (
+        <RepoDetail analysis={analysis} repo={selectedRepo} state={state} />
+      ) : (
+        <RepositoryDashboard analysis={analysis} repos={repos} selectedRepo={state.selectedRepoFullName} state={state} />
+      )}
     </main>
   )
 }

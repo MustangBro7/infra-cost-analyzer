@@ -27,6 +27,7 @@ export async function connectGithubLocal(userId: string) {
     metadata: {
       mode: "local",
       path: scan.repo.path,
+      syncedRepoFullNames: [repo.fullName],
     },
   })
   return repo

@@ -16,6 +16,7 @@ const EMPTY_WORKSPACE: WorkspaceStore = {
   connections: {},
   githubRepos: [],
   selectedRepoFullName: null,
+  syncedRepoFullNames: [],
   events: [],
 }
 
@@ -134,10 +135,13 @@ export async function readStore(): Promise<AppStore> {
   const parsed = (await loadRaw()) as Partial<AppStore & WorkspaceStore> | null
   if (!parsed) return structuredClone(EMPTY_STORE)
   if (parsed.users || parsed.sessions || parsed.workspaces) {
+    const workspaces = Object.fromEntries(
+      Object.entries(parsed.workspaces ?? {}).map(([userId, workspace]) => [userId, normalizeWorkspace(workspace)])
+    )
     return {
       users: parsed.users ?? {},
       sessions: parsed.sessions ?? {},
-      workspaces: parsed.workspaces ?? {},
+      workspaces,
     }
   }
 
@@ -159,6 +163,7 @@ export async function readStore(): Promise<AppStore> {
         connections: parsed.connections ?? {},
         githubRepos: parsed.githubRepos ?? [],
         selectedRepoFullName: parsed.selectedRepoFullName ?? null,
+        syncedRepoFullNames: parsed.selectedRepoFullName ? [parsed.selectedRepoFullName] : [],
         events: parsed.events ?? [],
       },
     },
@@ -216,7 +221,7 @@ export async function deleteSession(sessionId: string | undefined | null) {
 
 export async function readWorkspace(userId: string): Promise<WorkspaceStore> {
   const store = await readStore()
-  return store.workspaces[userId] ?? structuredClone(EMPTY_WORKSPACE)
+  return normalizeWorkspace(store.workspaces[userId])
 }
 
 async function writeWorkspace(userId: string, workspace: WorkspaceStore) {
@@ -254,15 +259,20 @@ export async function removeConnection(userId: string, provider: Provider) {
 export async function saveGitHubRepos(userId: string, repos: GitHubRepoSummary[], selectedRepoFullName?: string | null) {
   const workspace = await readWorkspace(userId)
   workspace.githubRepos = repos
+  const available = new Set(repos.map((repo) => repo.fullName))
+  workspace.syncedRepoFullNames = workspace.syncedRepoFullNames.filter((fullName) => available.has(fullName))
   if (selectedRepoFullName !== undefined) {
     workspace.selectedRepoFullName = selectedRepoFullName
   } else if (!workspace.selectedRepoFullName && repos[0]) {
     workspace.selectedRepoFullName = repos[0].fullName
   }
+  if (workspace.selectedRepoFullName && !workspace.syncedRepoFullNames.includes(workspace.selectedRepoFullName)) {
+    workspace.syncedRepoFullNames.push(workspace.selectedRepoFullName)
+  }
   workspace.events = withEvent(workspace.events, {
     provider: "github",
     level: "success",
-    message: `GitHub repository list updated${workspace.selectedRepoFullName ? `; selected ${workspace.selectedRepoFullName}` : ""}.`,
+    message: `GitHub repository list updated; ${workspace.syncedRepoFullNames.length} synced.`,
   })
   await writeWorkspace(userId, workspace)
 }
@@ -276,7 +286,38 @@ export async function selectGitHubRepo(userId: string, fullName: string) {
   workspace.events = withEvent(workspace.events, {
     provider: "github",
     level: "success",
-    message: `Selected repository ${fullName}.`,
+    message: `Opened repository ${fullName}.`,
+  })
+  await writeWorkspace(userId, workspace)
+}
+
+export async function syncGitHubRepo(userId: string, fullName: string) {
+  const workspace = await readWorkspace(userId)
+  if (!workspace.githubRepos.some((repo) => repo.fullName === fullName)) {
+    throw new Error("Repository is not available in the connected GitHub installation.")
+  }
+  if (!workspace.syncedRepoFullNames.includes(fullName)) {
+    workspace.syncedRepoFullNames.push(fullName)
+  }
+  workspace.selectedRepoFullName = workspace.selectedRepoFullName ?? fullName
+  workspace.events = withEvent(workspace.events, {
+    provider: "github",
+    level: "success",
+    message: `Synced repository ${fullName}.`,
+  })
+  await writeWorkspace(userId, workspace)
+}
+
+export async function unsyncGitHubRepo(userId: string, fullName: string) {
+  const workspace = await readWorkspace(userId)
+  workspace.syncedRepoFullNames = workspace.syncedRepoFullNames.filter((repo) => repo !== fullName)
+  if (workspace.selectedRepoFullName === fullName) {
+    workspace.selectedRepoFullName = workspace.syncedRepoFullNames[0] ?? workspace.githubRepos[0]?.fullName ?? null
+  }
+  workspace.events = withEvent(workspace.events, {
+    provider: "github",
+    level: "warning",
+    message: `Stopped syncing repository ${fullName}.`,
   })
   await writeWorkspace(userId, workspace)
 }
@@ -303,6 +344,7 @@ export async function publicStore(userId: string) {
           }))
   return {
     selectedRepoFullName: workspace.selectedRepoFullName,
+    syncedRepoFullNames: workspace.syncedRepoFullNames,
     githubRepos: workspace.githubRepos,
     events: events.slice(0, 30),
     connections: Object.fromEntries(
@@ -323,6 +365,23 @@ export async function publicStore(userId: string) {
           : null,
       ])
     ),
+  }
+}
+
+function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore {
+  if (!workspace) return structuredClone(EMPTY_WORKSPACE)
+  const selectedRepoFullName = workspace.selectedRepoFullName ?? null
+  const syncedRepoFullNames = Array.isArray(workspace.syncedRepoFullNames)
+    ? [...new Set(workspace.syncedRepoFullNames.filter((value): value is string => typeof value === "string" && value.length > 0))]
+    : selectedRepoFullName
+      ? [selectedRepoFullName]
+      : []
+  return {
+    connections: workspace.connections ?? {},
+    githubRepos: workspace.githubRepos ?? [],
+    selectedRepoFullName,
+    syncedRepoFullNames,
+    events: workspace.events ?? [],
   }
 }
 
