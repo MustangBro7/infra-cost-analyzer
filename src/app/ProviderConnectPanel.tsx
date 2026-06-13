@@ -96,20 +96,20 @@ function VercelOAuthSetup({ redirectUri }: { redirectUri: string | null }) {
       </summary>
       <ol className="vercel-oauth-steps">
         <li>
-          Create a Vercel integration in the{" "}
-          <a href="https://vercel.com/dashboard/integrations/console" target="_blank" rel="noreferrer">
-            Integrations Console <ExternalLink aria-hidden />
-          </a>{" "}
-          → New.
+          Create a <strong>“Sign in with Vercel” app</strong> (NOT a marketplace integration):{" "}
+          <a href="https://vercel.com/docs/sign-in-with-vercel/manage-from-dashboard" target="_blank" rel="noreferrer">
+            Vercel → Settings → Sign in with Vercel → Create app <ExternalLink aria-hidden />
+          </a>
+          .
         </li>
         <li>
-          Set its Redirect URL to:
+          Set its Authorization Callback URL to exactly:
           <div className="setup-value">
             <code>{callback}</code>
             <CopyButton value={callback} />
           </div>
         </li>
-        <li>Copy the Client ID and Client Secret it generates.</li>
+        <li>Generate a Client Secret, then copy the Client ID and Client Secret.</li>
         <li>
           Add them to this deployment as Worker secrets, then redeploy:
           <div className="setup-value">
