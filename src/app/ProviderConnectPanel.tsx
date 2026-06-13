@@ -121,6 +121,9 @@ export function ProviderConnectPanel({
     const metadata = initialState.connections.gcp?.metadata as { billingExportTable?: string | null } | undefined
     return metadata?.billingExportTable ?? ""
   })
+  const [awsAccessKeyId, setAwsAccessKeyId] = React.useState("")
+  const [awsSecretAccessKey, setAwsSecretAccessKey] = React.useState("")
+  const [awsSessionToken, setAwsSessionToken] = React.useState("")
   const [vercelOAuthStatus, setVercelOAuthStatus] = React.useState<VercelOAuthStatus | null>(null)
   const [busy, setBusy] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState<string | null>(null)
@@ -326,16 +329,73 @@ export function ProviderConnectPanel({
 
           if (connection.provider === "aws") {
             return (
-              <article key={connection.provider} className="provider-connect-card pending">
+              <article key={connection.provider} className={connected ? "provider-connect-card connected" : "provider-connect-card"}>
                 <div className="provider-connect-title">
                   <ProviderBadge provider="aws" />
-                  <strong>AWS connector is not wired yet</strong>
+                  <strong>{connected ? saved?.accountLabel : "Connect AWS billing"}</strong>
                 </div>
-                <p>The app detected AWS evidence in the repo, but there is no AWS Cost Explorer connector endpoint in this build yet.</p>
-                <div className="mini-setup-box">
-                  <ShieldAlert aria-hidden />
-                  <span>Needed next: read-only cross-account role with Cost Explorer access and a `/api/aws/connect` route.</span>
-                </div>
+                {connected && saved ? (
+                  <ConnectedProviderState
+                    provider="aws"
+                    connection={saved}
+                    detail="Live AWS cost (Cost Explorer) and free-tier usage are pulled for this account."
+                  />
+                ) : (
+                  <>
+                    <p>Use your AWS CLI credentials for the lowest-friction connection, or paste an access key. Read-only: needs ce:GetCostAndUsage and freetier:GetFreeTierUsage.</p>
+                    <button
+                      type="button"
+                      className="command-button"
+                      disabled={Boolean(busy)}
+                      onClick={() =>
+                        run("aws-local", async () => {
+                          await jsonRequest("/api/aws/local-connect", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({}),
+                          })
+                          setMessage("AWS connected from local CLI credentials. Refreshing live cost and usage.")
+                        })
+                      }
+                    >
+                      {busy === "aws-local" ? <Loader2 className="spin" aria-hidden /> : <KeyRound aria-hidden />}
+                      Use local AWS CLI
+                    </button>
+                    <div className="mini-setup-box">
+                      <ShieldAlert aria-hidden />
+                      <span>Local CLI works when ~/.aws/credentials exists on the server (run `aws configure`). On a remote deployment, paste an access key instead.</span>
+                    </div>
+                    <form
+                      className="provider-token-form stacked"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        run("aws-connect", async () => {
+                          await jsonRequest("/api/aws/connect", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              accessKeyId: awsAccessKeyId,
+                              secretAccessKey: awsSecretAccessKey,
+                              sessionToken: awsSessionToken || null,
+                            }),
+                          })
+                          setAwsAccessKeyId("")
+                          setAwsSecretAccessKey("")
+                          setAwsSessionToken("")
+                          setMessage("AWS connected. Refreshing live cost and usage.")
+                        })
+                      }}
+                    >
+                      <input type="text" value={awsAccessKeyId} onChange={(event) => setAwsAccessKeyId(event.target.value)} placeholder="AWS_ACCESS_KEY_ID" autoComplete="off" spellCheck={false} />
+                      <input type="password" value={awsSecretAccessKey} onChange={(event) => setAwsSecretAccessKey(event.target.value)} placeholder="AWS_SECRET_ACCESS_KEY" autoComplete="off" />
+                      <input type="password" value={awsSessionToken} onChange={(event) => setAwsSessionToken(event.target.value)} placeholder="AWS_SESSION_TOKEN (optional, for temporary credentials)" autoComplete="off" />
+                      <button type="submit" className="command-button" disabled={Boolean(busy) || !awsAccessKeyId.trim() || !awsSecretAccessKey.trim()}>
+                        {busy === "aws-connect" ? <Loader2 className="spin" aria-hidden /> : <Cloud aria-hidden />}
+                        Verify
+                      </button>
+                    </form>
+                  </>
+                )}
               </article>
             )
           }

@@ -11,7 +11,7 @@ import type {
 import { buildProviderConnections } from "./providerCatalog"
 import { computeFreeTierUsage } from "./freeTier"
 import { readWorkspace } from "./localStore"
-import { getAwsFreeTierUsage, type AwsCredentials } from "./awsClient"
+import { getAwsCostAndUsage, getAwsFreeTierUsage, type AwsCredentials } from "./awsClient"
 import { listVercelBillingCharges } from "./vercelClient"
 import { getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
@@ -75,21 +75,17 @@ export async function buildAnalysisWithLiveData(
   userId: string
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
-  const [results, awsFreeTier] = await Promise.all([
-    Promise.all([loadVercelLive(workspace, repoScan), loadCloudflareLive(workspace), loadGcpLive(workspace)]),
-    loadAwsFreeTier(workspace),
+  const [vercel, cloudflare, gcp, aws] = await Promise.all([
+    loadVercelLive(workspace, repoScan),
+    loadCloudflareLive(workspace),
+    loadGcpLive(workspace),
+    loadAwsLive(workspace),
   ])
-  const costRows = results.flatMap((result) => result.rows)
-  const usage = results.flatMap((result) => result.usage)
-  return finalizeAnalysis(
-    repoScan,
-    env,
-    workspace,
-    costRows,
-    usage,
-    results.map((result) => result.sync),
-    awsFreeTier
-  )
+  const standard = [vercel, cloudflare, gcp]
+  const costRows = [...standard.flatMap((result) => result.rows), ...aws.rows]
+  const usage = [...standard.flatMap((result) => result.usage), ...aws.usage]
+  const liveSync = [...standard.map((result) => result.sync), aws.sync]
+  return finalizeAnalysis(repoScan, env, workspace, costRows, usage, liveSync, aws.freeTier)
 }
 
 function finalizeAnalysis(
@@ -429,48 +425,122 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
   }
 }
 
+type AwsLiveResult = LiveResult & { freeTier: FreeTierUsageRow[] }
+
+function awsPeriod(currentPeriod: { from: string; to: string }) {
+  // Cost Explorer's End date is exclusive, so cover the month by ending on the
+  // first day of the next month.
+  const end = new Date(`${currentPeriod.from}T00:00:00Z`)
+  end.setUTCMonth(end.getUTCMonth() + 1)
+  return { from: currentPeriod.from, to: end.toISOString().slice(0, 10) }
+}
+
+function awsFreeTierRows(usage: Awaited<ReturnType<typeof getAwsFreeTierUsage>>): FreeTierUsageRow[] {
+  return usage.map((item): FreeTierUsageRow => {
+    const used = Number(item.actualUsageAmount.toFixed(2))
+    const limit = Number(item.limit.toFixed(2))
+    const remaining = Number(Math.max(limit - used, 0).toFixed(2))
+    const percentUsed = limit > 0 ? Number(Math.min((used / limit) * 100, 100).toFixed(1)) : 0
+    return {
+      provider: "aws",
+      planName: "AWS Free Tier",
+      service: item.description || item.service,
+      used,
+      limit,
+      unit: item.unit,
+      remaining,
+      percentUsed,
+      source: "measured",
+      note: `Live AWS Free Tier usage (${item.freeTierType}) reported for ${item.service}.`,
+    }
+  })
+}
+
 /**
- * Pulls AWS free-tier consumption from the AWS Free Tier Usage API. AWS reports
- * actual usage and the limit directly, so these rows are authoritative (no
- * static allowance catalog needed). Credentials are stored as JSON in the
- * connection's accessToken by the AWS connector. Best-effort: any failure
- * yields no rows rather than breaking the analysis.
+ * Pulls live AWS data: actual cost + usage from Cost Explorer (GetCostAndUsage)
+ * and free-tier consumption from the Free Tier Usage API. Credentials are stored
+ * as JSON in the connection's accessToken by the AWS connector. Each source is
+ * best-effort and independent, so a missing permission on one does not hide the
+ * other.
  */
-async function loadAwsFreeTier(workspace: WorkspaceStore): Promise<FreeTierUsageRow[]> {
+async function loadAwsLive(workspace: WorkspaceStore): Promise<AwsLiveResult> {
   const aws = workspace.connections.aws
-  if (!aws?.accessToken || aws.status !== "connected") return []
+  const notConnectedResult: AwsLiveResult = {
+    ...notConnected("aws", "Connect AWS (CLI credentials or access keys) to pull live cost and free-tier usage."),
+    freeTier: [],
+  }
+  if (!aws?.accessToken || aws.status !== "connected") return notConnectedResult
 
   let credentials: AwsCredentials
   try {
     credentials = JSON.parse(aws.accessToken) as AwsCredentials
   } catch {
-    return []
+    return notConnectedResult
   }
-  if (!credentials.accessKeyId || !credentials.secretAccessKey) return []
+  if (!credentials.accessKeyId || !credentials.secretAccessKey) return notConnectedResult
 
-  try {
-    const usage = await getAwsFreeTierUsage(credentials)
-    return usage.map((item): FreeTierUsageRow => {
-      const used = Number(item.actualUsageAmount.toFixed(2))
-      const limit = Number(item.limit.toFixed(2))
-      const remaining = Number(Math.max(limit - used, 0).toFixed(2))
-      const percentUsed = limit > 0 ? Number(Math.min((used / limit) * 100, 100).toFixed(1)) : 0
-      return {
-        provider: "aws",
-        planName: "AWS Free Tier",
-        service: item.description || item.service,
-        used,
-        limit,
-        unit: item.unit,
-        remaining,
-        percentUsed,
-        source: "measured",
-        note: `Live AWS Free Tier usage (${item.freeTierType}) reported for ${item.service}.`,
+  const currentPeriod = period()
+  const [costResult, freeTierResult] = await Promise.allSettled([
+    getAwsCostAndUsage(credentials, awsPeriod(currentPeriod)),
+    getAwsFreeTierUsage(credentials),
+  ])
+
+  const rows: NormalizedCostRow[] = []
+  const usage: ProviderUsageSample[] = []
+  if (costResult.status === "fulfilled") {
+    for (const [index, costRow] of costResult.value.entries()) {
+      if (Number.isFinite(costRow.cost) && Math.abs(costRow.cost) >= 0.005) {
+        rows.push({
+          provider: "aws",
+          serviceName: costRow.service,
+          resourceId: null,
+          resourceName: costRow.service,
+          billingPeriodStart: currentPeriod.from,
+          billingPeriodEnd: currentPeriod.to,
+          cost: Number(costRow.cost.toFixed(4)),
+          currency: costRow.currency,
+          attribution: "verified",
+          attributionReason: "Live unblended cost from AWS Cost Explorer, grouped by service.",
+          signalId: `aws-live:${index}`,
+          source: "live",
+        })
       }
-    })
-  } catch {
-    return []
+      if (costRow.usageQuantity !== null && costRow.usageUnit && costRow.usageQuantity > 0) {
+        usage.push({ provider: "aws", service: costRow.service, quantity: costRow.usageQuantity, unit: costRow.usageUnit })
+      }
+    }
   }
+
+  const freeTier = freeTierResult.status === "fulfilled" ? awsFreeTierRows(freeTierResult.value) : []
+
+  let sync: AnalysisResult["liveSync"][number]
+  if (costResult.status === "rejected" && freeTierResult.status === "rejected") {
+    sync = {
+      provider: "aws",
+      status: "error",
+      message: costResult.reason instanceof Error ? costResult.reason.message : "Failed to query AWS Cost Explorer.",
+      rows: 0,
+      syncedAt: new Date().toISOString(),
+    }
+  } else if (rows.length === 0 && freeTier.length === 0) {
+    sync = {
+      provider: "aws",
+      status: "empty",
+      message: "AWS connected, but Cost Explorer and Free Tier returned no rows for the current month.",
+      rows: 0,
+      syncedAt: new Date().toISOString(),
+    }
+  } else {
+    sync = {
+      provider: "aws",
+      status: "success",
+      message: `Loaded ${rows.length} AWS cost rows and ${freeTier.length} free-tier rows.`,
+      rows: rows.length,
+      syncedAt: new Date().toISOString(),
+    }
+  }
+
+  return { rows, usage, freeTier, sync }
 }
 
 function buildVercelBillingScopes(metadata: { teamId?: string | null; slug?: string | null; teams?: Array<{ id: string; slug: string }> }) {

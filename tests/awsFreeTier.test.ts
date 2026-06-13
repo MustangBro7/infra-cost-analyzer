@@ -33,6 +33,20 @@ test("buildAnalysisWithLiveData surfaces live AWS Free Tier usage rows", async (
 
     globalThis.fetch = (async (input: string | URL | Request) => {
       const url = String(input instanceof Request ? input.url : input)
+      if (url.includes("ce.us-east-1.amazonaws.com")) {
+        return Response.json({
+          ResultsByTime: [
+            {
+              Groups: [
+                {
+                  Keys: ["Amazon EC2"],
+                  Metrics: { UnblendedCost: { Amount: "8.50", Unit: "USD" }, UsageQuantity: { Amount: "120", Unit: "Hrs" } },
+                },
+              ],
+            },
+          ],
+        })
+      }
       if (url.includes("freetier.us-east-1.amazonaws.com")) {
         return Response.json({
           freeTierUsages: [
@@ -59,6 +73,13 @@ test("buildAnalysisWithLiveData surfaces live AWS Free Tier usage rows", async (
     }) as typeof fetch
 
     const analysis = await buildAnalysisWithLiveData({ repo, signals: [] }, {} as unknown as NodeJS.ProcessEnv, "usr_aws")
+
+    const awsCost = analysis.costRows.filter((row) => row.provider === "aws")
+    assert.equal(awsCost.length, 1)
+    assert.equal(awsCost[0].serviceName, "Amazon EC2")
+    assert.equal(awsCost[0].cost, 8.5)
+    assert.equal(awsCost[0].source, "live")
+
     const awsRows = analysis.freeTier.filter((row) => row.provider === "aws")
     assert.equal(awsRows.length, 2)
 

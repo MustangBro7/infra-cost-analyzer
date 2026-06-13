@@ -4,6 +4,7 @@ import { listVercelProjects, verifyVercelToken } from "./vercelClient"
 import { verifyCloudflareToken } from "./cloudflareClient"
 import { discoverBillingExportTable, normalizeBillingExportTableId, verifyGcpServiceAccount } from "./gcpClient"
 import { verifyAwsCredentials, type AwsCredentials } from "./awsClient"
+import { readLocalAwsCredentials } from "./awsLocalCreds"
 
 export async function connectGithubLocal(userId: string) {
   const scan = scanRepositorySafe()
@@ -149,6 +150,26 @@ export async function connectAwsKeys(userId: string, credentials: AwsCredentials
     },
   })
   return { accountLabel: verified.accountId ? `AWS ${verified.accountId}` : "AWS account" }
+}
+
+/**
+ * Connects AWS using the credentials the AWS CLI already wrote to
+ * ~/.aws/credentials (lowest-friction path: run `aws configure` once, then
+ * click connect). Only works where the server has a real home directory.
+ */
+export async function connectAwsLocal(userId: string, profile?: string | null) {
+  const local = readLocalAwsCredentials(profile)
+  if (!local) {
+    throw new Error(
+      "No static AWS CLI credentials found in ~/.aws/credentials. Run `aws configure` (or paste an access key), then try again. SSO-only profiles are not yet supported."
+    )
+  }
+  const result = await connectAwsKeys(userId, {
+    accessKeyId: local.accessKeyId,
+    secretAccessKey: local.secretAccessKey,
+    sessionToken: local.sessionToken,
+  })
+  return { ...result, profile: local.profile, region: local.region }
 }
 
 function decodeMaybeBase64(value: string) {

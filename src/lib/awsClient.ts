@@ -20,6 +20,14 @@ export interface AwsFreeTierUsageItem {
   freeTierType: string
 }
 
+export interface AwsCostRow {
+  service: string
+  cost: number
+  currency: string
+  usageQuantity: number | null
+  usageUnit: string | null
+}
+
 function toHex(bytes: Uint8Array): string {
   let out = ""
   for (const byte of bytes) out += byte.toString(16).padStart(2, "0")
@@ -217,4 +225,62 @@ export async function getAwsFreeTierUsage(credentials: AwsCredentials): Promise<
       unit: item.unit ?? "units",
       freeTierType: item.freeTierType ?? "Free Tier",
     }))
+}
+
+interface CostExplorerMetric {
+  Amount?: string
+  Unit?: string
+}
+
+/**
+ * Parses the Cost Explorer GetCostAndUsage response into per-service rows.
+ * Exposed for unit testing. The response groups results by time then by the
+ * SERVICE dimension; we read the first (only) MONTHLY period.
+ */
+export function parseCostExplorerResponse(payload: {
+  ResultsByTime?: Array<{
+    Groups?: Array<{ Keys?: string[]; Metrics?: Record<string, CostExplorerMetric> }>
+  }>
+}): AwsCostRow[] {
+  const groups = payload.ResultsByTime?.[0]?.Groups ?? []
+  return groups
+    .map((group): AwsCostRow | null => {
+      const cost = Number.parseFloat(group.Metrics?.UnblendedCost?.Amount ?? "")
+      if (!Number.isFinite(cost)) return null
+      const usageQuantity = Number.parseFloat(group.Metrics?.UsageQuantity?.Amount ?? "")
+      return {
+        service: group.Keys?.[0] ?? "AWS service",
+        cost,
+        currency: group.Metrics?.UnblendedCost?.Unit ?? "USD",
+        usageQuantity: Number.isFinite(usageQuantity) ? usageQuantity : null,
+        usageUnit: group.Metrics?.UsageQuantity?.Unit ?? null,
+      }
+    })
+    .filter((row): row is AwsCostRow => Boolean(row))
+}
+
+/**
+ * Calls AWS Cost Explorer (GetCostAndUsage) for the period, grouped by service,
+ * returning both unblended cost and usage quantity. Requires ce:GetCostAndUsage.
+ * Cost Explorer's end date is exclusive, so callers pass the first day of the
+ * next month as `to`.
+ */
+export async function getAwsCostAndUsage(
+  credentials: AwsCredentials,
+  period: { from: string; to: string }
+): Promise<AwsCostRow[]> {
+  const payload = await awsJsonRequest<Parameters<typeof parseCostExplorerResponse>[0]>({
+    host: "ce.us-east-1.amazonaws.com",
+    service: "ce",
+    region: "us-east-1",
+    target: "AWSInsightsIndexService.GetCostAndUsage",
+    body: {
+      TimePeriod: { Start: period.from, End: period.to },
+      Granularity: "MONTHLY",
+      Metrics: ["UnblendedCost", "UsageQuantity"],
+      GroupBy: [{ Type: "DIMENSION", Key: "SERVICE" }],
+    },
+    credentials,
+  })
+  return parseCostExplorerResponse(payload)
 }
