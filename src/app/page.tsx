@@ -212,10 +212,14 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
   const signals = providerSignals(connection.provider, analysis.signals)
   const total = providerTotal(connection.provider, analysis.costRows)
   const freeTier = providerFreeTier(connection.provider, analysis.freeTier)
-  const onFreeTier = rows.length === 0 && freeTier.length > 0
-
   const hasCost = rows.length > 0
   const hasUsage = freeTier.length > 0
+  const sync = analysis.liveSync.find((entry) => entry.provider === connection.provider)
+  const hasMeasuredUsage = freeTier.some((row) => row.source === "measured")
+  // Surface why usage/cost is empty when connected but a sync errored, or usage
+  // could not be measured (e.g. a token missing Account Analytics: Read).
+  const showSyncNote =
+    connection.status === "connected" && sync && (sync.status === "error" || (hasUsage && !hasMeasuredUsage && sync.message.length > 0))
 
   return (
     <details className="provider-accordion" open={connection.detected || hasCost || hasUsage}>
@@ -236,6 +240,12 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
           <div className="provider-warning">
             <ShieldAlert aria-hidden />
             <span>{connection.setupNotes}</span>
+          </div>
+        ) : null}
+        {showSyncNote && sync ? (
+          <div className="provider-warning">
+            <ShieldAlert aria-hidden />
+            <span>{sync.message}</span>
           </div>
         ) : null}
 

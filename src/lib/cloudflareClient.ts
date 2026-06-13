@@ -51,6 +51,11 @@ export interface CloudflareUsage {
   unit: string
 }
 
+export interface CloudflareUsageResult {
+  usage: CloudflareUsage[]
+  error: string | null
+}
+
 /**
  * Pulls real consumption for an account from the Cloudflare GraphQL Analytics
  * API so free-tier usage can show actual-vs-limit. Currently reports Workers
@@ -62,7 +67,7 @@ export async function getCloudflareAccountUsage(
   token: string,
   accountId: string,
   period: { from: string; to: string }
-): Promise<CloudflareUsage[]> {
+): Promise<CloudflareUsageResult> {
   // Cloudflare's GraphQL API uses lowercase custom scalars (`string`) and the
   // `workersInvocationsAdaptive` dataset filtered by ISO `datetime`. See
   // https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/
@@ -91,20 +96,27 @@ export async function getCloudflareAccountUsage(
       },
       body: JSON.stringify({ query, variables }),
     })
-  } catch {
-    return []
+  } catch (error) {
+    return { usage: [], error: error instanceof Error ? error.message : "Cloudflare analytics request failed." }
   }
 
   const payload = (await response.json().catch(() => null)) as {
     data?: { viewer?: { accounts?: Array<{ workersInvocationsAdaptive?: Array<{ sum?: { requests?: number } }> }> } }
     errors?: Array<{ message?: string }>
   } | null
-  if (!response.ok || !payload || payload.errors?.length) return []
+  if (!response.ok || !payload || payload.errors?.length) {
+    const detail = payload?.errors?.[0]?.message ?? `status ${response.status}`
+    // The most common cause is a token missing the Account Analytics: Read permission.
+    return {
+      usage: [],
+      error: `Cloudflare usage query failed (${detail}). The API token needs Account Analytics: Read.`,
+    }
+  }
 
   const nodes = payload.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive ?? []
   const requests = nodes.reduce((sum, node) => sum + (node.sum?.requests ?? 0), 0)
-  if (requests <= 0) return []
-  return [{ service: "Workers Requests", quantity: requests, unit: "requests" }]
+  if (requests <= 0) return { usage: [], error: null }
+  return { usage: [{ service: "Workers Requests", quantity: requests, unit: "requests" }], error: null }
 }
 
 export async function verifyCloudflareToken(token: string) {

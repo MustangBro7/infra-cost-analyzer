@@ -283,6 +283,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
     const rows: NormalizedCostRow[] = []
     const usage: ProviderUsageSample[] = []
     const errors: string[] = []
+    const usageErrors: string[] = []
     for (const account of accounts.slice(0, 5)) {
       try {
         const subscriptions = await listCloudflareSubscriptions(cloudflare.accessToken, account.id)
@@ -290,11 +291,13 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
       } catch (error) {
         errors.push(error instanceof Error ? error.message : "Unknown Cloudflare subscriptions error.")
       }
-      // Account usage is best-effort and never fails the sync.
+      // Account usage is best-effort and never fails the sync, but we surface
+      // why it was empty (usually a token without Account Analytics: Read).
       const accountUsage = await getCloudflareAccountUsage(cloudflare.accessToken, account.id, currentPeriod)
       usage.push(
-        ...accountUsage.map((sample) => ({ provider: "cloudflare" as const, service: sample.service, quantity: sample.quantity, unit: sample.unit }))
+        ...accountUsage.usage.map((sample) => ({ provider: "cloudflare" as const, service: sample.service, quantity: sample.quantity, unit: sample.unit }))
       )
+      if (accountUsage.error) usageErrors.push(accountUsage.error)
     }
 
     // Only fail when we got nothing at all. Free-tier accounts have no paid
@@ -304,16 +307,17 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
       throw new Error(errors[0])
     }
     if (rows.length === 0) {
+      const usageNote = usageErrors.length > 0 ? ` ${usageErrors[0]}` : ""
       return {
         rows: [],
         usage,
         sync: {
           provider: "cloudflare",
-          status: usage.length > 0 ? "success" : "empty",
+          status: usage.length > 0 ? "success" : usageErrors.length > 0 ? "error" : "empty",
           message:
             usage.length > 0
               ? `No paid subscriptions; loaded ${usage.length} live usage metric(s).`
-              : "Cloudflare returned no paid subscriptions for this account.",
+              : `Cloudflare returned no paid subscriptions for this account.${usageNote}`,
           rows: 0,
           syncedAt: new Date().toISOString(),
         },
@@ -326,7 +330,9 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
       sync: {
         provider: "cloudflare",
         status: "success",
-        message: `Loaded ${rows.length} live Cloudflare subscription rows.`,
+        message:
+          `Loaded ${rows.length} live Cloudflare subscription rows.` +
+          (usage.length > 0 ? ` Usage tracked.` : usageErrors.length > 0 ? ` ${usageErrors[0]}` : ""),
         rows: rows.length,
         syncedAt: new Date().toISOString(),
       },

@@ -31,6 +31,8 @@ const CLOUDFLARE_TOKEN_URL = `https://dash.cloudflare.com/profile/api-tokens?per
   JSON.stringify([
     { key: "account_settings", type: "read" },
     { key: "billing", type: "read" },
+    // Account Analytics: Read is required for live Workers usage metrics.
+    { key: "account_analytics", type: "read" },
   ])
 )}&name=${encodeURIComponent("Infra Cost Analyzer")}`
 
