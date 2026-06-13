@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json({
       configured: hasGitHubAppConfig() && Boolean(installUrl),
+      setupMode: hasGitHubAppConfig() && Boolean(installUrl) ? "user_authorization" : "owner_setup_required",
       url: installUrl?.toString() ?? null,
       requiredEnv: ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG or GITHUB_APP_CLIENT_ID"],
       callbackUrl,
@@ -49,8 +50,8 @@ export async function GET(request: NextRequest) {
         "npm run deploy",
       ],
       message: installUrl
-        ? "Open this URL to install the GitHub App on a repository."
-        : "Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, and GITHUB_APP_SLUG or GITHUB_APP_CLIENT_ID to enable GitHub repository selection.",
+        ? "Each user can install or authorize this GitHub App on their repositories."
+        : "The app owner must set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, and GITHUB_APP_SLUG or GITHUB_APP_CLIENT_ID once. After that, every user can choose their own GitHub repositories.",
     })
   } catch (error) {
     if (error instanceof AuthRequiredError) {

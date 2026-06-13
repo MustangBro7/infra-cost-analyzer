@@ -23,6 +23,7 @@ interface PublicState {
 
 interface GitHubConnectStatus {
   configured: boolean
+  setupMode: "owner_setup_required" | "user_authorization"
   url: string | null
   requiredEnv: string[]
   callbackUrl: string
@@ -84,16 +85,16 @@ function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
       <summary>
         <Info aria-hidden />
         <div>
-          <strong>Set up multi-repo GitHub sync</strong>
-          <span>This is a one-time deployment setup. After it is done, users can choose repositories from GitHub.</span>
+          <strong>Owner setup required once</strong>
+          <span>You configure the GitHub App one time for this deployment. After that, every signed-in user only clicks “Choose GitHub repos” and authorizes their own repositories.</span>
         </div>
       </summary>
       <div className="setup-steps">
         <article>
           <span>1</span>
           <div>
-            <h3>Create the GitHub App</h3>
-            <p>Open GitHub's app form, use this app URL and callback URL, then save the app.</p>
+            <h3>You create one GitHub App</h3>
+            <p>This belongs to your product/deployment, not to each user. GitHub will use it to ask users which repos they want to authorize.</p>
             <div className="setup-links">
               <a className="command-button" href={status?.setupLinks.createGitHubApp ?? "https://github.com/settings/apps/new"} target="_blank" rel="noreferrer">
                 <Github aria-hidden />
@@ -116,7 +117,7 @@ function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
           <span>2</span>
           <div>
             <h3>Set repository permissions</h3>
-            <p>In the GitHub App permissions screen, set these repository permissions.</p>
+            <p>Use read-only permissions. Users see these permissions during authorization.</p>
             <div className="permission-grid">
               <b>Metadata: Read-only</b>
               <b>Contents: Read-only</b>
@@ -129,8 +130,8 @@ function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
         <article>
           <span>3</span>
           <div>
-            <h3>Add Worker secrets</h3>
-            <p>Copy the App ID, generate a private key, copy the app slug from the GitHub App URL, then add them to Cloudflare.</p>
+            <h3>You add the app credentials to this deployment</h3>
+            <p>Copy the App ID, generate a private key, copy the app slug from the GitHub App URL, then add them as Cloudflare Worker secrets.</p>
             <div className="setup-links">
               <a className="command-button" href={status?.setupLinks.cloudflareWorkerVariables ?? "https://dash.cloudflare.com"} target="_blank" rel="noreferrer">
                 <ExternalLink aria-hidden />
@@ -151,8 +152,8 @@ function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
         <article>
           <span>4</span>
           <div>
-            <h3>Come back and choose repos</h3>
-            <p>After redeploy, this panel changes from setup mode to a GitHub repo chooser.</p>
+            <h3>After redeploy, users authorize repos themselves</h3>
+            <p>This panel changes to “Choose GitHub repos”. Each user clicks it, selects their repositories on GitHub, returns here, and sees only their own synced repos.</p>
           </div>
         </article>
       </div>
@@ -208,27 +209,33 @@ export function RepoSyncPanel({ initialState }: { initialState: PublicState }) {
 
       <div className="repo-sync-actions">
         {connectStatus?.configured ? (
-          <button
-            type="button"
-            className="command-button"
-            disabled={Boolean(busy)}
-            onClick={() =>
-              run("github-app", async () => {
-                const payload = await jsonRequest<GitHubConnectStatus>("/api/github/connect-url")
-                if (!payload.configured || !payload.url) throw new Error(payload.message)
-                window.location.href = payload.url
-              })
-            }
-          >
-            <Github aria-hidden />
-            Choose GitHub repos
-          </button>
+          <>
+            <button
+              type="button"
+              className="command-button"
+              disabled={Boolean(busy)}
+              onClick={() =>
+                run("github-app", async () => {
+                  const payload = await jsonRequest<GitHubConnectStatus>("/api/github/connect-url")
+                  if (!payload.configured || !payload.url) throw new Error(payload.message)
+                  window.location.href = payload.url
+                })
+              }
+            >
+              <Github aria-hidden />
+              Choose GitHub repos
+            </button>
+            <div className="github-user-action-ready" role="status">
+              <Info aria-hidden />
+              <span>Users authorize their own repos with your GitHub App. Repo access is scoped to each signed-in workspace.</span>
+            </div>
+          </>
         ) : (
           <div className="github-disabled-action" role="status">
             <Info aria-hidden />
             <div>
               <strong>GitHub App is not configured on this deployment</strong>
-              <span>Only the local repo can be synced until `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` are set in the Worker environment.</span>
+              <span>This is a one-time owner setup. After these credentials are added, every user can authorize their own GitHub repos without seeing these setup steps.</span>
             </div>
           </div>
         )}

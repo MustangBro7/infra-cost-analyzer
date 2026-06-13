@@ -91,7 +91,12 @@ The `Live Billing` panel tells you whether live rows were loaded, whether Vercel
 
 ### 3. Real GitHub App flow
 
-Create a GitHub App with these settings:
+This is a one-time app-owner setup. After these values are configured in the
+deployment, every signed-in user can click `Choose GitHub repos`, authorize this
+GitHub App on their own repositories, and return to a workspace that only shows
+their synced repos.
+
+Create one GitHub App for this product with these settings:
 
 - Callback URL: `http://localhost:3000/api/github/callback`
 - Repository permissions:
@@ -100,7 +105,13 @@ Create a GitHub App with these settings:
   - Actions: read-only
   - Deployments: read-only
 
-Then set:
+For production, use the deployed callback URL shown in the app's setup guide:
+
+```text
+https://your-worker-domain/api/github/callback
+```
+
+Then set these deployment secrets:
 
 ```bash
 GITHUB_APP_ID=
@@ -109,7 +120,18 @@ GITHUB_APP_PRIVATE_KEY=
 GITHUB_WEBHOOK_SECRET=
 ```
 
-Restart the app and click `GitHub App`.
+On Cloudflare Workers, the setup guide shows copyable commands:
+
+```bash
+npx wrangler secret put GITHUB_APP_ID
+npx wrangler secret put GITHUB_APP_PRIVATE_KEY
+npx wrangler secret put GITHUB_APP_SLUG
+npm run deploy
+```
+
+After redeploy, regular users do not see the owner setup guide. They only click
+`Choose GitHub repos`, select repositories in GitHub, and the callback stores
+those repos under their own signed-in workspace.
 
 To scan a different local repo:
 

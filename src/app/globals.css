@@ -1282,7 +1282,23 @@ th {
   padding: 10px 12px;
 }
 
+.github-user-action-ready {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 560px;
+  border: 1px solid var(--ink);
+  background: #edf6e8;
+  padding: 10px 12px;
+}
+
 .github-disabled-action svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.github-user-action-ready svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
@@ -1300,6 +1316,12 @@ th {
 
 .github-disabled-action span {
   margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.github-user-action-ready span {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
