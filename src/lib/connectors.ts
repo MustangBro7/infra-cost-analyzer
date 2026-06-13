@@ -271,8 +271,10 @@ function decodeMaybeBase64(value: string) {
  * Supported env vars:
  *   VERCEL_TOKEN (+ VERCEL_TEAM_ID / VERCEL_TEAM_SLUG)
  *   CLOUDFLARE_API_TOKEN
- *   AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (+ optional AWS_SESSION_TOKEN)
  *   GCP_SERVICE_ACCOUNT_KEY (raw or base64 JSON) + optional GCP_BILLING_EXPORT_TABLE
+ *
+ * AWS is deliberately excluded — it is per-user (connected from the UI) so each
+ * user's Cost Explorer charges and data stay on their own account.
  */
 export async function autoConnectFromEnv(userId: string): Promise<Array<{ provider: string; ok: boolean; detail: string }>> {
   const workspace = await readWorkspace(userId)
@@ -310,19 +312,10 @@ export async function autoConnectFromEnv(userId: string): Promise<Array<{ provid
       },
     })
   }
-  if (workspace.connections.aws?.status !== "connected" && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-    tasks.push({
-      provider: "aws",
-      run: async () => {
-        const result = await connectAwsKeys(userId, {
-          accessKeyId: process.env.AWS_ACCESS_KEY_ID as string,
-          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY as string,
-          sessionToken: process.env.AWS_SESSION_TOKEN ?? null,
-        })
-        return result.accountLabel
-      },
-    })
-  }
+  // AWS is intentionally NOT auto-connected from env vars: a shared key would
+  // bill the key owner's account for every user and expose their cost data to
+  // all users. AWS is per-user only — each user connects their own account from
+  // the UI (local CLI in dev, pasted access key in production).
   if (workspace.connections.gcp?.status !== "connected" && process.env.GCP_SERVICE_ACCOUNT_KEY) {
     tasks.push({
       provider: "gcp",
