@@ -73,7 +73,7 @@ function quantity(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)
 }
 
-function FreeTierUsage({ rows }: { rows: FreeTierUsageRow[] }) {
+function FreeTierUsage({ rows, hasCost }: { rows: FreeTierUsageRow[]; hasCost: boolean }) {
   if (!rows.length) return null
   const planName = rows[0].planName
   return (
@@ -81,8 +81,12 @@ function FreeTierUsage({ rows }: { rows: FreeTierUsageRow[] }) {
       <div className="free-tier-head">
         <Gauge aria-hidden />
         <div>
-          <strong>On the free tier — {planName}</strong>
-          <span>No billed cost this period. Here is how much of the free allowance is left.</span>
+          <strong>{hasCost ? `Free-tier allowance — ${planName}` : `On the free tier — ${planName}`}</strong>
+          <span>
+            {hasCost
+              ? "Live usage this period against each free allowance, shown alongside the billed cost above."
+              : "No billed cost this period. Here is how much of the free allowance is left."}
+          </span>
         </div>
       </div>
       <div className="free-tier-list">
@@ -210,15 +214,19 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
   const freeTier = providerFreeTier(connection.provider, analysis.freeTier)
   const onFreeTier = rows.length === 0 && freeTier.length > 0
 
+  const hasCost = rows.length > 0
+  const hasUsage = freeTier.length > 0
+
   return (
-    <details className="provider-accordion" open={connection.detected || rows.length > 0 || onFreeTier}>
+    <details className="provider-accordion" open={connection.detected || hasCost || hasUsage}>
       <summary>
         <ProviderLogo provider={connection.provider} />
         <div>
-          <strong>{rows.length ? money(total) : onFreeTier ? "Free tier" : "No live cost"}</strong>
+          <strong>{hasCost ? money(total) : hasUsage ? "Free tier" : "No live cost"}</strong>
           <small>
             {statusText(connection)} · {signals.length} repo signals ·{" "}
-            {onFreeTier ? `${freeTier.length} free-tier allowances` : `${rows.length} live billing rows`}
+            {hasCost ? `${rows.length} live billing rows` : `${freeTier.length} free-tier allowances`}
+            {hasCost && hasUsage ? " · usage tracked" : ""}
           </small>
         </div>
         <ChevronDown aria-hidden />
@@ -234,7 +242,7 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
         <div className="provider-detail-grid">
           <section>
             <h3>Live resources and cost</h3>
-            {rows.length ? (
+            {hasCost ? (
               <div className="resource-list">
                 {rows.map((row) => (
                   <article key={`${row.provider}-${row.serviceName}-${row.resourceName}-${row.signalId}`} className="resource-row">
@@ -247,14 +255,13 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
                   </article>
                 ))}
               </div>
-            ) : onFreeTier ? (
-              <FreeTierUsage rows={freeTier} />
-            ) : (
+            ) : !hasUsage ? (
               <div className="empty-provider-block">
                 <DatabaseZap aria-hidden />
                 <span>No live billing rows for this provider yet. Connect the provider or add the required billing export to show actual costs.</span>
               </div>
-            )}
+            ) : null}
+            {hasUsage ? <FreeTierUsage rows={freeTier} hasCost={hasCost} /> : null}
           </section>
           <section>
             <h3>Repo evidence</h3>

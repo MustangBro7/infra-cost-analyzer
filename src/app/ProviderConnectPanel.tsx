@@ -243,8 +243,22 @@ export function ProviderConnectPanel({
                   <ConnectedProviderState provider="cloudflare" connection={saved} detail="Cloudflare subscriptions are available when the token has billing access." />
                 ) : (
                   <>
-                    <p>Create a scoped token, paste it here, and Cloudflare rows will show actual subscription costs.</p>
-                    <a className="command-button" href={CLOUDFLARE_TOKEN_URL} target="_blank" rel="noreferrer">
+                    <p>If you deploy with wrangler, connect in one click — it reads your `wrangler login` to pull live Workers usage and free-tier remaining. Or paste a scoped API token for billing too.</p>
+                    <button
+                      type="button"
+                      className="command-button"
+                      disabled={Boolean(busy)}
+                      onClick={() =>
+                        run("cloudflare-local", async () => {
+                          await jsonRequest("/api/cloudflare/local-connect", { method: "POST" })
+                          setMessage("Cloudflare connected from wrangler login. Refreshing live usage.")
+                        })
+                      }
+                    >
+                      {busy === "cloudflare-local" ? <Loader2 className="spin" aria-hidden /> : <CloudCog aria-hidden />}
+                      Use wrangler login
+                    </button>
+                    <a className="ghost-button" href={CLOUDFLARE_TOKEN_URL} target="_blank" rel="noreferrer">
                       <ExternalLink aria-hidden />
                       Create Cloudflare token
                     </a>

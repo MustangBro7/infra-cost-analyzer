@@ -38,8 +38,10 @@ const FREE_TIER_PLANS: Partial<Record<Provider, FreeTierPlan>> = {
   },
   cloudflare: {
     planName: "Cloudflare Free",
+    // Workers free tier is 100k requests/day; expressed monthly (~30 days) so it
+    // compares against the monthly request total from the Analytics API.
     allowances: [
-      { service: "Workers Requests", limit: 100_000, unit: "requests/day", match: /worker|request/i },
+      { service: "Workers Requests", limit: 3_000_000, unit: "requests/mo", match: /worker|request/i },
       { service: "R2 Storage", limit: 10, unit: "GB", match: /r2|storage|bucket/i },
       { service: "D1 Rows Read", limit: 5_000_000, unit: "rows/day", match: /d1|database|rows?/i },
     ],
@@ -78,11 +80,13 @@ export function computeFreeTierUsage(
     const plan = FREE_TIER_PLANS[connection.provider]
     if (!plan) continue
 
-    // Only treat a provider as "on the free tier" when it produced no billed cost.
+    // A provider with no billed cost is "on the free tier"; one with cost has
+    // moved into paid usage. We surface allowance usage in BOTH cases so usage
+    // is shown married with cost, not only when the bill is $0.
     const providerCost = costRows
       .filter((row) => row.provider === connection.provider)
       .reduce((sum, row) => sum + row.cost, 0)
-    if (providerCost > 0.005) continue
+    const onFreeTier = providerCost <= 0.005
 
     const providerUsage = usage.filter((sample) => sample.provider === connection.provider)
 
@@ -91,6 +95,12 @@ export function computeFreeTierUsage(
         (sample) => allowance.match.test(sample.service) || allowance.match.test(sample.unit)
       )
       const used = matched.length ? roundTo(matched.reduce((sum, sample) => sum + sample.quantity, 0)) : null
+
+      // When the provider is already billing, an allowance line we can't measure
+      // adds noise — skip it. On the free tier we still show it so the user sees
+      // the full set of free limits available.
+      if (used === null && !onFreeTier) continue
+
       const remaining = used === null ? null : roundTo(Math.max(allowance.limit - used, 0))
       const percentUsed = used === null ? null : roundTo(Math.min((used / allowance.limit) * 100, 100), 1)
 

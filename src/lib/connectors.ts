@@ -1,7 +1,8 @@
 import { readWorkspace, saveGitHubRepos, upsertConnection } from "./localStore"
 import { scanRepositorySafe } from "./repoScanner"
 import { listVercelProjects, verifyVercelToken } from "./vercelClient"
-import { verifyCloudflareToken } from "./cloudflareClient"
+import { listCloudflareAccounts, verifyCloudflareToken } from "./cloudflareClient"
+import { readWranglerOAuth } from "./wranglerAuth"
 import { discoverBillingExportTable, normalizeBillingExportTableId, verifyGcpServiceAccount } from "./gcpClient"
 import { verifyAwsCredentials, type AwsCredentials } from "./awsClient"
 import { readLocalAwsCredentials } from "./awsLocalCreds"
@@ -94,6 +95,50 @@ export async function connectCloudflareToken(userId: string, token: string) {
     accountLabel: verified.accountLabel,
     accountCount: verified.accounts.length,
   }
+}
+
+/**
+ * Connects Cloudflare using the OAuth token from `wrangler login` (lowest
+ * friction: if you deploy with wrangler, you're already authorized). Verifies by
+ * listing accounts — the OAuth token can read accounts and the GraphQL Analytics
+ * API, which is what powers free-tier usage. Billing subscriptions may need a
+ * scoped API token instead, but usage still works without it.
+ */
+export async function connectCloudflareLocal(userId: string) {
+  const oauth = readWranglerOAuth()
+  if (!oauth) {
+    throw new Error(
+      "No wrangler login found. Run `wrangler login` (or paste a Cloudflare API token), then try again."
+    )
+  }
+  if (oauth.expired) {
+    throw new Error("Your wrangler login has expired. Run `wrangler login` again, then retry.")
+  }
+  let accounts: Awaited<ReturnType<typeof listCloudflareAccounts>>
+  try {
+    accounts = await listCloudflareAccounts(oauth.token)
+  } catch (error) {
+    throw new Error(
+      `Could not read Cloudflare accounts with the wrangler token: ${error instanceof Error ? error.message : "unknown error"}`
+    )
+  }
+  if (accounts.length === 0) {
+    throw new Error("The wrangler login has no readable Cloudflare accounts.")
+  }
+  await upsertConnection(userId, {
+    provider: "cloudflare",
+    status: "connected",
+    accountLabel: accounts[0]?.name ?? "Cloudflare account",
+    accessToken: oauth.token,
+    connectedAt: new Date().toISOString(),
+    lastVerifiedAt: new Date().toISOString(),
+    lastError: null,
+    metadata: {
+      authMode: "wrangler_oauth",
+      accounts: accounts.slice(0, 10).map((account) => ({ id: account.id, name: account.name })),
+    },
+  })
+  return { accountLabel: accounts[0]?.name ?? "Cloudflare account", accountCount: accounts.length }
 }
 
 export async function connectGcpKey(userId: string, keyJson: string, billingExportTable?: string | null) {

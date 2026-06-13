@@ -63,15 +63,23 @@ export async function getCloudflareAccountUsage(
   accountId: string,
   period: { from: string; to: string }
 ): Promise<CloudflareUsage[]> {
-  const query = `query AccountUsage($accountTag: string!, $start: Date!, $end: Date!) {
+  // Cloudflare's GraphQL API uses lowercase custom scalars (`string`) and the
+  // `workersInvocationsAdaptive` dataset filtered by ISO `datetime`. See
+  // https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/
+  const query = `query AccountUsage($accountTag: string, $start: string, $end: string) {
     viewer {
       accounts(filter: { accountTag: $accountTag }) {
-        workersInvocationsAdaptiveGroups(limit: 10000, filter: { date_geq: $start, date_leq: $end }) {
+        workersInvocationsAdaptive(limit: 10000, filter: { datetime_geq: $start, datetime_leq: $end }) {
           sum { requests }
         }
       }
     }
   }`
+  const variables = {
+    accountTag: accountId,
+    start: `${period.from}T00:00:00Z`,
+    end: `${period.to}T23:59:59Z`,
+  }
 
   let response: Response
   try {
@@ -81,20 +89,20 @@ export async function getCloudflareAccountUsage(
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ query, variables: { accountTag: accountId, start: period.from, end: period.to } }),
+      body: JSON.stringify({ query, variables }),
     })
   } catch {
     return []
   }
 
   const payload = (await response.json().catch(() => null)) as {
-    data?: { viewer?: { accounts?: Array<{ workersInvocationsAdaptiveGroups?: Array<{ sum?: { requests?: number } }> }> } }
+    data?: { viewer?: { accounts?: Array<{ workersInvocationsAdaptive?: Array<{ sum?: { requests?: number } }> }> } }
     errors?: Array<{ message?: string }>
   } | null
   if (!response.ok || !payload || payload.errors?.length) return []
 
-  const groups = payload.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptiveGroups ?? []
-  const requests = groups.reduce((sum, group) => sum + (group.sum?.requests ?? 0), 0)
+  const nodes = payload.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive ?? []
+  const requests = nodes.reduce((sum, node) => sum + (node.sum?.requests ?? 0), 0)
   if (requests <= 0) return []
   return [{ service: "Workers Requests", quantity: requests, unit: "requests" }]
 }

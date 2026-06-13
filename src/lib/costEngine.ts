@@ -297,7 +297,10 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
       )
     }
 
-    if (rows.length === 0 && errors.length > 0) {
+    // Only fail when we got nothing at all. Free-tier accounts have no paid
+    // subscriptions, and a token without billing scope still returns usage — in
+    // both cases we keep the measured usage instead of throwing it away.
+    if (rows.length === 0 && usage.length === 0 && errors.length > 0) {
       throw new Error(errors[0])
     }
     if (rows.length === 0) {
@@ -306,8 +309,11 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
         usage,
         sync: {
           provider: "cloudflare",
-          status: "empty",
-          message: "Cloudflare returned no paid subscriptions for this account.",
+          status: usage.length > 0 ? "success" : "empty",
+          message:
+            usage.length > 0
+              ? `No paid subscriptions; loaded ${usage.length} live usage metric(s).`
+              : "Cloudflare returned no paid subscriptions for this account.",
           rows: 0,
           syncedAt: new Date().toISOString(),
         },

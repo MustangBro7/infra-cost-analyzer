@@ -40,7 +40,7 @@ test("allowance without reported usage is returned with null usage", () => {
   assert.equal(workers.source, "allowance")
 })
 
-test("provider with billed cost is not treated as free tier", () => {
+test("a billing provider shows no allowance-only lines (avoids noise)", () => {
   const costRows: NormalizedCostRow[] = [
     {
       provider: "vercel",
@@ -59,6 +59,32 @@ test("provider with billed cost is not treated as free tier", () => {
   ]
   const rows = computeFreeTierUsage(costRows, [], [connection("vercel", "connected")])
   assert.equal(rows.length, 0)
+})
+
+test("usage is shown married with cost when measured (provider is billing)", () => {
+  const costRows: NormalizedCostRow[] = [
+    {
+      provider: "vercel",
+      serviceName: "Vercel Functions",
+      resourceId: null,
+      resourceName: "repo",
+      billingPeriodStart: "2026-06-01",
+      billingPeriodEnd: "2026-06-30",
+      cost: 12,
+      currency: "USD",
+      attribution: "verified",
+      attributionReason: "live",
+      signalId: null,
+      source: "live",
+    },
+  ]
+  const usage: ProviderUsageSample[] = [{ provider: "vercel", service: "Fast Data Transfer", quantity: 120, unit: "GB" }]
+  const rows = computeFreeTierUsage(costRows, usage, [connection("vercel", "connected")])
+  const transfer = rows.find((row) => row.service === "Fast Data Transfer")
+  assert.ok(transfer)
+  assert.equal(transfer.used, 120)
+  assert.equal(transfer.remaining, 0)
+  assert.equal(transfer.source, "measured")
 })
 
 test("disconnected providers are ignored", () => {

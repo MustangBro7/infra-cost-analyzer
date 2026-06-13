@@ -27,10 +27,14 @@ Standalone repository-aware infrastructure cost analyzer. This project lives ins
     pasting an access key — needs `ce:GetCostAndUsage` and `freetier:GetFreeTierUsage`.
   - GCP: usage amounts from the BigQuery billing export.
   - Vercel: FOCUS `ConsumedQuantity` from the billing charges endpoint.
-  - Cloudflare: Workers request volume from the GraphQL Analytics API.
+  - Cloudflare: Workers request volume from the GraphQL Analytics API. Connect in
+    one click with your `wrangler login` (no token setup) or a scoped API token.
+    Usage works on the free plan, so you see real requests-vs-limit immediately.
   Measured usage is compared against each provider's published free-tier
   allowance (AWS reports its own limits directly). When a provider does not
   report a given metric, the allowance is shown without inventing a usage number.
+  Usage is shown married with cost: even when a provider is billing, measured
+  free-tier consumption appears alongside the cost rows.
 - Exposes `GET /api/analyze` for JSON output (cached snapshot; `?refresh=1` to recompute).
 - Exposes `GET /api/providers` for supported provider setup metadata.
 - Ships a production dashboard that can be deployed independently.
