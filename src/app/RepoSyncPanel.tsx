@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { CheckSquare, ExternalLink, FolderGit2, Github, Loader2, Plus, Square, Unplug } from "lucide-react"
+import { CheckSquare, ExternalLink, FolderGit2, Github, Info, Loader2, Plus, Square, Unplug } from "lucide-react"
 import type { ConnectionEvent, GitHubRepoSummary, Provider } from "@/lib/types"
 
 interface PublicState {
@@ -19,6 +19,13 @@ interface PublicState {
     lastError: string | null
     metadata: Record<string, unknown>
   } | null>
+}
+
+interface GitHubConnectStatus {
+  configured: boolean
+  url: string | null
+  requiredEnv: string[]
+  message: string
 }
 
 function formatError(error: unknown) {
@@ -40,8 +47,15 @@ export function RepoSyncPanel({ initialState }: { initialState: PublicState }) {
   const [busy, setBusy] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const [connectStatus, setConnectStatus] = React.useState<GitHubConnectStatus | null>(null)
   const synced = React.useMemo(() => new Set(state.syncedRepoFullNames), [state.syncedRepoFullNames])
   const github = state.connections.github
+
+  React.useEffect(() => {
+    jsonRequest<GitHubConnectStatus>("/api/github/connect-url")
+      .then(setConnectStatus)
+      .catch((err) => setError(formatError(err)))
+  }, [])
 
   async function refresh() {
     const next = await jsonRequest<PublicState>("/api/state")
@@ -74,21 +88,31 @@ export function RepoSyncPanel({ initialState }: { initialState: PublicState }) {
       </div>
 
       <div className="repo-sync-actions">
-        <button
-          type="button"
-          className="command-button"
-          disabled={Boolean(busy)}
-          onClick={() =>
-            run("github-app", async () => {
-              const payload = await jsonRequest<{ configured: boolean; url: string | null; message: string }>("/api/github/connect-url")
-              if (!payload.configured || !payload.url) throw new Error(payload.message)
-              window.location.href = payload.url
-            })
-          }
-        >
-          <Github aria-hidden />
-          Install GitHub App
-        </button>
+        {connectStatus?.configured ? (
+          <button
+            type="button"
+            className="command-button"
+            disabled={Boolean(busy)}
+            onClick={() =>
+              run("github-app", async () => {
+                const payload = await jsonRequest<GitHubConnectStatus>("/api/github/connect-url")
+                if (!payload.configured || !payload.url) throw new Error(payload.message)
+                window.location.href = payload.url
+              })
+            }
+          >
+            <Github aria-hidden />
+            Choose GitHub repos
+          </button>
+        ) : (
+          <div className="github-disabled-action" role="status">
+            <Info aria-hidden />
+            <div>
+              <strong>GitHub App is not configured on this deployment</strong>
+              <span>Only the local repo can be synced until `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_APP_SLUG` are set in the Worker environment.</span>
+            </div>
+          </div>
+        )}
         <button
           type="button"
           className="ghost-button"
@@ -182,7 +206,7 @@ export function RepoSyncPanel({ initialState }: { initialState: PublicState }) {
         <div className="empty-repo-state">
           <Github aria-hidden />
           <strong>No GitHub repositories synced yet</strong>
-          <span>Install the GitHub App or use the local repository to start.</span>
+          <span>{connectStatus?.configured ? "Choose GitHub repos or use the local repository to start." : "Use the local repository for now. Configure the GitHub App to select multiple GitHub repos."}</span>
         </div>
       )}
 

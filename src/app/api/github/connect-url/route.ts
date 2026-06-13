@@ -24,10 +24,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       configured: hasGitHubAppConfig() && Boolean(installUrl),
       url: installUrl?.toString() ?? null,
-      requiredEnv: ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG"],
+      requiredEnv: ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG or GITHUB_APP_CLIENT_ID"],
       message: installUrl
         ? "Open this URL to install the GitHub App on a repository."
-        : "Set GITHUB_APP_SLUG plus app credentials to enable GitHub App installation.",
+        : "Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, and GITHUB_APP_SLUG or GITHUB_APP_CLIENT_ID to enable GitHub repository selection.",
     })
   } catch (error) {
     if (error instanceof AuthRequiredError) {

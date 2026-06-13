@@ -1272,6 +1272,39 @@ th {
   gap: 8px;
 }
 
+.github-disabled-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  max-width: 720px;
+  border: 1px solid var(--ink);
+  background: #fff1c9;
+  padding: 10px 12px;
+}
+
+.github-disabled-action svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.github-disabled-action strong,
+.github-disabled-action span {
+  display: block;
+}
+
+.github-disabled-action strong {
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.github-disabled-action span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .sync-repo-list {
   display: grid;
   border: 1px solid var(--ink);
