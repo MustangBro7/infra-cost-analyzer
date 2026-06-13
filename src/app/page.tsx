@@ -15,6 +15,7 @@ import {
 import { RepoSyncPanel } from "./RepoSyncPanel"
 import { ProviderConnectPanel } from "./ProviderConnectPanel"
 import { AnalysisRefresher } from "./AnalysisRefresher"
+import { ProviderLogo } from "./ProviderLogo"
 import { SignInForm } from "./SignInForm"
 import { SignOutButton } from "./SignOutButton"
 import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
@@ -25,28 +26,12 @@ import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCos
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const PROVIDER_LABELS: Record<Provider, string> = {
-  github: "GitHub",
-  vercel: "Vercel",
-  aws: "AWS",
-  gcp: "GCP",
-  azure: "Azure",
-  cloudflare: "Cloudflare",
-  digitalocean: "DigitalOcean",
-  docker: "Docker",
-  unknown: "Unknown",
-}
-
 function money(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value)
-}
-
-function providerClass(provider: Provider) {
-  return `provider provider-${provider}`
 }
 
 function currentRepoFullName(analysis: AnalysisResult) {
@@ -228,7 +213,7 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
   return (
     <details className="provider-accordion" open={connection.detected || rows.length > 0 || onFreeTier}>
       <summary>
-        <span className={providerClass(connection.provider)}>{PROVIDER_LABELS[connection.provider]}</span>
+        <ProviderLogo provider={connection.provider} />
         <div>
           <strong>{rows.length ? money(total) : onFreeTier ? "Free tier" : "No live cost"}</strong>
           <small>

@@ -2231,3 +2231,26 @@ th {
   color: var(--muted);
   font-size: 0.78rem;
 }
+
+/* ---- Provider brand logos ---- */
+.provider-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.provider-logo svg {
+  width: 17px;
+  height: 17px;
+}
+
+.provider-logo.provider-unknown,
+.provider-logo.provider-azure {
+  background: var(--panel-strong);
+  color: var(--ink);
+}

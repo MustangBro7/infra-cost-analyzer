@@ -4,6 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, KeyRound, Loader2, PlugZap, ShieldAlert, Unplug } from "lucide-react"
 import type { Provider, ProviderConnection } from "@/lib/types"
+import { ProviderLogo } from "./ProviderLogo"
 
 type PublicConnection = {
   provider: Provider
@@ -79,7 +80,7 @@ function CopyButton({ value }: { value: string }) {
 }
 
 function ProviderBadge({ provider }: { provider: Provider }) {
-  return <span className={`provider provider-${provider}`}>{providerLabel(provider)}</span>
+  return <ProviderLogo provider={provider} />
 }
 
 function ConnectedProviderState({
