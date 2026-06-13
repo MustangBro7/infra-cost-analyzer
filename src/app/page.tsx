@@ -15,8 +15,9 @@ import { RepoSyncPanel } from "./RepoSyncPanel"
 import { SignInForm } from "./SignInForm"
 import { SignOutButton } from "./SignOutButton"
 import { buildAnalysisWithLiveData } from "@/lib/costEngine"
+import { scanInstallationRepository } from "@/lib/githubClient"
 import { currentUserFromCookies } from "@/lib/localAuth"
-import { publicStore } from "@/lib/localStore"
+import { publicStore, readWorkspace } from "@/lib/localStore"
 import { scanRepositorySafe } from "@/lib/repoScanner"
 import type { AnalysisResult, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
@@ -311,11 +312,24 @@ function RepoDetail({
   )
 }
 
-async function getAnalysis(searchParams: Promise<Record<string, string | string[] | undefined>>, userId: string) {
-  const params = await searchParams
+async function getAnalysis(input: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+  userId: string
+  requestedRepo?: string | null
+  githubRepos: GitHubRepoSummary[]
+}) {
+  if (input.requestedRepo) {
+    const repo = input.githubRepos.find((candidate) => candidate.fullName === input.requestedRepo)
+    const workspace = await readWorkspace(input.userId)
+    const installationId = workspace.connections.github?.installationId
+    if (repo && installationId) {
+      return buildAnalysisWithLiveData(await scanInstallationRepository(repo, installationId), process.env, input.userId)
+    }
+  }
+  const params = await input.searchParams
   const rawRepoPath = params.repoPath
   const repoPath = Array.isArray(rawRepoPath) ? rawRepoPath[0] : rawRepoPath
-  return buildAnalysisWithLiveData(scanRepositorySafe(repoPath), process.env, userId)
+  return buildAnalysisWithLiveData(scanRepositorySafe(repoPath), process.env, input.userId)
 }
 
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -325,8 +339,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const params = await searchParams
   const rawRepo = params.repo
   const requestedRepo = Array.isArray(rawRepo) ? rawRepo[0] : rawRepo
-  const analysis = await getAnalysis(Promise.resolve(params), user.id)
   const state = { user, ...(await publicStore(user.id)) }
+  const analysis = await getAnalysis({
+    searchParams: Promise.resolve(params),
+    userId: user.id,
+    requestedRepo,
+    githubRepos: state.githubRepos,
+  })
   const repos = repoList(state, analysis)
   const selectedRepo = requestedRepo ? repos.find((repo) => repo.fullName === requestedRepo) ?? null : null
 

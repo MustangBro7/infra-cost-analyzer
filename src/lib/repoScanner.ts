@@ -46,6 +46,18 @@ interface Rule {
   content?: RegExp
 }
 
+export interface RepositoryFile {
+  path: string
+  content: string
+}
+
+export interface RepositoryIdentity {
+  owner: string
+  name: string
+  path: string
+  remoteUrl: string | null
+}
+
 const RULES: Rule[] = [
   { provider: "github", signalType: "workflow", title: "GitHub Actions workflow", confidence: 0.92, file: /^\.github\/workflows\/.+\.ya?ml$/ },
   { provider: "vercel", signalType: "deployment", title: "Vercel project configuration", confidence: 0.98, file: /(^|\/)vercel\.json$/ },
@@ -65,12 +77,17 @@ function safeRelative(root: string, input: string): string {
   return relative || "."
 }
 
-function shouldInspect(filePath: string): boolean {
-  const base = path.basename(filePath)
-  const ext = path.extname(filePath)
+export function shouldInspectRepoPath(repoPath: string): boolean {
+  const normalized = repoPath.replaceAll("\\", "/")
+  const base = path.posix.basename(normalized)
+  const ext = path.posix.extname(normalized)
   if (INTERESTING_EXACT.has(base)) return true
   if (INTERESTING_EXTS.has(ext)) return true
-  return filePath.includes(`${path.sep}.github${path.sep}workflows${path.sep}`)
+  return normalized.includes("/.github/workflows/") || normalized.startsWith(".github/workflows/")
+}
+
+function shouldInspect(filePath: string): boolean {
+  return shouldInspectRepoPath(filePath)
 }
 
 function walk(root: string, dir = root, files: string[] = []): string[] {
@@ -167,12 +184,31 @@ export function scanRepositorySafe(repoPath?: string | null): ReturnType<typeof 
 export function scanRepository(repoPath: string) {
   const root = path.resolve(repoPath)
   const files = walk(root)
+  const repoFiles = files.map((filePath) => {
+    const relativePath = safeRelative(root, filePath)
+    return {
+      path: relativePath.replaceAll(path.sep, "/"),
+      content: readText(filePath),
+    }
+  })
+  return scanRepositoryFiles({
+    repo: {
+      ...repoName(root),
+      path: root,
+    },
+    files: repoFiles,
+  })
+}
+
+export function scanRepositoryFiles(input: {
+  repo: RepositoryIdentity
+  files: RepositoryFile[]
+}) {
   const signals: RepoSignal[] = []
 
-  files.forEach((filePath) => {
-    const relativePath = safeRelative(root, filePath)
-    const normalized = relativePath.replaceAll(path.sep, "/")
-    const content = readText(filePath)
+  input.files.forEach((file) => {
+    const normalized = file.path.replaceAll("\\", "/")
+    const content = file.content
 
     RULES.forEach((rule) => {
       const fileMatched = rule.file?.test(normalized) ?? false
@@ -195,8 +231,7 @@ export function scanRepository(repoPath: string) {
   const deduped = dedupeSignals(signals)
   return {
     repo: {
-      ...repoName(root),
-      path: root,
+      ...input.repo,
       scannedAt: new Date().toISOString(),
     },
     signals: deduped.sort((a, b) => b.confidence - a.confidence || a.sourcePath.localeCompare(b.sourcePath)),

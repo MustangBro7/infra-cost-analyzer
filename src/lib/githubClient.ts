@@ -1,7 +1,9 @@
 import { createPrivateKey, createSign } from "node:crypto"
+import { scanRepositoryFiles, shouldInspectRepoPath, type RepositoryFile } from "./repoScanner"
 import type { GitHubRepoSummary } from "./types"
 
 const GITHUB_API = "https://api.github.com"
+const MAX_REMOTE_FILE_BYTES = 350_000
 
 function base64Url(input: string | Buffer) {
   return Buffer.from(input).toString("base64").replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")
@@ -83,4 +85,73 @@ export async function listInstallationRepos(installationToken: string): Promise<
     defaultBranch: repo.default_branch,
     htmlUrl: repo.html_url,
   }))
+}
+
+async function getRepositoryTree(owner: string, repo: string, ref: string, token: string) {
+  return githubRequest<{
+    tree: Array<{
+      path: string
+      mode: string
+      type: "blob" | "tree" | "commit"
+      sha: string
+      size?: number
+      url: string
+    }>
+    truncated: boolean
+  }>(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`, token)
+}
+
+async function getRepositoryBlob(owner: string, repo: string, sha: string, token: string) {
+  return githubRequest<{
+    content: string
+    encoding: string
+    size: number
+  }>(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs/${encodeURIComponent(sha)}`, token)
+}
+
+async function listRepositoryFiles(input: {
+  owner: string
+  repo: string
+  defaultBranch: string
+  htmlUrl: string
+  token: string
+}): Promise<RepositoryFile[]> {
+  const tree = await getRepositoryTree(input.owner, input.repo, input.defaultBranch, input.token)
+  const candidates = tree.tree
+    .filter((entry) => entry.type === "blob")
+    .filter((entry) => (entry.size ?? 0) <= MAX_REMOTE_FILE_BYTES)
+    .filter((entry) => shouldInspectRepoPath(entry.path))
+    .slice(0, 180)
+
+  const files: RepositoryFile[] = []
+  for (const entry of candidates) {
+    try {
+      const blob = await getRepositoryBlob(input.owner, input.repo, entry.sha, input.token)
+      const content = blob.encoding === "base64" ? Buffer.from(blob.content.replaceAll("\n", ""), "base64").toString("utf8") : blob.content
+      files.push({ path: entry.path, content })
+    } catch {
+      // Keep the scan useful even if GitHub rejects or times out on one blob.
+    }
+  }
+  return files
+}
+
+export async function scanInstallationRepository(repo: GitHubRepoSummary, installationId: number) {
+  const installationToken = await createInstallationToken(installationId)
+  const files = await listRepositoryFiles({
+    owner: repo.owner,
+    repo: repo.name,
+    defaultBranch: repo.defaultBranch,
+    htmlUrl: repo.htmlUrl,
+    token: installationToken.token,
+  })
+  return scanRepositoryFiles({
+    repo: {
+      owner: repo.owner,
+      name: repo.name,
+      path: repo.htmlUrl,
+      remoteUrl: repo.htmlUrl,
+    },
+    files,
+  })
 }
