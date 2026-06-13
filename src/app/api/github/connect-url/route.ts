@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     githubNewAppUrl.searchParams.set("name", appName)
     githubNewAppUrl.searchParams.set("url", origin)
     githubNewAppUrl.searchParams.set("callback_url", callbackUrl)
+    githubNewAppUrl.searchParams.set("setup_url", callbackUrl)
     githubNewAppUrl.searchParams.set("webhook_active", "false")
     const cloudflareAccountId = process.env.CLOUDFLARE_ACCOUNT_ID || "c064bc22afe7d6511334c0c5cdd43bc1"
     const workerName = process.env.CLOUDFLARE_WORKER_NAME || "infra-cost-analyzer"
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest) {
       url: installUrl?.toString() ?? null,
       requiredEnv: ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG or GITHUB_APP_CLIENT_ID"],
       callbackUrl,
+      setupUrl: callbackUrl,
       setupLinks: {
         createGitHubApp: githubNewAppUrl.toString(),
         githubAppsSettings: "https://github.com/settings/apps",

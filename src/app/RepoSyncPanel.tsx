@@ -27,6 +27,7 @@ interface GitHubConnectStatus {
   url: string | null
   requiredEnv: string[]
   callbackUrl: string
+  setupUrl: string
   setupLinks: {
     createGitHubApp: string
     githubAppsSettings: string
@@ -73,6 +74,7 @@ function CopyButton({ value, label = "Copy" }: { value: string; label?: string }
 
 function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
   const callbackUrl = status?.callbackUrl ?? `${typeof window === "undefined" ? "" : window.location.origin}/api/github/callback`
+  const setupUrl = status?.setupUrl ?? callbackUrl
   const commands = status?.setupCommands ?? [
     "npx wrangler secret put GITHUB_APP_ID",
     "npx wrangler secret put GITHUB_APP_PRIVATE_KEY",
@@ -110,6 +112,11 @@ function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
               <code>{callbackUrl}</code>
               <CopyButton value={callbackUrl} />
             </div>
+            <div className="setup-value">
+              <label>Setup URL</label>
+              <code>{setupUrl}</code>
+              <CopyButton value={setupUrl} />
+            </div>
           </div>
         </article>
 
@@ -129,6 +136,20 @@ function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
 
         <article>
           <span>3</span>
+          <div>
+            <h3>Enable return after repo changes</h3>
+            <p>In Post installation, paste the same URL into Setup URL and check Redirect on update. This sends users back here after install or repository changes.</p>
+            <div className="permission-grid">
+              <b>Setup URL: same as callback</b>
+              <b>Redirect on update: checked</b>
+              <b>Webhook Active: unchecked</b>
+              <b>Subscribe to events: none</b>
+            </div>
+          </div>
+        </article>
+
+        <article>
+          <span>4</span>
           <div>
             <h3>You add the app credentials to this deployment</h3>
             <p>Copy the App ID, generate a private key, copy the app slug from the GitHub App URL, then add them as Cloudflare Worker secrets.</p>
@@ -150,7 +171,7 @@ function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
         </article>
 
         <article>
-          <span>4</span>
+          <span>5</span>
           <div>
             <h3>After redeploy, users authorize repos themselves</h3>
             <p>This panel changes to “Choose GitHub repos”. Each user clicks it, selects their repositories on GitHub, returns here, and sees only their own synced repos.</p>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createInstallationToken, listInstallationRepos } from "@/lib/githubClient"
-import { appendEvent, saveGitHubRepos, upsertConnection } from "@/lib/localStore"
+import { currentUserFromRequest } from "@/lib/localAuth"
+import { appendEvent, saveGitHubRepos, syncGitHubRepo, upsertConnection } from "@/lib/localStore"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -11,12 +12,16 @@ export async function GET(request: NextRequest) {
     if (!Number.isFinite(installationId)) {
       throw new Error("Missing installation_id from GitHub callback.")
     }
-    const userId = request.nextUrl.searchParams.get("state")
-    if (!userId) throw new Error("Missing GitHub callback state.")
+    const signedInUser = await currentUserFromRequest(request)
+    const userId = request.nextUrl.searchParams.get("state") || signedInUser?.id
+    if (!userId) throw new Error("Missing GitHub callback state. Return to the app and click Choose GitHub repos again.")
     const token = await createInstallationToken(installationId)
     const repos = await listInstallationRepos(token.token)
     const selected = repos[0]?.fullName ?? null
     await saveGitHubRepos(userId, repos, selected)
+    for (const repo of repos) {
+      await syncGitHubRepo(userId, repo.fullName)
+    }
     await upsertConnection(userId, {
       provider: "github",
       status: "connected",
@@ -28,7 +33,7 @@ export async function GET(request: NextRequest) {
       lastError: null,
       metadata: {
         repositories: repos.length,
-        syncedRepoFullNames: selected ? [selected] : [],
+        syncedRepoFullNames: repos.map((repo) => repo.fullName),
         tokenExpiresAt: token.expires_at,
       },
     })

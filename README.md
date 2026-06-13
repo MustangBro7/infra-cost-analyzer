@@ -105,11 +105,15 @@ Create one GitHub App for this product with these settings:
   - Actions: read-only
   - Deployments: read-only
 
-For production, use the deployed callback URL shown in the app's setup guide:
+For production, use the deployed URL shown in the app's setup guide for both
+Callback URL and Setup URL:
 
 ```text
 https://your-worker-domain/api/github/callback
 ```
+
+In the GitHub App's Post installation section, check `Redirect on update`.
+Keep webhooks inactive for now.
 
 Then set these deployment secrets:
 
