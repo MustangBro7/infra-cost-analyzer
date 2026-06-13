@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { CheckSquare, ExternalLink, FolderGit2, Github, Info, Loader2, Plus, Square, Unplug } from "lucide-react"
+import { CheckSquare, ClipboardCopy, ExternalLink, FolderGit2, Github, Info, Loader2, Plus, Square, Unplug } from "lucide-react"
 import type { ConnectionEvent, GitHubRepoSummary, Provider } from "@/lib/types"
 
 interface PublicState {
@@ -25,6 +25,13 @@ interface GitHubConnectStatus {
   configured: boolean
   url: string | null
   requiredEnv: string[]
+  callbackUrl: string
+  setupLinks: {
+    createGitHubApp: string
+    githubAppsSettings: string
+    cloudflareWorkerVariables: string
+  }
+  setupCommands: string[]
   message: string
 }
 
@@ -39,6 +46,118 @@ async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(typeof payload.error === "string" ? payload.error : `Request failed with ${response.status}`)
   }
   return payload as T
+}
+
+function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
+  const [copied, setCopied] = React.useState(false)
+  return (
+    <button
+      type="button"
+      className="copy-button"
+      onClick={() => {
+        navigator.clipboard
+          .writeText(value)
+          .then(() => {
+            setCopied(true)
+            window.setTimeout(() => setCopied(false), 1400)
+          })
+          .catch(() => setCopied(false))
+      }}
+    >
+      <ClipboardCopy aria-hidden />
+      {copied ? "Copied" : label}
+    </button>
+  )
+}
+
+function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
+  const callbackUrl = status?.callbackUrl ?? `${typeof window === "undefined" ? "" : window.location.origin}/api/github/callback`
+  const commands = status?.setupCommands ?? [
+    "npx wrangler secret put GITHUB_APP_ID",
+    "npx wrangler secret put GITHUB_APP_PRIVATE_KEY",
+    "npx wrangler secret put GITHUB_APP_SLUG",
+    "npm run deploy",
+  ]
+
+  return (
+    <details className="github-setup-guide" open>
+      <summary>
+        <Info aria-hidden />
+        <div>
+          <strong>Set up multi-repo GitHub sync</strong>
+          <span>This is a one-time deployment setup. After it is done, users can choose repositories from GitHub.</span>
+        </div>
+      </summary>
+      <div className="setup-steps">
+        <article>
+          <span>1</span>
+          <div>
+            <h3>Create the GitHub App</h3>
+            <p>Open GitHub's app form, use this app URL and callback URL, then save the app.</p>
+            <div className="setup-links">
+              <a className="command-button" href={status?.setupLinks.createGitHubApp ?? "https://github.com/settings/apps/new"} target="_blank" rel="noreferrer">
+                <Github aria-hidden />
+                Create GitHub App
+              </a>
+              <a className="ghost-button" href={status?.setupLinks.githubAppsSettings ?? "https://github.com/settings/apps"} target="_blank" rel="noreferrer">
+                <ExternalLink aria-hidden />
+                Existing GitHub Apps
+              </a>
+            </div>
+            <div className="setup-value">
+              <label>Callback URL</label>
+              <code>{callbackUrl}</code>
+              <CopyButton value={callbackUrl} />
+            </div>
+          </div>
+        </article>
+
+        <article>
+          <span>2</span>
+          <div>
+            <h3>Set repository permissions</h3>
+            <p>In the GitHub App permissions screen, set these repository permissions.</p>
+            <div className="permission-grid">
+              <b>Metadata: Read-only</b>
+              <b>Contents: Read-only</b>
+              <b>Actions: Read-only</b>
+              <b>Deployments: Read-only</b>
+            </div>
+          </div>
+        </article>
+
+        <article>
+          <span>3</span>
+          <div>
+            <h3>Add Worker secrets</h3>
+            <p>Copy the App ID, generate a private key, copy the app slug from the GitHub App URL, then add them to Cloudflare.</p>
+            <div className="setup-links">
+              <a className="command-button" href={status?.setupLinks.cloudflareWorkerVariables ?? "https://dash.cloudflare.com"} target="_blank" rel="noreferrer">
+                <ExternalLink aria-hidden />
+                Open Worker variables
+              </a>
+            </div>
+            <div className="command-list">
+              {commands.map((command) => (
+                <div key={command} className="setup-value">
+                  <code>{command}</code>
+                  <CopyButton value={command} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </article>
+
+        <article>
+          <span>4</span>
+          <div>
+            <h3>Come back and choose repos</h3>
+            <p>After redeploy, this panel changes from setup mode to a GitHub repo chooser.</p>
+          </div>
+        </article>
+      </div>
+    </details>
+  )
 }
 
 export function RepoSyncPanel({ initialState }: { initialState: PublicState }) {
@@ -147,6 +266,8 @@ export function RepoSyncPanel({ initialState }: { initialState: PublicState }) {
           </button>
         ) : null}
       </div>
+
+      {!connectStatus?.configured ? <GitHubSetupGuide status={connectStatus} /> : null}
 
       {state.githubRepos.length ? (
         <div className="sync-repo-list">
