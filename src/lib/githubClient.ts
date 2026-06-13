@@ -39,6 +39,7 @@ async function githubRequest<T>(path: string, token: string, init: RequestInit =
     headers: {
       accept: "application/vnd.github+json",
       authorization: `Bearer ${token}`,
+      "user-agent": "infra-cost-analyzer",
       "x-github-api-version": "2022-11-28",
       ...(init.headers ?? {}),
     },
