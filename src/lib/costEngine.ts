@@ -5,28 +5,6 @@ import { listVercelBillingCharges } from "./vercelClient"
 import { listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
 
-const BASE_MONTHLY_COST: Partial<Record<Provider, number>> = {
-  github: 4,
-  vercel: 28,
-  aws: 96,
-  gcp: 88,
-  azure: 92,
-  cloudflare: 18,
-  digitalocean: 24,
-  docker: 0,
-}
-
-const SERVICE_NAME: Partial<Record<Provider, string>> = {
-  github: "Actions and repository services",
-  vercel: "Frontend hosting and serverless usage",
-  aws: "Cloud resources matched from IaC",
-  gcp: "Google Cloud project usage",
-  azure: "Azure subscription usage",
-  cloudflare: "Workers, Pages, D1, R2, and network",
-  digitalocean: "App Platform, Droplets, and bandwidth",
-  docker: "Container image evidence",
-}
-
 function period() {
   const now = new Date()
   const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
@@ -35,60 +13,6 @@ function period() {
     from: from.toISOString().slice(0, 10),
     to: to.toISOString().slice(0, 10),
   }
-}
-
-function scoreToCost(signal: RepoSignal, providerSignalIndex: number): number {
-  const base = BASE_MONTHLY_COST[signal.provider] ?? 12
-  if (base === 0) return 0
-  const multiplier = 0.55 + signal.confidence * 0.7
-  const diminishing = Math.max(0.28, 1 - providerSignalIndex * 0.16)
-  return Number((base * multiplier * diminishing).toFixed(2))
-}
-
-function attributionFor(signal: RepoSignal): { attribution: NormalizedCostRow["attribution"]; reason: string } {
-  if (signal.confidence >= 0.96) {
-    return {
-      attribution: "verified",
-      reason: "Strong repo-level deployment configuration was found. Provider billing access can turn this into exact live cost.",
-    }
-  }
-  if (signal.confidence >= 0.86) {
-    return {
-      attribution: "user_confirmed",
-      reason: "Infrastructure-as-code or workflow evidence is strong, but a provider resource mapping should be confirmed.",
-    }
-  }
-  return {
-    attribution: "inferred",
-    reason: "Detected from names, package references, workflow commands, or documentation. Treat as probable until connected.",
-  }
-}
-
-export function estimateCosts(signals: RepoSignal[]): NormalizedCostRow[] {
-  const currentPeriod = period()
-  const providerCounts = new Map<Provider, number>()
-
-  return signals
-    .filter((signal) => signal.provider !== "unknown" && signal.provider !== "docker")
-    .map((signal) => {
-      const index = providerCounts.get(signal.provider) ?? 0
-      providerCounts.set(signal.provider, index + 1)
-      const attribution = attributionFor(signal)
-      return {
-        provider: signal.provider,
-        serviceName: SERVICE_NAME[signal.provider] ?? "Provider cost",
-        resourceId: signal.matchedResource ? `${signal.provider}/${signal.matchedResource}` : null,
-        resourceName: signal.matchedResource ?? signal.sourcePath,
-        billingPeriodStart: currentPeriod.from,
-        billingPeriodEnd: currentPeriod.to,
-        cost: scoreToCost(signal, index),
-        currency: "USD",
-        attribution: attribution.attribution,
-        attributionReason: attribution.reason,
-        signalId: signal.id,
-        source: "estimate",
-      }
-    })
 }
 
 export function summarizeByProvider(costRows: NormalizedCostRow[], signals: RepoSignal[]): ProviderBreakdown[] {
@@ -131,7 +55,7 @@ export async function buildAnalysis(
   userId = "usr_test"
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
-  return finalizeAnalysis(repoScan, env, workspace, estimateCosts(repoScan.signals), [])
+  return finalizeAnalysis(repoScan, env, workspace, [], [])
 }
 
 export async function buildAnalysisWithLiveData(
@@ -139,19 +63,13 @@ export async function buildAnalysisWithLiveData(
   env: NodeJS.ProcessEnv,
   userId: string
 ): Promise<AnalysisResult> {
-  const estimatedRows = estimateCosts(repoScan.signals)
   const workspace = await readWorkspace(userId)
   const results = await Promise.all([
     loadVercelLive(workspace, repoScan),
     loadCloudflareLive(workspace),
     loadGcpLive(workspace),
   ])
-  let costRows = estimatedRows
-  for (const result of results) {
-    if (result.rows.length > 0) {
-      costRows = [...costRows.filter((row) => row.provider !== result.sync.provider), ...result.rows]
-    }
-  }
+  const costRows = results.flatMap((result) => result.rows)
   return finalizeAnalysis(repoScan, env, workspace, costRows, results.map((result) => result.sync))
 }
 
@@ -237,7 +155,7 @@ async function loadVercelLive(
         sync: {
           provider: "vercel",
           status: "empty",
-          message: "Vercel billing returned no charge rows for the current month. Keeping estimated Vercel rows.",
+          message: "Vercel billing returned no charge rows for the current month.",
           rows: 0,
           syncedAt: new Date().toISOString(),
         },
@@ -249,7 +167,7 @@ async function loadVercelLive(
       sync: {
         provider: "vercel",
         status: "success",
-        message: `Loaded ${rows.length} live Vercel billing rows. Estimated Vercel rows were replaced.`,
+        message: `Loaded ${rows.length} live Vercel billing rows.`,
         rows: rows.length,
         syncedAt: new Date().toISOString(),
       },
@@ -260,7 +178,7 @@ async function loadVercelLive(
       sync: {
         provider: "vercel",
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to sync Vercel billing. Keeping estimated Vercel rows.",
+        message: error instanceof Error ? error.message : "Failed to sync Vercel billing.",
         rows: 0,
         syncedAt: new Date().toISOString(),
       },
@@ -355,7 +273,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
         sync: {
           provider: "cloudflare",
           status: "empty",
-          message: "Cloudflare returned no paid subscriptions for this account. Keeping estimated Cloudflare rows.",
+          message: "Cloudflare returned no paid subscriptions for this account.",
           rows: 0,
           syncedAt: new Date().toISOString(),
         },
@@ -367,7 +285,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
       sync: {
         provider: "cloudflare",
         status: "success",
-        message: `Loaded ${rows.length} live Cloudflare subscription rows. Estimated Cloudflare rows were replaced.`,
+        message: `Loaded ${rows.length} live Cloudflare subscription rows.`,
         rows: rows.length,
         syncedAt: new Date().toISOString(),
       },
@@ -378,7 +296,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
       sync: {
         provider: "cloudflare",
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to sync Cloudflare subscriptions. Keeping estimated rows.",
+        message: error instanceof Error ? error.message : "Failed to sync Cloudflare subscriptions.",
         rows: 0,
         syncedAt: new Date().toISOString(),
       },
@@ -429,7 +347,7 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
         sync: {
           provider: "gcp",
           status: "empty",
-          message: "The billing export has no cost rows for the current month yet. Keeping estimated GCP rows.",
+          message: "The billing export has no cost rows for the current month yet.",
           rows: 0,
           syncedAt: new Date().toISOString(),
         },
@@ -441,7 +359,7 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
       sync: {
         provider: "gcp",
         status: "success",
-        message: `Loaded ${rows.length} live Google Cloud cost rows from the billing export. Estimated GCP rows were replaced.`,
+        message: `Loaded ${rows.length} live Google Cloud cost rows from the billing export.`,
         rows: rows.length,
         syncedAt: new Date().toISOString(),
       },
@@ -452,7 +370,7 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
       sync: {
         provider: "gcp",
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to query the GCP billing export. Keeping estimated rows.",
+        message: error instanceof Error ? error.message : "Failed to query the GCP billing export.",
         rows: 0,
         syncedAt: new Date().toISOString(),
       },
@@ -533,7 +451,7 @@ function buildActions(signals: RepoSignal[], costRows: NormalizedCostRow[]): str
   ]
 
   for (const provider of providers) {
-    actions.push(`Connect ${provider.toUpperCase()} billing access to replace estimated ${provider} rows with live provider costs.`)
+    actions.push(`Connect ${provider.toUpperCase()} billing access to show live provider costs.`)
   }
   if (inferred.length > 0) {
     actions.push(`Review ${inferred.length} inferred mappings and confirm or ignore them before using these numbers for chargeback.`)

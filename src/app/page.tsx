@@ -80,14 +80,6 @@ function providerRows(provider: Provider, rows: NormalizedCostRow[]) {
   return rows.filter((row) => row.provider === provider)
 }
 
-function hasLiveRows(rows: NormalizedCostRow[]) {
-  return rows.some((row) => row.source === "live")
-}
-
-function costModeLabel(rows: NormalizedCostRow[]) {
-  return hasLiveRows(rows) ? "Live billing + estimates" : "Repo-based estimate"
-}
-
 function statusText(connection: ProviderConnection) {
   if (connection.status === "connected") return "Connected"
   if (connection.detected) return "Detected"
@@ -134,7 +126,6 @@ function RepositoryDashboard({
   const knownRepo = currentRepoFullName(analysis)
   const knownTotal = repos.some((repo) => repo.fullName === knownRepo) ? analysis.summary.totalCost : 0
   const providerCount = new Set(analysis.providerConnections.filter((connection) => connection.detected).map((connection) => connection.provider)).size
-  const estimateOnly = !hasLiveRows(analysis.costRows)
 
   return (
     <>
@@ -144,9 +135,8 @@ function RepositoryDashboard({
           <h1>{repos.length} repos</h1>
         </div>
         <div className="repo-home-metric">
-          <span>{estimateOnly ? "Estimated MTD" : "Known MTD cost"}</span>
+          <span>Live MTD cost</span>
           <strong>{money(knownTotal)}</strong>
-          {estimateOnly ? <small>Not actual billing</small> : null}
         </div>
         <div className="repo-home-metric">
           <span>Detected providers</span>
@@ -167,7 +157,7 @@ function RepositoryDashboard({
               <p>{repo.defaultBranch}</p>
               <div className="repo-card-metrics">
                 <strong>{hasCost ? money(analysis.summary.totalCost) : "Pending scan"}</strong>
-                <span>{hasCost ? `${costModeLabel(analysis.costRows)} · ${analysis.summary.signals} signals` : "Synced, awaiting remote scan"}</span>
+                <span>{hasCost ? `Live billing only · ${analysis.summary.signals} repo signals` : "Synced, awaiting remote scan"}</span>
               </div>
             </a>
           )
@@ -183,15 +173,14 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
   const rows = providerRows(connection.provider, analysis.costRows)
   const signals = providerSignals(connection.provider, analysis.signals)
   const total = providerTotal(connection.provider, analysis.costRows)
-  const live = rows.some((row) => row.source === "live")
 
   return (
     <details className="provider-accordion" open={connection.detected || rows.length > 0}>
       <summary>
         <span className={providerClass(connection.provider)}>{PROVIDER_LABELS[connection.provider]}</span>
         <div>
-          <strong>{money(total)}</strong>
-          <small>{live ? "Live billing rows" : "Estimated from repo evidence"} · {statusText(connection)} · {signals.length} repo signals · {rows.length} rows</small>
+          <strong>{rows.length ? money(total) : "No live cost"}</strong>
+          <small>{statusText(connection)} · {signals.length} repo signals · {rows.length} live billing rows</small>
         </div>
         <ChevronDown aria-hidden />
       </summary>
@@ -202,16 +191,10 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
             <span>{connection.setupNotes}</span>
           </div>
         ) : null}
-        {!live && rows.length > 0 ? (
-          <div className="provider-warning estimate-warning">
-            <ShieldAlert aria-hidden />
-            <span>These are not actual charges. They are rough estimates from repository files. Connect this provider's billing data to replace estimates with live cost rows.</span>
-          </div>
-        ) : null}
 
         <div className="provider-detail-grid">
           <section>
-            <h3>{live ? "Resources and cost" : "Estimated resources"}</h3>
+            <h3>Live resources and cost</h3>
             {rows.length ? (
               <div className="resource-list">
                 {rows.map((row) => (
@@ -219,7 +202,7 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
                     <div>
                       <strong>{row.serviceName}</strong>
                       <span>{row.resourceName ?? row.resourceId ?? "Unmapped resource"}</span>
-                      <small>{row.source === "live" ? "Actual billing row" : `Estimate · ${row.attribution.replace("_", " ")}`}</small>
+                      <small>Actual billing row · {row.attribution.replace("_", " ")}</small>
                     </div>
                     <b>{money(row.cost)}</b>
                   </article>
@@ -228,7 +211,7 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
             ) : (
               <div className="empty-provider-block">
                 <DatabaseZap aria-hidden />
-                <span>No cost rows for this provider yet.</span>
+                <span>No live billing rows for this provider yet. Connect the provider or add the required billing export to show actual costs.</span>
               </div>
             )}
           </section>
@@ -271,7 +254,6 @@ function RepoDetail({
   const scannedRepo = currentRepoFullName(analysis)
   const selectedName = repo?.fullName ?? scannedRepo
   const hasScan = selectedName === scannedRepo
-  const estimateOnly = !hasLiveRows(analysis.costRows)
   const relevantProviders = analysis.providerConnections.filter((connection) => {
     return connection.detected || connection.status === "connected" || providerRows(connection.provider, analysis.costRows).length > 0
   })
@@ -291,9 +273,8 @@ function RepoDetail({
         </div>
         <div className="repo-detail-totals">
           <div>
-            <span>{estimateOnly ? "Estimated MTD" : "MTD cost"}</span>
+            <span>Live MTD cost</span>
             <strong>{hasScan ? money(analysis.summary.totalCost) : "Pending"}</strong>
-            {hasScan && estimateOnly ? <small>Not actual billing</small> : null}
           </div>
           <div>
             <span>Providers</span>
@@ -313,8 +294,8 @@ function RepoDetail({
             <div className="deep-dive-heading">
               <div>
                 <p>Hosting Providers</p>
-                <h2>Expand a provider for {estimateOnly ? "repo-based estimates" : "resources and cost breakdown"}</h2>
-                {estimateOnly ? <span className="estimate-banner">No provider billing source is connected for this repo yet. Amounts below are rough estimates from repo evidence, not your actual bill.</span> : null}
+                <h2>Expand a provider for live cost rows and repo evidence</h2>
+                <span className="live-cost-note">Repo scan detects providers, but dollar amounts appear only from connected billing sources. No estimates are shown.</span>
               </div>
               <CheckCircle2 aria-hidden />
             </div>

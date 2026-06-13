@@ -158,7 +158,7 @@ export function ProviderConnectPanel({
       <div className="provider-connect-head">
         <div>
           <p>Live Billing Connections</p>
-          <h2>Connect providers to replace estimates with actual costs</h2>
+          <h2>Connect providers to show actual costs</h2>
         </div>
         <PlugZap aria-hidden />
       </div>
@@ -179,7 +179,7 @@ export function ProviderConnectPanel({
                   <ConnectedProviderState provider="vercel" connection={saved} detail="Vercel billing will be used when Vercel returns matching charge rows." />
                 ) : (
                   <>
-                    <p>Use Vercel billing charges to replace repo-based Vercel estimates with live rows.</p>
+                    <p>Use Vercel billing charges to show live Vercel cost rows.</p>
                     {vercelOAuthStatus?.configured ? (
                       <button type="button" className="command-button" disabled={Boolean(busy)} onClick={() => { window.location.href = "/api/vercel/oauth/start" }}>
                         <KeyRound aria-hidden />
@@ -236,10 +236,10 @@ export function ProviderConnectPanel({
                   <strong>{connected ? saved?.accountLabel : "Connect Cloudflare billing"}</strong>
                 </div>
                 {connected && saved ? (
-                  <ConnectedProviderState provider="cloudflare" connection={saved} detail="Cloudflare subscriptions are available for live billing replacement when the token has billing access." />
+                  <ConnectedProviderState provider="cloudflare" connection={saved} detail="Cloudflare subscriptions are available when the token has billing access." />
                 ) : (
                   <>
-                    <p>Create a scoped token, paste it here, and Cloudflare rows will replace Cloudflare estimates.</p>
+                    <p>Create a scoped token, paste it here, and Cloudflare rows will show actual subscription costs.</p>
                     <a className="command-button" href={CLOUDFLARE_TOKEN_URL} target="_blank" rel="noreferrer">
                       <ExternalLink aria-hidden />
                       Create Cloudflare token

@@ -58,7 +58,7 @@ export interface NormalizedCostRow {
   attribution: Attribution
   attributionReason: string
   signalId: string | null
-  source?: "estimate" | "live"
+  source?: "live"
 }
 
 export interface ProviderBreakdown {

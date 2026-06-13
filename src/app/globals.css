@@ -1882,11 +1882,7 @@ th {
   font-size: 12px;
 }
 
-.estimate-warning {
-  background: #f7d9d4;
-}
-
-.estimate-banner {
+.live-cost-note {
   display: block;
   max-width: 820px;
   margin-top: 8px;

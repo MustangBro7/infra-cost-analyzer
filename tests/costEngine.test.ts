@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { buildAnalysis, buildAnalysisWithLiveData, estimateCosts, summarizeByProvider } from "../src/lib/costEngine"
-import type { RepoSignal } from "../src/lib/types"
+import { buildAnalysis, buildAnalysisWithLiveData, summarizeByProvider } from "../src/lib/costEngine"
+import type { NormalizedCostRow, RepoSignal } from "../src/lib/types"
 
 const signals: RepoSignal[] = [
   {
@@ -34,23 +34,42 @@ const signals: RepoSignal[] = [
   },
 ]
 
-test("estimateCosts creates normalized rows with confidence-based attribution", () => {
-  const rows = estimateCosts(signals)
-  assert.equal(rows.length, 3)
-  assert.equal(rows[0].provider, "vercel")
-  assert.equal(rows[0].attribution, "verified")
-  assert.equal(rows[1].attribution, "user_confirmed")
-  assert.equal(rows[2].attribution, "inferred")
-  assert.equal(rows.every((row) => row.currency === "USD"), true)
-})
-
-test("summarizeByProvider separates exact and inferred cost", () => {
-  const rows = estimateCosts(signals)
+test("summarizeByProvider separates exact and inferred cost from supplied rows", () => {
+  const rows: NormalizedCostRow[] = [
+    {
+      provider: "cloudflare",
+      serviceName: "Cloudflare Workers",
+      resourceId: null,
+      resourceName: "acme",
+      billingPeriodStart: "2026-06-01",
+      billingPeriodEnd: "2026-06-30",
+      cost: 20,
+      currency: "USD",
+      attribution: "verified",
+      attributionReason: "Live billing row",
+      signalId: "cloudflare-live:1",
+      source: "live",
+    },
+    {
+      provider: "cloudflare",
+      serviceName: "Cloudflare usage",
+      resourceId: null,
+      resourceName: "acme",
+      billingPeriodStart: "2026-06-01",
+      billingPeriodEnd: "2026-06-30",
+      cost: 2,
+      currency: "USD",
+      attribution: "inferred",
+      attributionReason: "Supplied by caller",
+      signalId: "cloudflare-live:2",
+      source: "live",
+    },
+  ]
   const breakdown = summarizeByProvider(rows, signals)
   const cloudflare = breakdown.find((row) => row.provider === "cloudflare")
   assert.ok(cloudflare)
-  assert.equal(cloudflare.exact, 0)
-  assert.equal(cloudflare.inferred > 0, true)
+  assert.equal(cloudflare.exact, 20)
+  assert.equal(cloudflare.inferred, 2)
 })
 
 test("buildAnalysis reports provider setup state from env", async () => {
@@ -71,6 +90,8 @@ test("buildAnalysis reports provider setup state from env", async () => {
   const aws = analysis.providerConnections.find((provider) => provider.provider === "aws")
   assert.equal(vercel?.status, "connected")
   assert.equal(aws?.status, "setup_required")
+  assert.equal(analysis.summary.totalCost, 0)
+  assert.equal(analysis.costRows.length, 0)
   assert.equal(analysis.summary.detectedProviders, 3)
 })
 
@@ -115,7 +136,7 @@ test("buildAnalysis prefers saved provider connection state", async () => {
   }
 })
 
-test("buildAnalysisWithLiveData replaces estimated Vercel rows with live billing rows", async () => {
+test("buildAnalysisWithLiveData uses only live Vercel billing rows for cost", async () => {
   const { mkdtempSync, rmSync } = await import("node:fs")
   const { tmpdir } = await import("node:os")
   const path = await import("node:path")
