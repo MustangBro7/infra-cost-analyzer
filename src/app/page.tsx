@@ -73,20 +73,34 @@ function quantity(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)
 }
 
-function FreeTierUsage({ rows, hasCost }: { rows: FreeTierUsageRow[]; hasCost: boolean }) {
+function FreeTierUsage({
+  rows,
+  hasCost,
+  costDataOff = false,
+}: {
+  rows: FreeTierUsageRow[]
+  hasCost: boolean
+  costDataOff?: boolean
+}) {
   if (!rows.length) return null
   const planName = rows[0].planName
+  const heading = costDataOff
+    ? `Free-tier usage — ${planName}`
+    : hasCost
+      ? `Free-tier allowance — ${planName}`
+      : `On the free tier — ${planName}`
+  const subtext = costDataOff
+    ? "Free-tier usage only. Spend is not pulled, so this is not your full cost."
+    : hasCost
+      ? "Live usage this period against each free allowance, shown alongside the billed cost above."
+      : "No billed cost this period. Here is how much of the free allowance is left."
   return (
     <div className="free-tier-block">
       <div className="free-tier-head">
         <Gauge aria-hidden />
         <div>
-          <strong>{hasCost ? `Free-tier allowance — ${planName}` : `On the free tier — ${planName}`}</strong>
-          <span>
-            {hasCost
-              ? "Live usage this period against each free allowance, shown alongside the billed cost above."
-              : "No billed cost this period. Here is how much of the free allowance is left."}
-          </span>
+          <strong>{heading}</strong>
+          <span>{subtext}</span>
         </div>
       </div>
       <div className="free-tier-list">
@@ -207,7 +221,15 @@ function RepositoryDashboard({
   )
 }
 
-function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult; connection: ProviderConnection }) {
+function ProviderAccordion({
+  analysis,
+  connection,
+  costDataOff = false,
+}: {
+  analysis: AnalysisResult
+  connection: ProviderConnection
+  costDataOff?: boolean
+}) {
   const rows = providerRows(connection.provider, analysis.costRows)
   const signals = providerSignals(connection.provider, analysis.signals)
   const total = providerTotal(connection.provider, analysis.costRows)
@@ -226,10 +248,14 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
       <summary>
         <ProviderLogo provider={connection.provider} />
         <div>
-          <strong>{hasCost ? money(total) : hasUsage ? "Free tier" : "No live cost"}</strong>
+          <strong>{hasCost ? money(total) : costDataOff ? "Cost data off" : hasUsage ? "Free tier" : "No live cost"}</strong>
           <small>
             {statusText(connection)} · {signals.length} repo signals ·{" "}
-            {hasCost ? `${rows.length} live billing rows` : `${freeTier.length} free-tier allowances`}
+            {hasCost
+              ? `${rows.length} live billing rows`
+              : costDataOff
+                ? "spend not pulled — enable cost data"
+                : `${freeTier.length} free-tier allowances`}
             {hasCost && hasUsage ? " · usage tracked" : ""}
           </small>
         </div>
@@ -252,6 +278,16 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
         <div className="provider-detail-grid">
           <section>
             <h3>Live resources and cost</h3>
+            {costDataOff ? (
+              <div className="provider-warning">
+                <ShieldAlert aria-hidden />
+                <span>
+                  Cost data is off, so your AWS spend isn’t shown — this is not a confirmation that everything is free.
+                  If you have paid resources running, turn on <b>Pull cost data</b> on the AWS card above ($0.01 per
+                  refresh) to see your actual cost.
+                </span>
+              </div>
+            ) : null}
             {hasCost ? (
               <div className="resource-list">
                 {rows.map((row) => (
@@ -265,13 +301,13 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
                   </article>
                 ))}
               </div>
-            ) : !hasUsage ? (
+            ) : !hasUsage && !costDataOff ? (
               <div className="empty-provider-block">
                 <DatabaseZap aria-hidden />
                 <span>No live billing rows for this provider yet. Connect the provider or add the required billing export to show actual costs.</span>
               </div>
             ) : null}
-            {hasUsage ? <FreeTierUsage rows={freeTier} hasCost={hasCost} /> : null}
+            {hasUsage ? <FreeTierUsage rows={freeTier} hasCost={hasCost} costDataOff={costDataOff} /> : null}
           </section>
           <section>
             <h3>Repo evidence</h3>
@@ -357,9 +393,16 @@ function RepoDetail({
               </div>
               <CheckCircle2 aria-hidden />
             </div>
-            {relevantProviders.map((connection) => (
-              <ProviderAccordion key={connection.provider} analysis={analysis} connection={connection} />
-            ))}
+            {relevantProviders.map((connection) => {
+              const meta = state.connections[connection.provider]?.metadata as { costExplorer?: boolean } | undefined
+              // AWS only pulls spend when Cost Explorer is opted in; otherwise we
+              // have not checked cost, so don't imply "free tier".
+              const costDataOff =
+                connection.provider === "aws" && connection.status === "connected" && meta?.costExplorer !== true
+              return (
+                <ProviderAccordion key={connection.provider} analysis={analysis} connection={connection} costDataOff={costDataOff} />
+              )
+            })}
           </section>
         </>
       ) : (
