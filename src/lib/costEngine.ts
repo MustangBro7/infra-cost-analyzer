@@ -1,5 +1,6 @@
 import type {
   AnalysisResult,
+  FreeTierUsageRow,
   NormalizedCostRow,
   Provider,
   ProviderBreakdown,
@@ -10,8 +11,9 @@ import type {
 import { buildProviderConnections } from "./providerCatalog"
 import { computeFreeTierUsage } from "./freeTier"
 import { readWorkspace } from "./localStore"
+import { getAwsFreeTierUsage, type AwsCredentials } from "./awsClient"
 import { listVercelBillingCharges } from "./vercelClient"
-import { listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
+import { getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
 
 function period() {
@@ -64,7 +66,7 @@ export async function buildAnalysis(
   userId = "usr_test"
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
-  return finalizeAnalysis(repoScan, env, workspace, [], [], [])
+  return finalizeAnalysis(repoScan, env, workspace, [], [], [], [])
 }
 
 export async function buildAnalysisWithLiveData(
@@ -73,10 +75,9 @@ export async function buildAnalysisWithLiveData(
   userId: string
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
-  const results = await Promise.all([
-    loadVercelLive(workspace, repoScan),
-    loadCloudflareLive(workspace),
-    loadGcpLive(workspace),
+  const [results, awsFreeTier] = await Promise.all([
+    Promise.all([loadVercelLive(workspace, repoScan), loadCloudflareLive(workspace), loadGcpLive(workspace)]),
+    loadAwsFreeTier(workspace),
   ])
   const costRows = results.flatMap((result) => result.rows)
   const usage = results.flatMap((result) => result.usage)
@@ -86,7 +87,8 @@ export async function buildAnalysisWithLiveData(
     workspace,
     costRows,
     usage,
-    results.map((result) => result.sync)
+    results.map((result) => result.sync),
+    awsFreeTier
   )
 }
 
@@ -96,7 +98,8 @@ function finalizeAnalysis(
   workspace: WorkspaceStore,
   costRows: NormalizedCostRow[],
   usage: ProviderUsageSample[],
-  liveSync: AnalysisResult["liveSync"]
+  liveSync: AnalysisResult["liveSync"],
+  providerFreeTier: FreeTierUsageRow[]
 ): AnalysisResult {
   const providerBreakdown = summarizeByProvider(costRows, repoScan.signals)
   const exactCost = costRows
@@ -125,7 +128,7 @@ function finalizeAnalysis(
     providerConnections,
     providerBreakdown,
     costRows,
-    freeTier: computeFreeTierUsage(costRows, usage, providerConnections),
+    freeTier: [...computeFreeTierUsage(costRows, usage, providerConnections), ...providerFreeTier],
     actions,
     liveSync,
   }
@@ -282,6 +285,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
     }
 
     const rows: NormalizedCostRow[] = []
+    const usage: ProviderUsageSample[] = []
     const errors: string[] = []
     for (const account of accounts.slice(0, 5)) {
       try {
@@ -290,6 +294,11 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
       } catch (error) {
         errors.push(error instanceof Error ? error.message : "Unknown Cloudflare subscriptions error.")
       }
+      // Account usage is best-effort and never fails the sync.
+      const accountUsage = await getCloudflareAccountUsage(cloudflare.accessToken, account.id, currentPeriod)
+      usage.push(
+        ...accountUsage.map((sample) => ({ provider: "cloudflare" as const, service: sample.service, quantity: sample.quantity, unit: sample.unit }))
+      )
     }
 
     if (rows.length === 0 && errors.length > 0) {
@@ -298,7 +307,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
     if (rows.length === 0) {
       return {
         rows: [],
-        usage: [],
+        usage,
         sync: {
           provider: "cloudflare",
           status: "empty",
@@ -311,7 +320,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
 
     return {
       rows,
-      usage: [],
+      usage,
       sync: {
         provider: "cloudflare",
         status: "success",
@@ -417,6 +426,50 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
         syncedAt: new Date().toISOString(),
       },
     }
+  }
+}
+
+/**
+ * Pulls AWS free-tier consumption from the AWS Free Tier Usage API. AWS reports
+ * actual usage and the limit directly, so these rows are authoritative (no
+ * static allowance catalog needed). Credentials are stored as JSON in the
+ * connection's accessToken by the AWS connector. Best-effort: any failure
+ * yields no rows rather than breaking the analysis.
+ */
+async function loadAwsFreeTier(workspace: WorkspaceStore): Promise<FreeTierUsageRow[]> {
+  const aws = workspace.connections.aws
+  if (!aws?.accessToken || aws.status !== "connected") return []
+
+  let credentials: AwsCredentials
+  try {
+    credentials = JSON.parse(aws.accessToken) as AwsCredentials
+  } catch {
+    return []
+  }
+  if (!credentials.accessKeyId || !credentials.secretAccessKey) return []
+
+  try {
+    const usage = await getAwsFreeTierUsage(credentials)
+    return usage.map((item): FreeTierUsageRow => {
+      const used = Number(item.actualUsageAmount.toFixed(2))
+      const limit = Number(item.limit.toFixed(2))
+      const remaining = Number(Math.max(limit - used, 0).toFixed(2))
+      const percentUsed = limit > 0 ? Number(Math.min((used / limit) * 100, 100).toFixed(1)) : 0
+      return {
+        provider: "aws",
+        planName: "AWS Free Tier",
+        service: item.description || item.service,
+        used,
+        limit,
+        unit: item.unit,
+        remaining,
+        percentUsed,
+        source: "measured",
+        note: `Live AWS Free Tier usage (${item.freeTierType}) reported for ${item.service}.`,
+      }
+    })
+  } catch {
+    return []
   }
 }
 

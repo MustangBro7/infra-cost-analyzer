@@ -19,9 +19,15 @@ Standalone repository-aware infrastructure cost analyzer. This project lives ins
   dashboard renders from the database instead of re-scanning GitHub and re-pulling
   provider billing on every page load. Live data is refreshed out-of-band by the
   client (and on demand) via `POST /api/analyze/refresh`.
-- Shows free-tier usage remaining for any connected provider whose cost is $0:
-  measured consumption (Vercel FOCUS quantities, GCP billing-export usage) is
-  compared against the provider's published free-tier allowance.
+- Shows free-tier usage remaining for any connected provider whose cost is $0,
+  using real measured consumption:
+  - AWS: the Free Tier Usage API (`GetFreeTierUsage`) — actual vs limit per service.
+  - GCP: usage amounts from the BigQuery billing export.
+  - Vercel: FOCUS `ConsumedQuantity` from the billing charges endpoint.
+  - Cloudflare: Workers request volume from the GraphQL Analytics API.
+  Measured usage is compared against each provider's published free-tier
+  allowance (AWS reports its own limits directly). When a provider does not
+  report a given metric, the allowance is shown without inventing a usage number.
 - Exposes `GET /api/analyze` for JSON output (cached snapshot; `?refresh=1` to recompute).
 - Exposes `GET /api/providers` for supported provider setup metadata.
 - Ships a production dashboard that can be deployed independently.

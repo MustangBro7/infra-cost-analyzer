@@ -3,6 +3,7 @@ import { scanRepositorySafe } from "./repoScanner"
 import { listVercelProjects, verifyVercelToken } from "./vercelClient"
 import { verifyCloudflareToken } from "./cloudflareClient"
 import { discoverBillingExportTable, normalizeBillingExportTableId, verifyGcpServiceAccount } from "./gcpClient"
+import { verifyAwsCredentials, type AwsCredentials } from "./awsClient"
 
 export async function connectGithubLocal(userId: string) {
   const scan = scanRepositorySafe()
@@ -131,6 +132,25 @@ export async function connectGcpKey(userId: string, keyJson: string, billingExpo
   }
 }
 
+export async function connectAwsKeys(userId: string, credentials: AwsCredentials) {
+  const verified = await verifyAwsCredentials(credentials)
+  await upsertConnection(userId, {
+    provider: "aws",
+    status: "connected",
+    accountLabel: verified.accountId ? `AWS ${verified.accountId}` : "AWS account",
+    // Stored server-side only; publicStore never exposes accessToken.
+    accessToken: JSON.stringify(credentials),
+    connectedAt: new Date().toISOString(),
+    lastVerifiedAt: new Date().toISOString(),
+    lastError: null,
+    metadata: {
+      accountId: verified.accountId,
+      arn: verified.arn,
+    },
+  })
+  return { accountLabel: verified.accountId ? `AWS ${verified.accountId}` : "AWS account" }
+}
+
 function decodeMaybeBase64(value: string) {
   const trimmed = value.trim()
   if (trimmed.startsWith("{")) return trimmed
@@ -150,6 +170,7 @@ function decodeMaybeBase64(value: string) {
  * Supported env vars:
  *   VERCEL_TOKEN (+ VERCEL_TEAM_ID / VERCEL_TEAM_SLUG)
  *   CLOUDFLARE_API_TOKEN
+ *   AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (+ optional AWS_SESSION_TOKEN)
  *   GCP_SERVICE_ACCOUNT_KEY (raw or base64 JSON) + optional GCP_BILLING_EXPORT_TABLE
  */
 export async function autoConnectFromEnv(userId: string): Promise<Array<{ provider: string; ok: boolean; detail: string }>> {
@@ -184,6 +205,19 @@ export async function autoConnectFromEnv(userId: string): Promise<Array<{ provid
       provider: "cloudflare",
       run: async () => {
         const result = await connectCloudflareToken(userId, process.env.CLOUDFLARE_API_TOKEN as string)
+        return result.accountLabel
+      },
+    })
+  }
+  if (workspace.connections.aws?.status !== "connected" && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    tasks.push({
+      provider: "aws",
+      run: async () => {
+        const result = await connectAwsKeys(userId, {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID as string,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY as string,
+          sessionToken: process.env.AWS_SESSION_TOKEN ?? null,
+        })
         return result.accountLabel
       },
     })

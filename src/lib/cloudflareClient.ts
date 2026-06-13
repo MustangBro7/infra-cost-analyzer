@@ -45,6 +45,60 @@ export async function listCloudflareSubscriptions(token: string, accountId: stri
   return result ?? []
 }
 
+export interface CloudflareUsage {
+  service: string
+  quantity: number
+  unit: string
+}
+
+/**
+ * Pulls real consumption for an account from the Cloudflare GraphQL Analytics
+ * API so free-tier usage can show actual-vs-limit. Currently reports Workers
+ * request volume for the period. Returns an empty list (not an error) when the
+ * token lacks Account Analytics: Read or the account has no Workers traffic, so
+ * the dashboard degrades to showing the published allowance only.
+ */
+export async function getCloudflareAccountUsage(
+  token: string,
+  accountId: string,
+  period: { from: string; to: string }
+): Promise<CloudflareUsage[]> {
+  const query = `query AccountUsage($accountTag: string!, $start: Date!, $end: Date!) {
+    viewer {
+      accounts(filter: { accountTag: $accountTag }) {
+        workersInvocationsAdaptiveGroups(limit: 10000, filter: { date_geq: $start, date_leq: $end }) {
+          sum { requests }
+        }
+      }
+    }
+  }`
+
+  let response: Response
+  try {
+    response = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ query, variables: { accountTag: accountId, start: period.from, end: period.to } }),
+    })
+  } catch {
+    return []
+  }
+
+  const payload = (await response.json().catch(() => null)) as {
+    data?: { viewer?: { accounts?: Array<{ workersInvocationsAdaptiveGroups?: Array<{ sum?: { requests?: number } }> }> } }
+    errors?: Array<{ message?: string }>
+  } | null
+  if (!response.ok || !payload || payload.errors?.length) return []
+
+  const groups = payload.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptiveGroups ?? []
+  const requests = groups.reduce((sum, group) => sum + (group.sum?.requests ?? 0), 0)
+  if (requests <= 0) return []
+  return [{ service: "Workers Requests", quantity: requests, unit: "requests" }]
+}
+
 export async function verifyCloudflareToken(token: string) {
   const verified = await cloudflareRequest<{ id: string; status: string }>("/user/tokens/verify", token)
   if (verified.status !== "active") {
