@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { ClipboardCopy, Cloud, CloudCog, ExternalLink, KeyRound, Loader2, PlugZap, ShieldAlert, Unplug } from "lucide-react"
+import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, KeyRound, Loader2, PlugZap, ShieldAlert, Unplug } from "lucide-react"
 import type { Provider, ProviderConnection } from "@/lib/types"
 
 type PublicConnection = {
@@ -82,6 +82,27 @@ function ProviderBadge({ provider }: { provider: Provider }) {
   return <span className={`provider provider-${provider}`}>{providerLabel(provider)}</span>
 }
 
+function ConnectedProviderState({
+  provider,
+  connection,
+  detail,
+}: {
+  provider: Provider
+  connection: PublicConnection
+  detail?: string | null
+}) {
+  return (
+    <div className="connected-provider-state">
+      <CheckCircle2 aria-hidden />
+      <div>
+        <strong>Connected to {connection.accountLabel || providerLabel(provider)}</strong>
+        <span>{detail || "Live billing connection is saved for this workspace."}</span>
+        {connection.lastVerifiedAt ? <small>Verified {new Date(connection.lastVerifiedAt).toLocaleString()}</small> : null}
+      </div>
+    </div>
+  )
+}
+
 export function ProviderConnectPanel({
   providerConnections,
   initialState,
@@ -154,49 +175,55 @@ export function ProviderConnectPanel({
                   <ProviderBadge provider="vercel" />
                   <strong>{connected ? saved?.accountLabel : "Connect Vercel billing"}</strong>
                 </div>
-                <p>Use Vercel billing charges to replace repo-based Vercel estimates with live rows.</p>
-                {vercelOAuthStatus?.configured ? (
-                  <button type="button" className="command-button" disabled={Boolean(busy)} onClick={() => { window.location.href = "/api/vercel/oauth/start" }}>
-                    <KeyRound aria-hidden />
-                    Connect Vercel
-                  </button>
+                {connected && saved ? (
+                  <ConnectedProviderState provider="vercel" connection={saved} detail="Vercel billing will be used when Vercel returns matching charge rows." />
                 ) : (
-                  <div className="mini-setup-box">
-                    <span>Vercel OAuth is not configured. Use a token for now.</span>
-                    {vercelOAuthStatus?.redirectUri ? <code>{vercelOAuthStatus.redirectUri}</code> : null}
-                  </div>
+                  <>
+                    <p>Use Vercel billing charges to replace repo-based Vercel estimates with live rows.</p>
+                    {vercelOAuthStatus?.configured ? (
+                      <button type="button" className="command-button" disabled={Boolean(busy)} onClick={() => { window.location.href = "/api/vercel/oauth/start" }}>
+                        <KeyRound aria-hidden />
+                        Connect Vercel
+                      </button>
+                    ) : (
+                      <div className="mini-setup-box">
+                        <span>Vercel OAuth is not configured. Use a token for now.</span>
+                        {vercelOAuthStatus?.redirectUri ? <code>{vercelOAuthStatus.redirectUri}</code> : null}
+                      </div>
+                    )}
+                    <form
+                      className="provider-token-form"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        run("vercel-connect", async () => {
+                          await jsonRequest("/api/vercel/connect", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              token: vercelToken,
+                              teamId: vercelScope.startsWith("team_") ? vercelScope : null,
+                              slug: vercelScope && !vercelScope.startsWith("team_") ? vercelScope : null,
+                            }),
+                          })
+                          setVercelToken("")
+                          setVercelScope("")
+                          setMessage("Vercel connected. Refreshing live billing rows.")
+                        })
+                      }}
+                    >
+                      <input type="password" value={vercelToken} onChange={(event) => setVercelToken(event.target.value)} placeholder="Vercel token" autoComplete="off" />
+                      <input type="text" value={vercelScope} onChange={(event) => setVercelScope(event.target.value)} placeholder="team id or slug, optional" autoComplete="off" />
+                      <button type="submit" className="command-button" disabled={Boolean(busy) || !vercelToken.trim()}>
+                        {busy === "vercel-connect" ? <Loader2 className="spin" aria-hidden /> : <KeyRound aria-hidden />}
+                        Verify
+                      </button>
+                    </form>
+                    <a className="ghost-button" href={VERCEL_TOKEN_URL} target="_blank" rel="noreferrer">
+                      <ExternalLink aria-hidden />
+                      Create Vercel token
+                    </a>
+                  </>
                 )}
-                <form
-                  className="provider-token-form"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    run("vercel-connect", async () => {
-                      await jsonRequest("/api/vercel/connect", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          token: vercelToken,
-                          teamId: vercelScope.startsWith("team_") ? vercelScope : null,
-                          slug: vercelScope && !vercelScope.startsWith("team_") ? vercelScope : null,
-                        }),
-                      })
-                      setVercelToken("")
-                      setVercelScope("")
-                      setMessage("Vercel connected. Refreshing live billing rows.")
-                    })
-                  }}
-                >
-                  <input type="password" value={vercelToken} onChange={(event) => setVercelToken(event.target.value)} placeholder="Vercel token" autoComplete="off" />
-                  <input type="text" value={vercelScope} onChange={(event) => setVercelScope(event.target.value)} placeholder="team id or slug, optional" autoComplete="off" />
-                  <button type="submit" className="command-button" disabled={Boolean(busy) || !vercelToken.trim()}>
-                    {busy === "vercel-connect" ? <Loader2 className="spin" aria-hidden /> : <KeyRound aria-hidden />}
-                    Verify
-                  </button>
-                </form>
-                <a className="ghost-button" href={VERCEL_TOKEN_URL} target="_blank" rel="noreferrer">
-                  <ExternalLink aria-hidden />
-                  Create Vercel token
-                </a>
               </article>
             )
           }
@@ -208,32 +235,38 @@ export function ProviderConnectPanel({
                   <ProviderBadge provider="cloudflare" />
                   <strong>{connected ? saved?.accountLabel : "Connect Cloudflare billing"}</strong>
                 </div>
-                <p>Create a scoped token, paste it here, and Cloudflare rows will replace Cloudflare estimates.</p>
-                <a className="command-button" href={CLOUDFLARE_TOKEN_URL} target="_blank" rel="noreferrer">
-                  <ExternalLink aria-hidden />
-                  Create Cloudflare token
-                </a>
-                <form
-                  className="provider-token-form single"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    run("cloudflare-connect", async () => {
-                      await jsonRequest("/api/cloudflare/connect", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ token: cloudflareToken }),
-                      })
-                      setCloudflareToken("")
-                      setMessage("Cloudflare connected. Refreshing live billing rows.")
-                    })
-                  }}
-                >
-                  <input type="password" value={cloudflareToken} onChange={(event) => setCloudflareToken(event.target.value)} placeholder="Cloudflare API token" autoComplete="off" />
-                  <button type="submit" className="command-button" disabled={Boolean(busy) || !cloudflareToken.trim()}>
-                    {busy === "cloudflare-connect" ? <Loader2 className="spin" aria-hidden /> : <CloudCog aria-hidden />}
-                    Verify
-                  </button>
-                </form>
+                {connected && saved ? (
+                  <ConnectedProviderState provider="cloudflare" connection={saved} detail="Cloudflare subscriptions are available for live billing replacement when the token has billing access." />
+                ) : (
+                  <>
+                    <p>Create a scoped token, paste it here, and Cloudflare rows will replace Cloudflare estimates.</p>
+                    <a className="command-button" href={CLOUDFLARE_TOKEN_URL} target="_blank" rel="noreferrer">
+                      <ExternalLink aria-hidden />
+                      Create Cloudflare token
+                    </a>
+                    <form
+                      className="provider-token-form single"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        run("cloudflare-connect", async () => {
+                          await jsonRequest("/api/cloudflare/connect", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ token: cloudflareToken }),
+                          })
+                          setCloudflareToken("")
+                          setMessage("Cloudflare connected. Refreshing live billing rows.")
+                        })
+                      }}
+                    >
+                      <input type="password" value={cloudflareToken} onChange={(event) => setCloudflareToken(event.target.value)} placeholder="Cloudflare API token" autoComplete="off" />
+                      <button type="submit" className="command-button" disabled={Boolean(busy) || !cloudflareToken.trim()}>
+                        {busy === "cloudflare-connect" ? <Loader2 className="spin" aria-hidden /> : <CloudCog aria-hidden />}
+                        Verify
+                      </button>
+                    </form>
+                  </>
+                )}
               </article>
             )
           }
@@ -245,37 +278,47 @@ export function ProviderConnectPanel({
                   <ProviderBadge provider="gcp" />
                   <strong>{connected ? saved?.accountLabel : "Connect Google Cloud billing"}</strong>
                 </div>
-                <p>Use a read-only service account and optional Billing Export table for actual GCP costs.</p>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => navigator.clipboard.writeText(GCP_SETUP_SCRIPT).then(() => setMessage("gcloud setup script copied."))}
-                >
-                  <ClipboardCopy aria-hidden />
-                  Copy gcloud setup script
-                </button>
-                <form
-                  className="provider-token-form stacked"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    run("gcp-connect", async () => {
-                      await jsonRequest("/api/gcp/connect", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ keyJson: gcpKeyJson, billingExportTable: gcpExportTable }),
-                      })
-                      setGcpKeyJson("")
-                      setMessage("Google Cloud connected. Refreshing live billing rows.")
-                    })
-                  }}
-                >
-                  <textarea value={gcpKeyJson} onChange={(event) => setGcpKeyJson(event.target.value)} placeholder='{"type":"service_account","project_id":"..."}' rows={4} spellCheck={false} />
-                  <input type="text" value={gcpExportTable} onChange={(event) => setGcpExportTable(event.target.value)} placeholder="billing export table, optional: project.dataset.gcp_billing_export_resource_v1_..." />
-                  <button type="submit" className="command-button" disabled={Boolean(busy) || !gcpKeyJson.trim()}>
-                    {busy === "gcp-connect" ? <Loader2 className="spin" aria-hidden /> : <Cloud aria-hidden />}
-                    Verify
-                  </button>
-                </form>
+                {connected && saved ? (
+                  <ConnectedProviderState
+                    provider="gcp"
+                    connection={saved}
+                    detail={(saved.metadata as { billingExportTable?: string | null }).billingExportTable ? "Billing export table is saved for live GCP cost rows." : "Project access is connected. Add a Billing Export table later to pull actual GCP costs."}
+                  />
+                ) : (
+                  <>
+                    <p>Use a read-only service account and optional Billing Export table for actual GCP costs.</p>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => navigator.clipboard.writeText(GCP_SETUP_SCRIPT).then(() => setMessage("gcloud setup script copied."))}
+                    >
+                      <ClipboardCopy aria-hidden />
+                      Copy gcloud setup script
+                    </button>
+                    <form
+                      className="provider-token-form stacked"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        run("gcp-connect", async () => {
+                          await jsonRequest("/api/gcp/connect", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ keyJson: gcpKeyJson, billingExportTable: gcpExportTable }),
+                          })
+                          setGcpKeyJson("")
+                          setMessage("Google Cloud connected. Refreshing live billing rows.")
+                        })
+                      }}
+                    >
+                      <textarea value={gcpKeyJson} onChange={(event) => setGcpKeyJson(event.target.value)} placeholder='{"type":"service_account","project_id":"..."}' rows={4} spellCheck={false} />
+                      <input type="text" value={gcpExportTable} onChange={(event) => setGcpExportTable(event.target.value)} placeholder="billing export table, optional: project.dataset.gcp_billing_export_resource_v1_..." />
+                      <button type="submit" className="command-button" disabled={Boolean(busy) || !gcpKeyJson.trim()}>
+                        {busy === "gcp-connect" ? <Loader2 className="spin" aria-hidden /> : <Cloud aria-hidden />}
+                        Verify
+                      </button>
+                    </form>
+                  </>
+                )}
               </article>
             )
           }
