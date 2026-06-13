@@ -205,6 +205,24 @@ export async function connectAwsKeys(
 }
 
 /**
+ * Toggles Cost Explorer pulling on an existing AWS connection. Cost Explorer
+ * bills $0.01/request, so this lets the user turn live spend on only when they
+ * want it. Preserves the stored credentials.
+ */
+export async function setAwsCostExplorer(userId: string, enabled: boolean) {
+  const workspace = await readWorkspace(userId)
+  const aws = workspace.connections.aws
+  if (!aws || aws.status !== "connected") {
+    throw new Error("AWS is not connected.")
+  }
+  await upsertConnection(userId, {
+    ...aws,
+    metadata: { ...aws.metadata, costExplorer: enabled },
+  })
+  return { costExplorer: enabled }
+}
+
+/**
  * Connects AWS using the credentials the AWS CLI already wrote to
  * ~/.aws/credentials (lowest-friction path: run `aws configure` once, then
  * click connect). Only works where the server has a real home directory.

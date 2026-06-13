@@ -83,7 +83,7 @@ test("buildAnalysisWithLiveData surfaces live AWS Free Tier usage rows", async (
     const awsRows = analysis.freeTier.filter((row) => row.provider === "aws")
     assert.equal(awsRows.length, 2)
 
-    const lambda = awsRows.find((row) => row.service === "Lambda requests")
+    const lambda = awsRows.find((row) => row.service === "AWS Lambda")
     assert.ok(lambda)
     assert.equal(lambda.used, 250000)
     assert.equal(lambda.limit, 1000000)

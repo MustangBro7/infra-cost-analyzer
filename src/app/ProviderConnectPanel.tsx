@@ -352,15 +352,49 @@ export function ProviderConnectPanel({
                   <strong>{connected ? saved?.accountLabel : "Connect AWS billing"}</strong>
                 </div>
                 {connected && saved ? (
-                  <ConnectedProviderState
-                    provider="aws"
-                    connection={saved}
-                    detail={
-                      (saved.metadata as { costExplorer?: boolean }).costExplorer
-                        ? "Live AWS cost (Cost Explorer, $0.01/refresh) and free-tier usage are pulled."
-                        : "Free-tier usage is pulled (free). Cost Explorer is off — reconnect with cost data enabled to pull spend."
-                    }
-                  />
+                  <>
+                    <ConnectedProviderState
+                      provider="aws"
+                      connection={saved}
+                      detail={
+                        (saved.metadata as { costExplorer?: boolean }).costExplorer
+                          ? "Live AWS cost (Cost Explorer) and free-tier usage are pulled. Cost Explorer bills ~$0.01 per refresh."
+                          : "Free-tier usage is pulled (free). Cost data is off."
+                      }
+                    />
+                    <button
+                      type="button"
+                      className={(saved.metadata as { costExplorer?: boolean }).costExplorer ? "ghost-button danger" : "command-button"}
+                      disabled={Boolean(busy)}
+                      onClick={() =>
+                        run("aws-cost-toggle", async () => {
+                          const enabled = !(saved.metadata as { costExplorer?: boolean }).costExplorer
+                          await jsonRequest("/api/aws/cost-explorer", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ enabled }),
+                          })
+                          // Re-pull the current repo's snapshot so the change shows immediately.
+                          const repo = new URLSearchParams(window.location.search).get("repo")
+                          await jsonRequest("/api/analyze/refresh", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ repo }),
+                          }).catch(() => {})
+                          setMessage(enabled ? "Cost data on — pulling AWS spend (~$0.01)." : "Cost data off — free-tier usage only.")
+                        })
+                      }
+                    >
+                      {busy === "aws-cost-toggle" ? (
+                        <Loader2 className="spin" aria-hidden />
+                      ) : (saved.metadata as { costExplorer?: boolean }).costExplorer ? (
+                        <Unplug aria-hidden />
+                      ) : (
+                        <Cloud aria-hidden />
+                      )}
+                      {(saved.metadata as { costExplorer?: boolean }).costExplorer ? "Turn off cost data" : "Pull cost data ($0.01/refresh)"}
+                    </button>
+                  </>
                 ) : (
                   <>
                     <p>Connect with your AWS CLI (incl. SSO) in one click, or paste an access key. Read-only: needs freetier:GetFreeTierUsage (free) and, for spend, ce:GetCostAndUsage.</p>
