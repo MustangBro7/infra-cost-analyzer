@@ -13,17 +13,22 @@ export async function POST(request: NextRequest) {
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string | null
+      costExplorer?: boolean
     }
     const accessKeyId = payload.accessKeyId?.trim()
     const secretAccessKey = payload.secretAccessKey?.trim()
     if (!accessKeyId || !secretAccessKey) {
       throw new Error("AWS access key ID and secret access key are required.")
     }
-    const result = await connectAwsKeys(user.id, {
-      accessKeyId,
-      secretAccessKey,
-      sessionToken: payload.sessionToken?.trim() || null,
-    })
+    const result = await connectAwsKeys(
+      user.id,
+      {
+        accessKeyId,
+        secretAccessKey,
+        sessionToken: payload.sessionToken?.trim() || null,
+      },
+      { costExplorer: payload.costExplorer === true }
+    )
     return NextResponse.json({ status: "connected", ...result })
   } catch (error) {
     if (error instanceof AuthRequiredError) {

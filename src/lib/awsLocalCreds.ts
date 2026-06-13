@@ -87,6 +87,36 @@ export function readLocalAwsCredentials(profileInput?: string | null): LocalAwsC
   }
 }
 
+/**
+ * Resolves usable credentials from the AWS CLI for the active/SSO session by
+ * running `aws configure export-credentials`. This handles SSO, assumed roles,
+ * and session tokens that are not written as static keys. Returns null when the
+ * CLI is missing, not logged in, or the command fails. Local-only (shells out to
+ * the aws CLI); never runs on Workers.
+ */
+export async function resolveAwsCliCredentials(profile?: string | null): Promise<AwsCredentials | null> {
+  try {
+    const { execFileSync } = await import("node:child_process")
+    const env = { ...process.env }
+    if (profile) env.AWS_PROFILE = profile
+    const out = execFileSync("aws", ["configure", "export-credentials", "--format", "process"], {
+      encoding: "utf8",
+      env,
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 15_000,
+    })
+    const json = JSON.parse(out) as { AccessKeyId?: string; SecretAccessKey?: string; SessionToken?: string }
+    if (!json.AccessKeyId || !json.SecretAccessKey) return null
+    return {
+      accessKeyId: json.AccessKeyId,
+      secretAccessKey: json.SecretAccessKey,
+      sessionToken: json.SessionToken ?? null,
+    }
+  } catch {
+    return null
+  }
+}
+
 /** Lists profile names available across the shared credentials/config files. */
 export function listLocalAwsProfiles(): string[] {
   const dir = awsDir()

@@ -28,7 +28,7 @@ test("buildAnalysisWithLiveData surfaces live AWS Free Tier usage rows", async (
       connectedAt: "2026-06-12T00:00:00.000Z",
       lastVerifiedAt: "2026-06-12T00:00:00.000Z",
       lastError: null,
-      metadata: { accountId: "123456789012" },
+      metadata: { accountId: "123456789012", costExplorer: true },
     })
 
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -47,7 +47,7 @@ test("buildAnalysisWithLiveData surfaces live AWS Free Tier usage rows", async (
           ],
         })
       }
-      if (url.includes("freetier.us-east-1.amazonaws.com")) {
+      if (url.includes("freetier.us-east-1.api.aws")) {
         return Response.json({
           freeTierUsages: [
             {

@@ -11,7 +11,7 @@ import type {
 import { buildProviderConnections } from "./providerCatalog"
 import { computeFreeTierUsage } from "./freeTier"
 import { readWorkspace } from "./localStore"
-import { getAwsCostAndUsage, getAwsFreeTierUsage, type AwsCredentials } from "./awsClient"
+import { getAwsCostAndUsage, getAwsFreeTierUsage, type AwsCostRow, type AwsCredentials } from "./awsClient"
 import { listVercelBillingCharges } from "./vercelClient"
 import { getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
@@ -456,14 +456,15 @@ function awsFreeTierRows(usage: Awaited<ReturnType<typeof getAwsFreeTierUsage>>)
     return {
       provider: "aws",
       planName: "AWS Free Tier",
-      service: item.description || item.service,
+      service: item.service,
       used,
       limit,
       unit: item.unit,
       remaining,
       percentUsed,
       source: "measured",
-      note: `Live AWS Free Tier usage (${item.freeTierType}) reported for ${item.service}.`,
+      // The description carries the specific free-tier metric (e.g. which API).
+      note: `${item.freeTierType} · ${item.description}`,
     }
   })
 }
@@ -491,9 +492,13 @@ async function loadAwsLive(workspace: WorkspaceStore): Promise<AwsLiveResult> {
   }
   if (!credentials.accessKeyId || !credentials.secretAccessKey) return notConnectedResult
 
+  // Cost Explorer GetCostAndUsage bills $0.01/request, so only call it when the
+  // user opted in. Free Tier usage is always pulled (free).
+  const costExplorerEnabled = (aws.metadata as { costExplorer?: boolean }).costExplorer === true
+
   const currentPeriod = period()
   const [costResult, freeTierResult] = await Promise.allSettled([
-    getAwsCostAndUsage(credentials, awsPeriod(currentPeriod)),
+    costExplorerEnabled ? getAwsCostAndUsage(credentials, awsPeriod(currentPeriod)) : Promise.resolve([] as AwsCostRow[]),
     getAwsFreeTierUsage(credentials),
   ])
 
@@ -525,28 +530,34 @@ async function loadAwsLive(workspace: WorkspaceStore): Promise<AwsLiveResult> {
 
   const freeTier = freeTierResult.status === "fulfilled" ? awsFreeTierRows(freeTierResult.value) : []
 
+  const failures: string[] = []
+  if (costExplorerEnabled && costResult.status === "rejected") {
+    failures.push(costResult.reason instanceof Error ? costResult.reason.message : "AWS Cost Explorer query failed.")
+  }
+  if (freeTierResult.status === "rejected") {
+    failures.push(freeTierResult.reason instanceof Error ? freeTierResult.reason.message : "AWS Free Tier query failed.")
+  }
+
   let sync: AnalysisResult["liveSync"][number]
-  if (costResult.status === "rejected" && freeTierResult.status === "rejected") {
+  if (rows.length === 0 && freeTier.length === 0) {
     sync = {
       provider: "aws",
-      status: "error",
-      message: costResult.reason instanceof Error ? costResult.reason.message : "Failed to query AWS Cost Explorer.",
-      rows: 0,
-      syncedAt: new Date().toISOString(),
-    }
-  } else if (rows.length === 0 && freeTier.length === 0) {
-    sync = {
-      provider: "aws",
-      status: "empty",
-      message: "AWS connected, but Cost Explorer and Free Tier returned no rows for the current month.",
+      status: failures.length > 0 ? "error" : "empty",
+      message:
+        failures.length > 0
+          ? failures[0]
+          : costExplorerEnabled
+            ? "AWS connected, but Cost Explorer and Free Tier returned no rows for the current month."
+            : "AWS connected, but the Free Tier API reported no usage this month.",
       rows: 0,
       syncedAt: new Date().toISOString(),
     }
   } else {
+    const costNote = costExplorerEnabled ? `${rows.length} cost rows` : "cost data off"
     sync = {
       provider: "aws",
       status: "success",
-      message: `Loaded ${rows.length} AWS cost rows and ${freeTier.length} free-tier rows.`,
+      message: `Loaded ${costNote} and ${freeTier.length} free-tier rows.${failures.length > 0 ? ` (${failures[0]})` : ""}`,
       rows: rows.length,
       syncedAt: new Date().toISOString(),
     }

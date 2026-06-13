@@ -2254,3 +2254,19 @@ th {
   background: var(--panel-strong);
   color: var(--ink);
 }
+
+/* AWS cost-data opt-in */
+.aws-cost-optin {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  cursor: pointer;
+  margin: 2px 0 4px;
+}
+
+.aws-cost-optin input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}

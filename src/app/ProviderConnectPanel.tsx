@@ -126,6 +126,7 @@ export function ProviderConnectPanel({
   const [awsAccessKeyId, setAwsAccessKeyId] = React.useState("")
   const [awsSecretAccessKey, setAwsSecretAccessKey] = React.useState("")
   const [awsSessionToken, setAwsSessionToken] = React.useState("")
+  const [awsCostExplorer, setAwsCostExplorer] = React.useState(false)
   const [vercelOAuthStatus, setVercelOAuthStatus] = React.useState<VercelOAuthStatus | null>(null)
   const [busy, setBusy] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState<string | null>(null)
@@ -354,11 +355,19 @@ export function ProviderConnectPanel({
                   <ConnectedProviderState
                     provider="aws"
                     connection={saved}
-                    detail="Live AWS cost (Cost Explorer) and free-tier usage are pulled for this account."
+                    detail={
+                      (saved.metadata as { costExplorer?: boolean }).costExplorer
+                        ? "Live AWS cost (Cost Explorer, $0.01/refresh) and free-tier usage are pulled."
+                        : "Free-tier usage is pulled (free). Cost Explorer is off — reconnect with cost data enabled to pull spend."
+                    }
                   />
                 ) : (
                   <>
-                    <p>Use your AWS CLI credentials for the lowest-friction connection, or paste an access key. Read-only: needs ce:GetCostAndUsage and freetier:GetFreeTierUsage.</p>
+                    <p>Connect with your AWS CLI (incl. SSO) in one click, or paste an access key. Read-only: needs freetier:GetFreeTierUsage (free) and, for spend, ce:GetCostAndUsage.</p>
+                    <label className="aws-cost-optin">
+                      <input type="checkbox" checked={awsCostExplorer} onChange={(event) => setAwsCostExplorer(event.target.checked)} />
+                      <span>Also pull cost data via Cost Explorer (AWS bills $0.01 per refresh). Leave off for free-tier usage only ($0).</span>
+                    </label>
                     <button
                       type="button"
                       className="command-button"
@@ -368,9 +377,9 @@ export function ProviderConnectPanel({
                           await jsonRequest("/api/aws/local-connect", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({}),
+                            body: JSON.stringify({ costExplorer: awsCostExplorer }),
                           })
-                          setMessage("AWS connected from local CLI credentials. Refreshing live cost and usage.")
+                          setMessage("AWS connected from local CLI. Refreshing live usage.")
                         })
                       }
                     >
@@ -379,7 +388,7 @@ export function ProviderConnectPanel({
                     </button>
                     <div className="mini-setup-box">
                       <ShieldAlert aria-hidden />
-                      <span>Local CLI works when ~/.aws/credentials exists on the server (run `aws configure`). On a remote deployment, paste an access key instead.</span>
+                      <span>Local CLI (static keys or `aws sso login`) works in local dev. On the remote deployment, paste an access key instead.</span>
                     </div>
                     <form
                       className="provider-token-form stacked"
@@ -393,12 +402,13 @@ export function ProviderConnectPanel({
                               accessKeyId: awsAccessKeyId,
                               secretAccessKey: awsSecretAccessKey,
                               sessionToken: awsSessionToken || null,
+                              costExplorer: awsCostExplorer,
                             }),
                           })
                           setAwsAccessKeyId("")
                           setAwsSecretAccessKey("")
                           setAwsSessionToken("")
-                          setMessage("AWS connected. Refreshing live cost and usage.")
+                          setMessage("AWS connected. Refreshing live usage.")
                         })
                       }}
                     >

@@ -21,10 +21,12 @@ Standalone repository-aware infrastructure cost analyzer. This project lives ins
   client (and on demand) via `POST /api/analyze/refresh`.
 - Shows free-tier usage remaining for any connected provider whose cost is $0,
   using real measured consumption:
-  - AWS: Cost Explorer (`GetCostAndUsage`) for live per-service cost and usage,
-    plus the Free Tier Usage API (`GetFreeTierUsage`) for actual vs limit. Connect
-    with your local AWS CLI credentials (`~/.aws/credentials`, one click) or by
-    pasting an access key — needs `ce:GetCostAndUsage` and `freetier:GetFreeTierUsage`.
+  - AWS: the Free Tier Usage API (`GetFreeTierUsage`, free) for actual vs limit,
+    and optionally Cost Explorer (`GetCostAndUsage`) for live per-service cost +
+    usage. Cost Explorer bills $0.01/request, so it is opt-in; free-tier usage is
+    always pulled at no cost. Connect with your local AWS CLI in one click —
+    static keys or an `aws sso login` session (resolved via
+    `aws configure export-credentials`) — or by pasting an access key.
   - GCP: usage amounts from the BigQuery billing export.
   - Vercel: FOCUS `ConsumedQuantity` from the billing charges endpoint.
   - Cloudflare: Workers request volume from the GraphQL Analytics API. Connect in

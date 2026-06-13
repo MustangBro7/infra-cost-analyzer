@@ -179,7 +179,7 @@ export async function verifyAwsCredentials(credentials: AwsCredentials): Promise
   })
   const response = await fetch("https://sts.amazonaws.com/", {
     method: "POST",
-    headers: { ...headers, ...signed.headers, accept: "application/json" },
+    headers: { ...headers, ...signed.headers },
     body: payload,
   })
   const text = await response.text()
@@ -197,25 +197,32 @@ export async function verifyAwsCredentials(credentials: AwsCredentials): Promise
  * real actual-vs-limit numbers AWS reports.
  */
 export async function getAwsFreeTierUsage(credentials: AwsCredentials): Promise<AwsFreeTierUsageItem[]> {
-  const payload = await awsJsonRequest<{
-    freeTierUsages?: Array<{
-      service?: string
-      description?: string
-      actualUsageAmount?: number
-      limit?: number
-      unit?: string
-      freeTierType?: string
-    }>
-  }>({
-    host: "freetier.us-east-1.amazonaws.com",
-    service: "freetier",
-    region: "us-east-1",
-    target: "AWSFreeTierService.GetFreeTierUsage",
-    body: {},
-    credentials,
-  })
+  interface RawItem {
+    service?: string
+    description?: string
+    actualUsageAmount?: number
+    limit?: number
+    unit?: string
+    freeTierType?: string
+  }
+  const collected: RawItem[] = []
+  let nextToken: string | undefined
+  // The API paginates; loop until there are no more pages (cap to be safe).
+  for (let page = 0; page < 20; page += 1) {
+    const payload = await awsJsonRequest<{ freeTierUsages?: RawItem[]; nextToken?: string }>({
+      host: "freetier.us-east-1.api.aws",
+      service: "freetier",
+      region: "us-east-1",
+      target: "AWSFreeTierService.GetFreeTierUsage",
+      body: nextToken ? { maxResults: 1000, nextToken } : { maxResults: 1000 },
+      credentials,
+    })
+    collected.push(...(payload.freeTierUsages ?? []))
+    if (!payload.nextToken) break
+    nextToken = payload.nextToken
+  }
 
-  return (payload.freeTierUsages ?? [])
+  return collected
     .filter((item) => typeof item.limit === "number" && (item.limit ?? 0) > 0)
     .map((item) => ({
       service: item.service ?? "AWS service",

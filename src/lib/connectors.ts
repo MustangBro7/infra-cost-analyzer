@@ -5,7 +5,7 @@ import { listCloudflareAccounts, verifyCloudflareToken } from "./cloudflareClien
 import { readWranglerOAuth } from "./wranglerAuth"
 import { discoverBillingExportTable, normalizeBillingExportTableId, verifyGcpServiceAccount } from "./gcpClient"
 import { verifyAwsCredentials, type AwsCredentials } from "./awsClient"
-import { readLocalAwsCredentials } from "./awsLocalCreds"
+import { readLocalAwsCredentials, resolveAwsCliCredentials } from "./awsLocalCreds"
 
 export async function connectGithubLocal(userId: string) {
   const scan = scanRepositorySafe()
@@ -178,7 +178,11 @@ export async function connectGcpKey(userId: string, keyJson: string, billingExpo
   }
 }
 
-export async function connectAwsKeys(userId: string, credentials: AwsCredentials) {
+export async function connectAwsKeys(
+  userId: string,
+  credentials: AwsCredentials,
+  options?: { costExplorer?: boolean }
+) {
   const verified = await verifyAwsCredentials(credentials)
   await upsertConnection(userId, {
     provider: "aws",
@@ -192,6 +196,9 @@ export async function connectAwsKeys(userId: string, credentials: AwsCredentials
     metadata: {
       accountId: verified.accountId,
       arn: verified.arn,
+      // Cost Explorer GetCostAndUsage costs $0.01/request, so it is opt-in.
+      // Free Tier usage is always pulled (free).
+      costExplorer: options?.costExplorer ?? false,
     },
   })
   return { accountLabel: verified.accountId ? `AWS ${verified.accountId}` : "AWS account" }
@@ -202,19 +209,29 @@ export async function connectAwsKeys(userId: string, credentials: AwsCredentials
  * ~/.aws/credentials (lowest-friction path: run `aws configure` once, then
  * click connect). Only works where the server has a real home directory.
  */
-export async function connectAwsLocal(userId: string, profile?: string | null) {
+export async function connectAwsLocal(
+  userId: string,
+  profile?: string | null,
+  options?: { costExplorer?: boolean }
+) {
+  // Prefer static keys; fall back to resolving the live CLI/SSO session.
+  let credentials: AwsCredentials | null = null
+  let source = "aws cli"
   const local = readLocalAwsCredentials(profile)
-  if (!local) {
+  if (local) {
+    credentials = { accessKeyId: local.accessKeyId, secretAccessKey: local.secretAccessKey, sessionToken: local.sessionToken }
+    source = "~/.aws/credentials"
+  } else {
+    credentials = await resolveAwsCliCredentials(profile)
+    source = "aws cli session (sso)"
+  }
+  if (!credentials) {
     throw new Error(
-      "No static AWS CLI credentials found in ~/.aws/credentials. Run `aws configure` (or paste an access key), then try again. SSO-only profiles are not yet supported."
+      "No AWS CLI credentials found. Run `aws configure` (static keys) or `aws sso login`, then try again."
     )
   }
-  const result = await connectAwsKeys(userId, {
-    accessKeyId: local.accessKeyId,
-    secretAccessKey: local.secretAccessKey,
-    sessionToken: local.sessionToken,
-  })
-  return { ...result, profile: local.profile, region: local.region }
+  const result = await connectAwsKeys(userId, credentials, options)
+  return { ...result, source }
 }
 
 function decodeMaybeBase64(value: string) {

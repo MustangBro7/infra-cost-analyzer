@@ -24,8 +24,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user = await requireUserFromRequest(request)
-    const payload = (await request.json().catch(() => ({}))) as { profile?: string | null }
-    const result = await connectAwsLocal(user.id, payload.profile ?? null)
+    const payload = (await request.json().catch(() => ({}))) as { profile?: string | null; costExplorer?: boolean }
+    const result = await connectAwsLocal(user.id, payload.profile ?? null, { costExplorer: payload.costExplorer === true })
     return NextResponse.json({ status: "connected", ...result })
   } catch (error) {
     if (error instanceof AuthRequiredError) {
