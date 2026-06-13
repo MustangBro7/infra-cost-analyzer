@@ -123,14 +123,29 @@ async function listRepositoryFiles(input: {
     .filter((entry) => shouldInspectRepoPath(entry.path))
     .slice(0, 180)
 
+  // Fetch blobs with bounded concurrency. Sequential fetches over ~180 files
+  // were the dominant cause of slow remote scans.
+  const CONCURRENCY = 12
   const files: RepositoryFile[] = []
-  for (const entry of candidates) {
-    try {
-      const blob = await getRepositoryBlob(input.owner, input.repo, entry.sha, input.token)
-      const content = blob.encoding === "base64" ? Buffer.from(blob.content.replaceAll("\n", ""), "base64").toString("utf8") : blob.content
-      files.push({ path: entry.path, content })
-    } catch {
-      // Keep the scan useful even if GitHub rejects or times out on one blob.
+  for (let start = 0; start < candidates.length; start += CONCURRENCY) {
+    const batch = candidates.slice(start, start + CONCURRENCY)
+    const settled = await Promise.all(
+      batch.map(async (entry): Promise<RepositoryFile | null> => {
+        try {
+          const blob = await getRepositoryBlob(input.owner, input.repo, entry.sha, input.token)
+          const content =
+            blob.encoding === "base64"
+              ? Buffer.from(blob.content.replaceAll("\n", ""), "base64").toString("utf8")
+              : blob.content
+          return { path: entry.path, content }
+        } catch {
+          // Keep the scan useful even if GitHub rejects or times out on one blob.
+          return null
+        }
+      })
+    )
+    for (const file of settled) {
+      if (file) files.push(file)
     }
   }
   return files

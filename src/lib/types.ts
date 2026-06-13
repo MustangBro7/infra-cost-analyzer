@@ -61,6 +61,34 @@ export interface NormalizedCostRow {
   source?: "live"
 }
 
+/**
+ * A measured consumption sample pulled live from a provider, independent of
+ * cost. Used to compute free-tier usage remaining even when the cost is $0.
+ */
+export interface ProviderUsageSample {
+  provider: Provider
+  service: string
+  quantity: number
+  unit: string
+}
+
+/**
+ * Free-tier usage line shown when a connected provider's cost is $0. `used`
+ * is null when the provider does not report consumption for that allowance.
+ */
+export interface FreeTierUsageRow {
+  provider: Provider
+  planName: string
+  service: string
+  used: number | null
+  limit: number
+  unit: string
+  remaining: number | null
+  percentUsed: number | null
+  source: "measured" | "allowance"
+  note: string
+}
+
 export interface ProviderBreakdown {
   provider: Provider
   total: number
@@ -93,6 +121,7 @@ export interface AnalysisResult {
   providerConnections: ProviderConnection[]
   providerBreakdown: ProviderBreakdown[]
   costRows: NormalizedCostRow[]
+  freeTier: FreeTierUsageRow[]
   actions: string[]
   liveSync: Array<{
     provider: Provider
@@ -126,12 +155,23 @@ export interface StoredConnection {
   metadata: Record<string, unknown>
 }
 
+/**
+ * A persisted analysis result so the dashboard renders from the database
+ * instead of recomputing live provider/GitHub data on every page load.
+ */
+export interface AnalysisSnapshot {
+  key: string
+  analysis: AnalysisResult
+  computedAt: string
+}
+
 export interface WorkspaceStore {
   connections: Partial<Record<Provider, StoredConnection>>
   githubRepos: GitHubRepoSummary[]
   selectedRepoFullName: string | null
   syncedRepoFullNames: string[]
   events: ConnectionEvent[]
+  analysisSnapshots: Record<string, AnalysisSnapshot>
 }
 
 export interface LocalUser {

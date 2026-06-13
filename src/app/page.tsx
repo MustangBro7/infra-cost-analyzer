@@ -6,6 +6,7 @@ import {
   CloudCog,
   DatabaseZap,
   FolderGit2,
+  Gauge,
   Github,
   RefreshCw,
   ShieldAlert,
@@ -13,14 +14,13 @@ import {
 } from "lucide-react"
 import { RepoSyncPanel } from "./RepoSyncPanel"
 import { ProviderConnectPanel } from "./ProviderConnectPanel"
+import { AnalysisRefresher } from "./AnalysisRefresher"
 import { SignInForm } from "./SignInForm"
 import { SignOutButton } from "./SignOutButton"
-import { buildAnalysisWithLiveData } from "@/lib/costEngine"
-import { scanInstallationRepository } from "@/lib/githubClient"
+import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
-import { publicStore, readWorkspace } from "@/lib/localStore"
-import { scanRepositorySafe } from "@/lib/repoScanner"
-import type { AnalysisResult, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
+import { publicStore } from "@/lib/localStore"
+import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -78,6 +78,55 @@ function providerSignals(provider: Provider, signals: RepoSignal[]) {
 
 function providerRows(provider: Provider, rows: NormalizedCostRow[]) {
   return rows.filter((row) => row.provider === provider)
+}
+
+function providerFreeTier(provider: Provider, freeTier: FreeTierUsageRow[]) {
+  return freeTier.filter((row) => row.provider === provider)
+}
+
+function quantity(value: number) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)
+}
+
+function FreeTierUsage({ rows }: { rows: FreeTierUsageRow[] }) {
+  if (!rows.length) return null
+  const planName = rows[0].planName
+  return (
+    <div className="free-tier-block">
+      <div className="free-tier-head">
+        <Gauge aria-hidden />
+        <div>
+          <strong>On the free tier — {planName}</strong>
+          <span>No billed cost this period. Here is how much of the free allowance is left.</span>
+        </div>
+      </div>
+      <div className="free-tier-list">
+        {rows.map((row) => {
+          const pct = row.percentUsed ?? 0
+          return (
+            <article key={`${row.provider}-${row.service}`} className="free-tier-row" title={row.note}>
+              <div className="free-tier-row-head">
+                <strong>{row.service}</strong>
+                {row.used === null ? (
+                  <span className="free-tier-allowance">{quantity(row.limit)} {row.unit} included</span>
+                ) : (
+                  <span className="free-tier-remaining">{quantity(row.remaining ?? 0)} {row.unit} left</span>
+                )}
+              </div>
+              <div className="free-tier-bar" aria-hidden>
+                <span className={row.used === null ? "free-tier-fill unknown" : "free-tier-fill"} style={{ width: `${Math.max(pct, row.used === null ? 0 : 2)}%` }} />
+              </div>
+              <small>
+                {row.used === null
+                  ? `Usage not reported by provider · ${quantity(row.limit)} ${row.unit} free`
+                  : `${quantity(row.used)} of ${quantity(row.limit)} ${row.unit} used (${pct}%)`}
+              </small>
+            </article>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function statusText(connection: ProviderConnection) {
@@ -173,14 +222,19 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
   const rows = providerRows(connection.provider, analysis.costRows)
   const signals = providerSignals(connection.provider, analysis.signals)
   const total = providerTotal(connection.provider, analysis.costRows)
+  const freeTier = providerFreeTier(connection.provider, analysis.freeTier)
+  const onFreeTier = rows.length === 0 && freeTier.length > 0
 
   return (
-    <details className="provider-accordion" open={connection.detected || rows.length > 0}>
+    <details className="provider-accordion" open={connection.detected || rows.length > 0 || onFreeTier}>
       <summary>
         <span className={providerClass(connection.provider)}>{PROVIDER_LABELS[connection.provider]}</span>
         <div>
-          <strong>{rows.length ? money(total) : "No live cost"}</strong>
-          <small>{statusText(connection)} · {signals.length} repo signals · {rows.length} live billing rows</small>
+          <strong>{rows.length ? money(total) : onFreeTier ? "Free tier" : "No live cost"}</strong>
+          <small>
+            {statusText(connection)} · {signals.length} repo signals ·{" "}
+            {onFreeTier ? `${freeTier.length} free-tier allowances` : `${rows.length} live billing rows`}
+          </small>
         </div>
         <ChevronDown aria-hidden />
       </summary>
@@ -208,6 +262,8 @@ function ProviderAccordion({ analysis, connection }: { analysis: AnalysisResult;
                   </article>
                 ))}
               </div>
+            ) : onFreeTier ? (
+              <FreeTierUsage rows={freeTier} />
             ) : (
               <div className="empty-provider-block">
                 <DatabaseZap aria-hidden />
@@ -317,46 +373,32 @@ function RepoDetail({
   )
 }
 
-async function getAnalysis(input: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>
-  userId: string
-  requestedRepo?: string | null
-  githubRepos: GitHubRepoSummary[]
-}) {
-  if (input.requestedRepo) {
-    const repo = input.githubRepos.find((candidate) => candidate.fullName === input.requestedRepo)
-    const workspace = await readWorkspace(input.userId)
-    const installationId = workspace.connections.github?.installationId
-    if (repo && installationId) {
-      return buildAnalysisWithLiveData(await scanInstallationRepository(repo, installationId), process.env, input.userId)
-    }
-  }
-  const params = await input.searchParams
-  const rawRepoPath = params.repoPath
-  const repoPath = Array.isArray(rawRepoPath) ? rawRepoPath[0] : rawRepoPath
-  return buildAnalysisWithLiveData(scanRepositorySafe(repoPath), process.env, input.userId)
-}
-
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await currentUserFromCookies()
   if (!user) return <SignInForm />
 
   const params = await searchParams
   const rawRepo = params.repo
-  const requestedRepo = Array.isArray(rawRepo) ? rawRepo[0] : rawRepo
+  const requestedRepo = Array.isArray(rawRepo) ? rawRepo[0] : rawRepo ?? null
+  const rawRepoPath = params.repoPath
+  const repoPath = Array.isArray(rawRepoPath) ? rawRepoPath[0] : rawRepoPath ?? null
   const state = { user, ...(await publicStore(user.id)) }
-  const analysis = await getAnalysis({
-    searchParams: Promise.resolve(params),
+  // Renders from the persisted snapshot (DB read). Live provider/GitHub data is
+  // refreshed out-of-band by <AnalysisRefresher>, not on every page load.
+  const snapshot = await getOrCreateAnalysisSnapshot({
     userId: user.id,
     requestedRepo,
     githubRepos: state.githubRepos,
+    repoPath,
   })
+  const analysis = snapshot.analysis
   const repos = repoList(state, analysis)
   const selectedRepo = requestedRepo ? repos.find((repo) => repo.fullName === requestedRepo) ?? null : null
 
   return (
     <main className="app-shell repo-app">
       <Header subtitle={user.email} />
+      <AnalysisRefresher repo={requestedRepo} computedAt={snapshot.computedAt} />
       {requestedRepo ? (
         <RepoDetail analysis={analysis} repo={selectedRepo} state={state} />
       ) : (

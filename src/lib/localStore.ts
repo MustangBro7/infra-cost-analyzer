@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createHash, randomBytes } from "node:crypto"
 import path from "node:path"
 import type {
+  AnalysisSnapshot,
   AppStore,
   ConnectionEvent,
   GitHubRepoSummary,
@@ -18,6 +19,7 @@ const EMPTY_WORKSPACE: WorkspaceStore = {
   selectedRepoFullName: null,
   syncedRepoFullNames: [],
   events: [],
+  analysisSnapshots: {},
 }
 
 const EMPTY_STORE: AppStore = {
@@ -165,6 +167,7 @@ export async function readStore(): Promise<AppStore> {
         selectedRepoFullName: parsed.selectedRepoFullName ?? null,
         syncedRepoFullNames: parsed.selectedRepoFullName ? [parsed.selectedRepoFullName] : [],
         events: parsed.events ?? [],
+        analysisSnapshots: {},
       },
     },
   }
@@ -228,6 +231,23 @@ async function writeWorkspace(userId: string, workspace: WorkspaceStore) {
   const store = await readStore()
   store.workspaces[userId] = workspace
   await writeStore(store)
+}
+
+export async function readAnalysisSnapshot(userId: string, key: string): Promise<AnalysisSnapshot | null> {
+  const workspace = await readWorkspace(userId)
+  return workspace.analysisSnapshots[key] ?? null
+}
+
+export async function writeAnalysisSnapshot(userId: string, snapshot: AnalysisSnapshot) {
+  const workspace = await readWorkspace(userId)
+  // Keep the snapshot map bounded so the persisted store stays small.
+  const entries = Object.values(workspace.analysisSnapshots)
+    .filter((existing) => existing.key !== snapshot.key)
+    .concat(snapshot)
+    .sort((a, b) => b.computedAt.localeCompare(a.computedAt))
+    .slice(0, 25)
+  workspace.analysisSnapshots = Object.fromEntries(entries.map((entry) => [entry.key, entry]))
+  await writeWorkspace(userId, workspace)
 }
 
 export async function upsertConnection(userId: string, connection: StoredConnection) {
@@ -382,6 +402,7 @@ function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore
     selectedRepoFullName,
     syncedRepoFullNames,
     events: workspace.events ?? [],
+    analysisSnapshots: workspace.analysisSnapshots ?? {},
   }
 }
 

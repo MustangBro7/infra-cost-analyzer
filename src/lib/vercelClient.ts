@@ -138,6 +138,10 @@ export interface VercelFocusCharge {
   EffectiveCost?: number | string
   BilledCost?: number | string
   ListCost?: number | string
+  ConsumedQuantity?: number | string
+  ConsumedUnit?: string
+  PricingQuantity?: number | string
+  PricingUnit?: string
   ProviderName?: string
   Tags?: Record<string, string>
   [key: string]: unknown

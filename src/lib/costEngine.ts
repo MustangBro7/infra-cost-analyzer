@@ -1,5 +1,14 @@
-import type { AnalysisResult, NormalizedCostRow, Provider, ProviderBreakdown, RepoSignal, WorkspaceStore } from "./types"
+import type {
+  AnalysisResult,
+  NormalizedCostRow,
+  Provider,
+  ProviderBreakdown,
+  ProviderUsageSample,
+  RepoSignal,
+  WorkspaceStore,
+} from "./types"
 import { buildProviderConnections } from "./providerCatalog"
+import { computeFreeTierUsage } from "./freeTier"
 import { readWorkspace } from "./localStore"
 import { listVercelBillingCharges } from "./vercelClient"
 import { listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
@@ -55,7 +64,7 @@ export async function buildAnalysis(
   userId = "usr_test"
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
-  return finalizeAnalysis(repoScan, env, workspace, [], [])
+  return finalizeAnalysis(repoScan, env, workspace, [], [], [])
 }
 
 export async function buildAnalysisWithLiveData(
@@ -70,7 +79,15 @@ export async function buildAnalysisWithLiveData(
     loadGcpLive(workspace),
   ])
   const costRows = results.flatMap((result) => result.rows)
-  return finalizeAnalysis(repoScan, env, workspace, costRows, results.map((result) => result.sync))
+  const usage = results.flatMap((result) => result.usage)
+  return finalizeAnalysis(
+    repoScan,
+    env,
+    workspace,
+    costRows,
+    usage,
+    results.map((result) => result.sync)
+  )
 }
 
 function finalizeAnalysis(
@@ -78,6 +95,7 @@ function finalizeAnalysis(
   env: NodeJS.ProcessEnv,
   workspace: WorkspaceStore,
   costRows: NormalizedCostRow[],
+  usage: ProviderUsageSample[],
   liveSync: AnalysisResult["liveSync"]
 ): AnalysisResult {
   const providerBreakdown = summarizeByProvider(costRows, repoScan.signals)
@@ -91,6 +109,7 @@ function finalizeAnalysis(
       : repoScan.signals.reduce((sum, signal) => sum + signal.confidence, 0) / repoScan.signals.length
 
   const actions = buildActions(repoScan.signals, costRows)
+  const providerConnections = buildProviderConnections(repoScan.signals, env, workspace)
   return {
     repo: repoScan.repo,
     period: period(),
@@ -103,19 +122,21 @@ function finalizeAnalysis(
       confidence: Number((averageConfidence * 100).toFixed(0)),
     },
     signals: repoScan.signals,
-    providerConnections: buildProviderConnections(repoScan.signals, env, workspace),
+    providerConnections,
     providerBreakdown,
     costRows,
+    freeTier: computeFreeTierUsage(costRows, usage, providerConnections),
     actions,
     liveSync,
   }
 }
 
-type LiveResult = { rows: NormalizedCostRow[]; sync: AnalysisResult["liveSync"][number] }
+type LiveResult = { rows: NormalizedCostRow[]; usage: ProviderUsageSample[]; sync: AnalysisResult["liveSync"][number] }
 
 function notConnected(provider: Provider, message: string): LiveResult {
   return {
     rows: [],
+    usage: [],
     sync: { provider, status: "not_connected", message, rows: 0, syncedAt: null },
   }
 }
@@ -148,10 +169,14 @@ async function loadVercelLive(
       throw new Error(errors[0])
     }
 
+    // Usage is captured from every charge, including $0 free-tier lines, so the
+    // dashboard can show free-tier consumption even when there is no cost.
+    const usage = normalizeVercelUsage(allCharges)
     const rows = normalizeVercelCharges(allCharges, repoScan, currentPeriod)
     if (rows.length === 0) {
       return {
         rows: [],
+        usage,
         sync: {
           provider: "vercel",
           status: "empty",
@@ -164,6 +189,7 @@ async function loadVercelLive(
 
     return {
       rows,
+      usage,
       sync: {
         provider: "vercel",
         status: "success",
@@ -175,6 +201,7 @@ async function loadVercelLive(
   } catch (error) {
     return {
       rows: [],
+      usage: [],
       sync: {
         provider: "vercel",
         status: "error",
@@ -243,6 +270,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
     if (accounts.length === 0) {
       return {
         rows: [],
+        usage: [],
         sync: {
           provider: "cloudflare",
           status: "empty",
@@ -270,6 +298,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
     if (rows.length === 0) {
       return {
         rows: [],
+        usage: [],
         sync: {
           provider: "cloudflare",
           status: "empty",
@@ -282,6 +311,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
 
     return {
       rows,
+      usage: [],
       sync: {
         provider: "cloudflare",
         status: "success",
@@ -293,6 +323,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
   } catch (error) {
     return {
       rows: [],
+      usage: [],
       sync: {
         provider: "cloudflare",
         status: "error",
@@ -322,6 +353,14 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
   const currentPeriod = period()
   try {
     const exportRows = await queryGcpBillingExportCosts(gcp.accessToken, tableId, currentPeriod)
+    const usage: ProviderUsageSample[] = exportRows
+      .filter((row) => row.usageAmount !== null && row.usageUnit && row.usageAmount > 0)
+      .map((row) => ({
+        provider: "gcp" as const,
+        service: row.serviceName,
+        quantity: row.usageAmount as number,
+        unit: row.usageUnit as string,
+      }))
     const rows = exportRows
       .filter((row) => Number.isFinite(row.cost) && Math.abs(row.cost) >= 0.005)
       .map(
@@ -344,6 +383,7 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
     if (rows.length === 0) {
       return {
         rows: [],
+        usage,
         sync: {
           provider: "gcp",
           status: "empty",
@@ -356,6 +396,7 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
 
     return {
       rows,
+      usage,
       sync: {
         provider: "gcp",
         status: "success",
@@ -367,6 +408,7 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
   } catch (error) {
     return {
       rows: [],
+      usage: [],
       sync: {
         provider: "gcp",
         status: "error",
@@ -424,6 +466,24 @@ function normalizeVercelCharges(
       }
     })
     .filter((row): row is NormalizedCostRow => Boolean(row))
+}
+
+function normalizeVercelUsage(
+  charges: Array<Awaited<ReturnType<typeof listVercelBillingCharges>>[number]>
+): ProviderUsageSample[] {
+  return charges
+    .map((charge): ProviderUsageSample | null => {
+      const quantity = numberValue(charge.ConsumedQuantity ?? charge.PricingQuantity)
+      const unit = stringValue(charge.ConsumedUnit) ?? stringValue(charge.PricingUnit)
+      if (!Number.isFinite(quantity) || quantity <= 0 || !unit) return null
+      return {
+        provider: "vercel",
+        service: stringValue(charge.ServiceName) ?? "Vercel usage",
+        quantity,
+        unit,
+      }
+    })
+    .filter((sample): sample is ProviderUsageSample => Boolean(sample))
 }
 
 function numberValue(value: unknown): number {

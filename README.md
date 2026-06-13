@@ -15,7 +15,14 @@ Standalone repository-aware infrastructure cost analyzer. This project lives ins
   - `verified`: strong repo-level deployment config was found.
   - `user_confirmed`: strong IaC/workflow evidence needs resource confirmation.
   - `inferred`: probable mapping from names, docs, packages, or commands.
-- Exposes `GET /api/analyze` for JSON output.
+- Persists a computed analysis snapshot per repo in the workspace store, so the
+  dashboard renders from the database instead of re-scanning GitHub and re-pulling
+  provider billing on every page load. Live data is refreshed out-of-band by the
+  client (and on demand) via `POST /api/analyze/refresh`.
+- Shows free-tier usage remaining for any connected provider whose cost is $0:
+  measured consumption (Vercel FOCUS quantities, GCP billing-export usage) is
+  compared against the provider's published free-tier allowance.
+- Exposes `GET /api/analyze` for JSON output (cached snapshot; `?refresh=1` to recompute).
 - Exposes `GET /api/providers` for supported provider setup metadata.
 - Ships a production dashboard that can be deployed independently.
 

@@ -2097,3 +2097,137 @@ th {
     min-height: unset;
   }
 }
+
+/* ---- Live refresh indicator ---- */
+.analysis-refresher {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.analysis-refresher svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.refresher-retry {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.refresher-retry:hover {
+  border-color: var(--ink);
+}
+
+/* ---- Free tier usage ---- */
+.free-tier-block {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.free-tier-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.free-tier-head svg {
+  width: 22px;
+  height: 22px;
+  color: var(--green);
+  flex-shrink: 0;
+}
+
+.free-tier-head strong {
+  display: block;
+  color: var(--ink);
+}
+
+.free-tier-head span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.free-tier-list {
+  display: grid;
+  gap: 12px;
+}
+
+.free-tier-row {
+  display: grid;
+  gap: 6px;
+}
+
+.free-tier-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.free-tier-row-head strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.free-tier-remaining {
+  color: var(--green);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.free-tier-allowance {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.free-tier-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-strong);
+  overflow: hidden;
+}
+
+.free-tier-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--green);
+  transition: width 0.3s ease;
+}
+
+.free-tier-fill.unknown {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--line),
+    var(--line) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+
+.free-tier-row small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}

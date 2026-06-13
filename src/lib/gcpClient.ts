@@ -90,6 +90,8 @@ export interface GcpBillingExportRow {
   projectId: string | null
   cost: number
   currency: string
+  usageAmount: number | null
+  usageUnit: string | null
 }
 
 const TABLE_ID_PATTERN = /^[a-z][a-z0-9-]*\.[A-Za-z0-9_$]+\.[A-Za-z0-9_$]+$/
@@ -118,7 +120,9 @@ export async function queryGcpBillingExportCosts(
     "SELECT service.description AS service_name,",
     "  project.id AS project_id,",
     "  SUM(cost) + IFNULL(SUM((SELECT SUM(c.amount) FROM UNNEST(credits) AS c)), 0) AS total_cost,",
-    "  ANY_VALUE(currency) AS currency",
+    "  ANY_VALUE(currency) AS currency,",
+    "  SUM(usage.amount_in_pricing_units) AS usage_amount,",
+    "  ANY_VALUE(usage.pricing_unit) AS usage_unit",
     `FROM \`${tableId}\``,
     "WHERE usage_start_time >= TIMESTAMP(@period_from)",
     "  AND usage_start_time < TIMESTAMP_ADD(TIMESTAMP(@period_to), INTERVAL 1 DAY)",
@@ -169,11 +173,14 @@ export async function queryGcpBillingExportCosts(
       const cells = row.f ?? []
       const cost = Number.parseFloat(String(cells[2]?.v ?? ""))
       if (!Number.isFinite(cost)) return null
+      const usageAmount = Number.parseFloat(String(cells[4]?.v ?? ""))
       return {
         serviceName: typeof cells[0]?.v === "string" && cells[0].v ? cells[0].v : "Google Cloud service",
         projectId: typeof cells[1]?.v === "string" && cells[1].v ? cells[1].v : null,
         cost,
         currency: typeof cells[3]?.v === "string" && cells[3].v ? cells[3].v : "USD",
+        usageAmount: Number.isFinite(usageAmount) ? usageAmount : null,
+        usageUnit: typeof cells[5]?.v === "string" && cells[5].v ? cells[5].v : null,
       }
     })
     .filter((row): row is GcpBillingExportRow => Boolean(row))
