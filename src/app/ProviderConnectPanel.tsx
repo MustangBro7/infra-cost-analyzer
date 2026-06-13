@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, KeyRound, Loader2, PlugZap, ShieldAlert, Unplug } from "lucide-react"
+import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, Info, KeyRound, Loader2, PlugZap, ShieldAlert, Unplug } from "lucide-react"
 import type { Provider, ProviderConnection } from "@/lib/types"
 import { ProviderLogo } from "./ProviderLogo"
 
@@ -83,6 +83,49 @@ function CopyButton({ value }: { value: string }) {
 
 function ProviderBadge({ provider }: { provider: Provider }) {
   return <ProviderLogo provider={provider} />
+}
+
+function VercelOAuthSetup({ redirectUri }: { redirectUri: string | null }) {
+  const callback =
+    redirectUri ?? (typeof window === "undefined" ? "/api/vercel/oauth/callback" : `${window.location.origin}/api/vercel/oauth/callback`)
+  return (
+    <details className="vercel-oauth-setup">
+      <summary>
+        <Info aria-hidden />
+        <span>Set up one-click “Connect Vercel” (OAuth) — owner setup, once</span>
+      </summary>
+      <ol className="vercel-oauth-steps">
+        <li>
+          Create a Vercel integration in the{" "}
+          <a href="https://vercel.com/dashboard/integrations/console" target="_blank" rel="noreferrer">
+            Integrations Console <ExternalLink aria-hidden />
+          </a>{" "}
+          → New.
+        </li>
+        <li>
+          Set its Redirect URL to:
+          <div className="setup-value">
+            <code>{callback}</code>
+            <CopyButton value={callback} />
+          </div>
+        </li>
+        <li>Copy the Client ID and Client Secret it generates.</li>
+        <li>
+          Add them to this deployment as Worker secrets, then redeploy:
+          <div className="setup-value">
+            <code>npx wrangler secret put VERCEL_APP_CLIENT_ID</code>
+            <CopyButton value="npx wrangler secret put VERCEL_APP_CLIENT_ID" />
+          </div>
+          <div className="setup-value">
+            <code>npx wrangler secret put VERCEL_APP_CLIENT_SECRET</code>
+            <CopyButton value="npx wrangler secret put VERCEL_APP_CLIENT_SECRET" />
+          </div>
+        </li>
+        <li>This panel then becomes a one-click “Connect Vercel” button for every user.</li>
+      </ol>
+      <p className="vercel-oauth-note">Until then, paste a Vercel token below — it works everywhere with no setup.</p>
+    </details>
+  )
 }
 
 function ConnectedProviderState({
@@ -193,10 +236,7 @@ export function ProviderConnectPanel({
                         Connect Vercel
                       </button>
                     ) : (
-                      <div className="mini-setup-box">
-                        <span>Vercel OAuth is not configured. Use a token for now.</span>
-                        {vercelOAuthStatus?.redirectUri ? <code>{vercelOAuthStatus.redirectUri}</code> : null}
-                      </div>
+                      <VercelOAuthSetup redirectUri={vercelOAuthStatus?.redirectUri ?? null} />
                     )}
                     <form
                       className="provider-token-form"

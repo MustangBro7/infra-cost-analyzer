@@ -1,7 +1,7 @@
 import type { AnalysisSnapshot, GitHubRepoSummary } from "./types"
 import { buildAnalysisWithLiveData } from "./costEngine"
 import { scanInstallationRepository } from "./githubClient"
-import { readAnalysisSnapshot, readWorkspace, writeAnalysisSnapshot } from "./localStore"
+import { readAnalysisSnapshot, readStore, readWorkspace, writeAnalysisSnapshot } from "./localStore"
 import { scanRepositorySafe } from "./repoScanner"
 
 export const LOCAL_SNAPSHOT_KEY = "__local__"
@@ -67,4 +67,32 @@ export async function getOrCreateAnalysisSnapshot(input: {
   const existing = await readAnalysisSnapshot(input.userId, snapshotKeyForRepo(input.requestedRepo))
   if (existing) return existing
   return refreshAnalysisSnapshot(input)
+}
+
+/**
+ * Background refresh for every user's existing snapshots: re-pulls live provider
+ * data while REUSING each snapshot's repo scan (no GitHub re-scan) so it stays
+ * cheap. Always skips Cost Explorer so a schedule can never incur AWS charges.
+ * Driven by the cron worker via the protected /api/cron/refresh endpoint.
+ */
+export async function refreshAllSnapshotsLiveData(): Promise<{ users: number; snapshots: number }> {
+  const store = await readStore()
+  let users = 0
+  let snapshots = 0
+  for (const [userId, workspace] of Object.entries(store.workspaces)) {
+    const snaps = Object.values(workspace.analysisSnapshots ?? {})
+    if (snaps.length === 0) continue
+    users += 1
+    for (const snap of snaps.slice(0, 10)) {
+      try {
+        const repoScan = { repo: snap.analysis.repo, signals: snap.analysis.signals }
+        const analysis = await buildAnalysisWithLiveData(repoScan, process.env, userId, { skipCostExplorer: true })
+        await writeAnalysisSnapshot(userId, { key: snap.key, analysis, computedAt: new Date().toISOString() })
+        snapshots += 1
+      } catch {
+        // One user's failure shouldn't stop the rest of the sweep.
+      }
+    }
+  }
+  return { users, snapshots }
 }

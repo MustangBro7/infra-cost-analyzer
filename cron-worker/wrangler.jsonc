@@ -1,0 +1,17 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "infra-cost-analyzer-cron",
+  "main": "index.mjs",
+  "compatibility_date": "2025-05-05",
+  // Every 6 hours. The handler calls the main app's protected /api/cron/refresh,
+  // which re-pulls free provider usage only (never the billed Cost Explorer).
+  "triggers": {
+    "crons": ["0 */6 * * *"]
+  },
+  "vars": {
+    "APP_URL": "https://infra-cost-analyzer.abhinavmohan12.workers.dev"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

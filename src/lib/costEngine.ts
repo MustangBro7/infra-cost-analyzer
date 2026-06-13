@@ -72,14 +72,15 @@ export async function buildAnalysis(
 export async function buildAnalysisWithLiveData(
   repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
   env: NodeJS.ProcessEnv,
-  userId: string
+  userId: string,
+  options?: { skipCostExplorer?: boolean }
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
   const [vercel, cloudflare, gcp, aws] = await Promise.all([
     loadVercelLive(workspace, repoScan),
     loadCloudflareLive(workspace),
     loadGcpLive(workspace),
-    loadAwsLive(workspace),
+    loadAwsLive(workspace, options),
   ])
   const standard = [vercel, cloudflare, gcp]
   const costRows = [...standard.flatMap((result) => result.rows), ...aws.rows]
@@ -476,7 +477,10 @@ function awsFreeTierRows(usage: Awaited<ReturnType<typeof getAwsFreeTierUsage>>)
  * best-effort and independent, so a missing permission on one does not hide the
  * other.
  */
-async function loadAwsLive(workspace: WorkspaceStore): Promise<AwsLiveResult> {
+async function loadAwsLive(
+  workspace: WorkspaceStore,
+  options?: { skipCostExplorer?: boolean }
+): Promise<AwsLiveResult> {
   const aws = workspace.connections.aws
   const notConnectedResult: AwsLiveResult = {
     ...notConnected("aws", "Connect AWS (CLI credentials or access keys) to pull live cost and free-tier usage."),
@@ -493,8 +497,10 @@ async function loadAwsLive(workspace: WorkspaceStore): Promise<AwsLiveResult> {
   if (!credentials.accessKeyId || !credentials.secretAccessKey) return notConnectedResult
 
   // Cost Explorer GetCostAndUsage bills $0.01/request, so only call it when the
-  // user opted in. Free Tier usage is always pulled (free).
-  const costExplorerEnabled = (aws.metadata as { costExplorer?: boolean }).costExplorer === true
+  // user opted in — and never on a background cron (skipCostExplorer) so a
+  // schedule can't silently rack up charges. Free Tier usage is always free.
+  const costExplorerEnabled =
+    !options?.skipCostExplorer && (aws.metadata as { costExplorer?: boolean }).costExplorer === true
 
   const currentPeriod = period()
   const [costResult, freeTierResult] = await Promise.allSettled([
