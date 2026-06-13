@@ -1630,6 +1630,159 @@ th {
   padding: 18px;
 }
 
+.provider-connect-panel {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+  border: 1px solid var(--ink);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.provider-connect-head,
+.provider-connect-title,
+.provider-connect-footer {
+  display: flex;
+  align-items: center;
+}
+
+.provider-connect-head {
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.provider-connect-head p {
+  margin: 0 0 7px;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.provider-connect-head h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.provider-connect-head svg {
+  width: 22px;
+  height: 22px;
+}
+
+.provider-connect-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.provider-connect-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  border: 1px solid var(--ink);
+  background: #fffdf6;
+  padding: 12px;
+}
+
+.provider-connect-card.connected {
+  background: #edf6e8;
+}
+
+.provider-connect-card.pending {
+  background: #fff1c9;
+}
+
+.provider-connect-title {
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.provider-connect-title strong {
+  overflow-wrap: anywhere;
+}
+
+.provider-connect-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.provider-token-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.82fr) auto;
+  gap: 8px;
+}
+
+.provider-token-form.single {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.provider-token-form.stacked {
+  grid-template-columns: 1fr;
+  justify-items: start;
+}
+
+.provider-token-form input,
+.provider-token-form textarea {
+  width: 100%;
+  border: 1px solid var(--ink);
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  padding: 9px 10px;
+}
+
+.provider-token-form input {
+  min-height: 38px;
+}
+
+.provider-token-form textarea {
+  resize: vertical;
+}
+
+.mini-setup-box {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mini-setup-box code {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  background: #fff8ea;
+  padding: 7px;
+}
+
+.provider-connect-footer {
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.provider-connect-footer > span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.provider-connect-footer > strong {
+  border: 1px solid var(--ink);
+  background: #edf6e8;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
 .provider-accordion {
   border: 1px solid var(--ink);
   background: #fffdf6;
@@ -1814,6 +1967,7 @@ th {
   .repo-home-summary,
   .repo-home-grid,
   .repo-detail-hero,
+  .provider-connect-grid,
   .provider-detail-grid {
     grid-template-columns: 1fr;
   }
@@ -1873,6 +2027,11 @@ th {
   }
 
   .permission-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-token-form,
+  .provider-token-form.single {
     grid-template-columns: 1fr;
   }
 

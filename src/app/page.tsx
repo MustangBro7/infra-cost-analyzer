@@ -12,6 +12,7 @@ import {
   Signal,
 } from "lucide-react"
 import { RepoSyncPanel } from "./RepoSyncPanel"
+import { ProviderConnectPanel } from "./ProviderConnectPanel"
 import { SignInForm } from "./SignInForm"
 import { SignOutButton } from "./SignOutButton"
 import { buildAnalysisWithLiveData } from "@/lib/costEngine"
@@ -306,19 +307,22 @@ function RepoDetail({
       </section>
 
       {hasScan ? (
-        <section className="provider-deep-dive" aria-label="Provider cost breakdown">
-          <div className="deep-dive-heading">
-            <div>
-              <p>Hosting Providers</p>
-              <h2>Expand a provider for {estimateOnly ? "repo-based estimates" : "resources and cost breakdown"}</h2>
-              {estimateOnly ? <span className="estimate-banner">No provider billing source is connected for this repo yet. Amounts below are rough estimates from repo evidence, not your actual bill.</span> : null}
+        <>
+          <ProviderConnectPanel providerConnections={relevantProviders} initialState={state} />
+          <section className="provider-deep-dive" aria-label="Provider cost breakdown">
+            <div className="deep-dive-heading">
+              <div>
+                <p>Hosting Providers</p>
+                <h2>Expand a provider for {estimateOnly ? "repo-based estimates" : "resources and cost breakdown"}</h2>
+                {estimateOnly ? <span className="estimate-banner">No provider billing source is connected for this repo yet. Amounts below are rough estimates from repo evidence, not your actual bill.</span> : null}
+              </div>
+              <CheckCircle2 aria-hidden />
             </div>
-            <CheckCircle2 aria-hidden />
-          </div>
-          {relevantProviders.map((connection) => (
-            <ProviderAccordion key={connection.provider} analysis={analysis} connection={connection} />
-          ))}
-        </section>
+            {relevantProviders.map((connection) => (
+              <ProviderAccordion key={connection.provider} analysis={analysis} connection={connection} />
+            ))}
+          </section>
+        </>
       ) : (
         <section className="provider-deep-dive pending-scan">
           <FolderGit2 aria-hidden />
