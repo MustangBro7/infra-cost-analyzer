@@ -122,6 +122,28 @@ export async function fetchVercelUserInfo(accessToken: string) {
   return response.json() as Promise<VercelUserInfo>
 }
 
+/**
+ * Best-effort lookup of the billing plan (e.g. "hobby", "pro", "enterprise") so
+ * the card can show it. When a team is selected the team's plan is what governs
+ * billing access; otherwise the personal account's plan. Returns null if Vercel
+ * doesn't expose it for this token.
+ */
+export async function fetchVercelPlan(token: string, teamId?: string | null): Promise<string | null> {
+  try {
+    if (teamId) {
+      const team = await vercelRequest<{ billing?: { plan?: string } }>(
+        `/v2/teams/${encodeURIComponent(teamId)}`,
+        token
+      )
+      return team.billing?.plan ?? null
+    }
+    const payload = await vercelRequest<{ user: { billing?: { plan?: string } } }>("/v2/user", token)
+    return payload.user.billing?.plan ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function listVercelProjects(token: string, teamId?: string | null): Promise<VercelProject[]> {
   const query = teamId ? `?teamId=${encodeURIComponent(teamId)}` : ""
   const payload = await vercelRequest<{ projects: VercelProject[] }>(`/v10/projects${query}`, token)

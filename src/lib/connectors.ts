@@ -1,6 +1,6 @@
 import { readWorkspace, saveGitHubRepos, upsertConnection } from "./localStore"
 import { scanRepositorySafe } from "./repoScanner"
-import { listVercelProjects, verifyVercelToken } from "./vercelClient"
+import { fetchVercelPlan, listVercelProjects, verifyVercelToken } from "./vercelClient"
 import { listCloudflareAccounts, verifyCloudflareToken } from "./cloudflareClient"
 import { readWranglerOAuth } from "./wranglerAuth"
 import { discoverBillingExportTable, normalizeBillingExportTableId, verifyGcpServiceAccount } from "./gcpClient"
@@ -44,6 +44,7 @@ export async function connectVercelToken(
 ) {
   const verified = await verifyVercelToken(token)
   const projects = await listVercelProjects(token, teamId)
+  const plan = await fetchVercelPlan(token, teamId)
   await upsertConnection(userId, {
     provider: "vercel",
     status: "connected",
@@ -53,6 +54,7 @@ export async function connectVercelToken(
     lastVerifiedAt: new Date().toISOString(),
     lastError: null,
     metadata: {
+      plan,
       teamId: teamId ?? null,
       slug: slug ?? null,
       teams: verified.teams.map((team) => ({ id: team.id, slug: team.slug, name: team.name })),

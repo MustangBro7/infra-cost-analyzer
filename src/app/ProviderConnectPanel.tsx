@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, Info, KeyRound, Loader2, PlugZap, ShieldAlert, Unplug } from "lucide-react"
+import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, KeyRound, Loader2, PlugZap, ShieldAlert, Unplug } from "lucide-react"
 import type { Provider, ProviderConnection } from "@/lib/types"
 import { ProviderLogo } from "./ProviderLogo"
 
@@ -18,12 +18,6 @@ type PublicConnection = {
 
 interface PublicState {
   connections: Record<string, PublicConnection | null>
-}
-
-interface VercelOAuthStatus {
-  configured: boolean
-  redirectUri: string
-  missingEnv: string[]
 }
 
 const VERCEL_TOKEN_URL = "https://vercel.com/account/settings/tokens"
@@ -62,70 +56,15 @@ function providerLabel(provider: Provider) {
   return provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = React.useState(false)
-  return (
-    <button
-      type="button"
-      className="copy-button"
-      onClick={() => {
-        navigator.clipboard.writeText(value).then(() => {
-          setCopied(true)
-          window.setTimeout(() => setCopied(false), 1400)
-        })
-      }}
-    >
-      <ClipboardCopy aria-hidden />
-      {copied ? "Copied" : "Copy"}
-    </button>
-  )
+/** Turns a raw Vercel plan ("hobby", "pro", …) into a card label. */
+function vercelPlanLabel(plan: unknown): string | null {
+  if (typeof plan !== "string" || !plan.trim()) return null
+  const normalized = plan.trim()
+  return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)} plan`
 }
 
 function ProviderBadge({ provider }: { provider: Provider }) {
   return <ProviderLogo provider={provider} />
-}
-
-function VercelOAuthSetup({ redirectUri }: { redirectUri: string | null }) {
-  const callback =
-    redirectUri ?? (typeof window === "undefined" ? "/api/vercel/oauth/callback" : `${window.location.origin}/api/vercel/oauth/callback`)
-  return (
-    <details className="vercel-oauth-setup">
-      <summary>
-        <Info aria-hidden />
-        <span>Set up one-click “Connect Vercel” (OAuth) — owner setup, once</span>
-      </summary>
-      <ol className="vercel-oauth-steps">
-        <li>
-          Create a <strong>“Sign in with Vercel” app</strong> (NOT a marketplace integration):{" "}
-          <a href="https://vercel.com/docs/sign-in-with-vercel/manage-from-dashboard" target="_blank" rel="noreferrer">
-            Vercel → Settings → Sign in with Vercel → Create app <ExternalLink aria-hidden />
-          </a>
-          .
-        </li>
-        <li>
-          Set its Authorization Callback URL to exactly:
-          <div className="setup-value">
-            <code>{callback}</code>
-            <CopyButton value={callback} />
-          </div>
-        </li>
-        <li>Generate a Client Secret, then copy the Client ID and Client Secret.</li>
-        <li>
-          Add them to this deployment as Worker secrets, then redeploy:
-          <div className="setup-value">
-            <code>npx wrangler secret put VERCEL_APP_CLIENT_ID</code>
-            <CopyButton value="npx wrangler secret put VERCEL_APP_CLIENT_ID" />
-          </div>
-          <div className="setup-value">
-            <code>npx wrangler secret put VERCEL_APP_CLIENT_SECRET</code>
-            <CopyButton value="npx wrangler secret put VERCEL_APP_CLIENT_SECRET" />
-          </div>
-        </li>
-        <li>This panel then becomes a one-click “Connect Vercel” button for every user.</li>
-      </ol>
-      <p className="vercel-oauth-note">Until then, paste a Vercel token below — it works everywhere with no setup.</p>
-    </details>
-  )
 }
 
 function ConnectedProviderState({
@@ -170,14 +109,9 @@ export function ProviderConnectPanel({
   const [awsSecretAccessKey, setAwsSecretAccessKey] = React.useState("")
   const [awsSessionToken, setAwsSessionToken] = React.useState("")
   const [awsCostExplorer, setAwsCostExplorer] = React.useState(false)
-  const [vercelOAuthStatus, setVercelOAuthStatus] = React.useState<VercelOAuthStatus | null>(null)
   const [busy, setBusy] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    jsonRequest<VercelOAuthStatus>("/api/vercel/oauth/status").then(setVercelOAuthStatus).catch(() => setVercelOAuthStatus(null))
-  }, [])
 
   async function refresh() {
     const next = await jsonRequest<PublicState>("/api/state")
@@ -219,25 +153,28 @@ export function ProviderConnectPanel({
           const connected = saved?.status === "connected"
 
           if (connection.provider === "vercel") {
+            const vercelPlan = vercelPlanLabel((saved?.metadata as { plan?: unknown } | undefined)?.plan)
+            const isHobby = vercelPlan?.toLowerCase().startsWith("hobby")
             return (
               <article key={connection.provider} className={connected ? "provider-connect-card connected" : "provider-connect-card"}>
                 <div className="provider-connect-title">
                   <ProviderBadge provider="vercel" />
                   <strong>{connected ? saved?.accountLabel : "Connect Vercel billing"}</strong>
+                  {connected && vercelPlan ? <span className="plan-badge">{vercelPlan}</span> : null}
                 </div>
                 {connected && saved ? (
-                  <ConnectedProviderState provider="vercel" connection={saved} detail="Vercel billing will be used when Vercel returns matching charge rows." />
+                  <ConnectedProviderState
+                    provider="vercel"
+                    connection={saved}
+                    detail={
+                      isHobby
+                        ? "On the Hobby plan Vercel doesn't expose billing data, so no cost rows will appear."
+                        : "Vercel billing will be used when Vercel returns matching charge rows."
+                    }
+                  />
                 ) : (
                   <>
-                    <p>Use Vercel billing charges to show live Vercel cost rows.</p>
-                    {vercelOAuthStatus?.configured ? (
-                      <button type="button" className="command-button" disabled={Boolean(busy)} onClick={() => { window.location.href = "/api/vercel/oauth/start" }}>
-                        <KeyRound aria-hidden />
-                        Connect Vercel
-                      </button>
-                    ) : (
-                      <VercelOAuthSetup redirectUri={vercelOAuthStatus?.redirectUri ?? null} />
-                    )}
+                    <p>Paste a Vercel token to show live Vercel cost rows. No setup needed.</p>
                     <form
                       className="provider-token-form"
                       onSubmit={(event) => {
