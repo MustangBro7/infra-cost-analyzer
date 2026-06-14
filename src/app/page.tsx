@@ -23,6 +23,7 @@ import { AnalysisRefresher } from "./AnalysisRefresher"
 import { ProviderLogo } from "./ProviderLogo"
 import { SignInForm } from "./SignInForm"
 import { SignOutButton } from "./SignOutButton"
+import { ThemeToggle } from "./ThemeToggle"
 import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore } from "@/lib/localStore"
@@ -301,6 +302,7 @@ function Header({ subtitle }: { subtitle: string }) {
         <a href="/" className="icon-button" aria-label="Refresh repositories">
           <RefreshCw aria-hidden />
         </a>
+        <ThemeToggle />
         <SignOutButton />
       </div>
     </header>

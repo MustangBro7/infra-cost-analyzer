@@ -1,8 +1,10 @@
 :root {
+  color-scheme: light;
   --bg: #f5f1e8;
   --ink: #151515;
   --muted: #696459;
   --line: #d8d0c1;
+  --border: var(--line);
   --panel: #fffaf0;
   --panel-strong: #f0e4cf;
   --green: #1f8a5b;
@@ -11,6 +13,100 @@
   --yellow: #d79c22;
   --violet: #7152a5;
   --shadow: 0 20px 60px rgba(47, 41, 31, 0.13);
+
+  /* Semantic surfaces & tints (overridden in dark mode) */
+  --surface: #fffdf6;
+  --surface-2: #fff8ea;
+  --surface-3: #fbf5e9;
+  --ok-soft: #edf6e8;
+  --ok-soft-2: #e6f0df;
+  --ok-mid: #d8ead2;
+  --ok-chip: #e3f3ea;
+  --warn-soft: #fff1c9;
+  --warn-mid: #ffe0a6;
+  --warn-ink: #8a6400;
+  --err-soft: #f7d9d4;
+  --info-soft: #dce8f8;
+  --neutral: #eee4d3;
+  --track: #eadfcd;
+  --topbar-bg: rgba(255, 250, 240, 0.84);
+  --grid-line: rgba(21, 21, 21, 0.035);
+}
+
+/* Dark theme — shared values. Applied when the user explicitly picks dark,
+   or when the system prefers dark and the user has not chosen light. */
+:root[data-theme="dark"],
+:root[data-theme="dark"] body {
+  color-scheme: dark;
+}
+
+:root[data-theme="dark"] {
+  --bg: #14120d;
+  --ink: #ece4d3;
+  --muted: #a39c8a;
+  --line: #393428;
+  --border: var(--line);
+  --panel: #1f1c15;
+  --panel-strong: #2a261c;
+  --green: #4cb083;
+  --red: #e07a6e;
+  --blue: #6699dd;
+  --yellow: #e0b352;
+  --violet: #a98fd4;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+
+  --surface: #26221a;
+  --surface-2: #2d2819;
+  --surface-3: #221f17;
+  --ok-soft: #1d2c20;
+  --ok-soft-2: #203023;
+  --ok-mid: #284a35;
+  --ok-chip: #1f3527;
+  --warn-soft: #352b15;
+  --warn-mid: #43361a;
+  --warn-ink: #e0b352;
+  --err-soft: #3d211d;
+  --info-soft: #1e2c40;
+  --neutral: #2a261c;
+  --track: #2a261c;
+  --topbar-bg: rgba(31, 28, 21, 0.84);
+  --grid-line: rgba(255, 255, 255, 0.035);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #14120d;
+    --ink: #ece4d3;
+    --muted: #a39c8a;
+    --line: #393428;
+    --border: var(--line);
+    --panel: #1f1c15;
+    --panel-strong: #2a261c;
+    --green: #4cb083;
+    --red: #e07a6e;
+    --blue: #6699dd;
+    --yellow: #e0b352;
+    --violet: #a98fd4;
+    --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+
+    --surface: #26221a;
+    --surface-2: #2d2819;
+    --surface-3: #221f17;
+    --ok-soft: #1d2c20;
+    --ok-soft-2: #203023;
+    --ok-mid: #284a35;
+    --ok-chip: #1f3527;
+    --warn-soft: #352b15;
+    --warn-mid: #43361a;
+    --warn-ink: #e0b352;
+    --err-soft: #3d211d;
+    --info-soft: #1e2c40;
+    --neutral: #2a261c;
+    --track: #2a261c;
+    --topbar-bg: rgba(31, 28, 21, 0.84);
+    --grid-line: rgba(255, 255, 255, 0.035);
+  }
 }
 
 * {
@@ -20,16 +116,18 @@
 html {
   min-width: 320px;
   background:
-    linear-gradient(rgba(21, 21, 21, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(21, 21, 21, 0.035) 1px, transparent 1px),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
     var(--bg);
   background-size: 28px 28px;
+  transition: background-color 0.2s ease;
 }
 
 body {
   margin: 0;
   color: var(--ink);
   font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", "Liberation Mono", Menlo, monospace;
+  transition: color 0.2s ease;
 }
 
 a {
@@ -42,6 +140,13 @@ a {
   min-height: 100vh;
   place-items: center;
   padding: 18px;
+}
+
+.theme-toggle-floating {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 10;
 }
 
 .signin-panel {
@@ -95,7 +200,7 @@ a {
 .signin-form input {
   min-height: 44px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
   padding: 0 12px;
@@ -122,7 +227,7 @@ a {
   justify-content: space-between;
   gap: 16px;
   border: 1px solid var(--line);
-  background: rgba(255, 250, 240, 0.84);
+  background: var(--topbar-bg);
   padding: 12px;
   box-shadow: var(--shadow);
 }
@@ -303,7 +408,7 @@ a {
 }
 
 .notice.strong {
-  background: #e6f0df;
+  background: var(--ok-soft-2);
 }
 
 .flow-grid {
@@ -327,13 +432,13 @@ a {
   gap: 9px;
   min-height: 72px;
   border: 1px solid var(--ink);
-  background: #fff8ea;
+  background: var(--surface-2);
   padding: 10px;
 }
 
 .step-card.done,
 .flow-card.complete {
-  background: #edf6e8;
+  background: var(--ok-soft);
 }
 
 .step-number {
@@ -405,7 +510,7 @@ a {
 .dashboard-total {
   min-width: 230px;
   border: 1px solid var(--ink);
-  background: #e6f0df;
+  background: var(--ok-soft-2);
   padding: 12px;
 }
 
@@ -436,13 +541,13 @@ a {
   gap: 9px;
   min-height: 172px;
   border: 1px solid var(--line);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 12px;
 }
 
 .project-card.active {
   border-color: var(--ink);
-  background: #edf6e8;
+  background: var(--ok-soft);
 }
 
 .project-card.empty {
@@ -492,7 +597,7 @@ a {
 .sync-card {
   min-height: 120px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 12px;
 }
 
@@ -516,21 +621,21 @@ a {
 }
 
 .sync-success {
-  background: #e6f0df;
+  background: var(--ok-soft-2);
 }
 
 .sync-error {
-  background: #f7d9d4;
+  background: var(--err-soft);
 }
 
 .sync-empty {
-  background: #fff1c9;
+  background: var(--warn-soft);
 }
 
 .flow-card {
   min-height: 230px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 14px;
 }
 
@@ -650,7 +755,7 @@ a.ghost-button {
 }
 
 .repo-picker-row.selected {
-  background: #edf6e8;
+  background: var(--ok-soft);
 }
 
 .repo-picker-row strong,
@@ -676,7 +781,7 @@ a.ghost-button {
   width: 34px;
   height: 34px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   color: var(--ink);
   cursor: pointer;
 }
@@ -738,11 +843,11 @@ a.ghost-button {
 }
 
 .flow-message.success {
-  background: #e6f0df;
+  background: var(--ok-soft-2);
 }
 
 .flow-message.error {
-  background: #f7d9d4;
+  background: var(--err-soft);
 }
 
 .setup-callout {
@@ -750,7 +855,7 @@ a.ghost-button {
   gap: 8px;
   margin-top: 14px;
   border: 1px solid var(--ink);
-  background: #fff1c9;
+  background: var(--warn-soft);
   padding: 12px;
 }
 
@@ -776,7 +881,7 @@ a.ghost-button {
 .activity-log {
   margin-top: 14px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
 }
 
 .activity-heading,
@@ -810,15 +915,15 @@ a.ghost-button {
 }
 
 .event-success {
-  background: #edf6e8;
+  background: var(--ok-soft);
 }
 
 .event-warning {
-  background: #fff8ea;
+  background: var(--surface-2);
 }
 
 .event-error {
-  background: #f7d9d4;
+  background: var(--err-soft);
 }
 
 .spin {
@@ -867,13 +972,13 @@ a.ghost-button {
 .provider-tile {
   min-height: 150px;
   border: 1px solid var(--line);
-  background: #fbf5e9;
+  background: var(--surface-3);
   padding: 12px;
 }
 
 .provider-tile.detected {
   border-color: var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
 }
 
 .provider-row {
@@ -946,16 +1051,16 @@ a.ghost-button {
 
 .status {
   border-color: var(--line);
-  background: #eee4d3;
+  background: var(--neutral);
   color: var(--ink);
 }
 
 .status-connected {
-  background: #d8ead2;
+  background: var(--ok-mid);
 }
 
 .status-setup_required {
-  background: #ffe0a6;
+  background: var(--warn-mid);
 }
 
 .provider-tile h3,
@@ -988,7 +1093,7 @@ a.ghost-button {
 .bar-track {
   height: 19px;
   border: 1px solid var(--ink);
-  background: #eadfcd;
+  background: var(--track);
 }
 
 .bar-fill {
@@ -1007,7 +1112,7 @@ a.ghost-button {
   grid-template-columns: minmax(0, 1fr) 84px;
   gap: 12px;
   border: 1px solid var(--line);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 12px;
 }
 
@@ -1059,15 +1164,15 @@ th {
 }
 
 .pill-verified {
-  background: #d8ead2;
+  background: var(--ok-mid);
 }
 
 .pill-user_confirmed {
-  background: #dce8f8;
+  background: var(--info-soft);
 }
 
 .pill-inferred {
-  background: #ffe0a6;
+  background: var(--warn-mid);
 }
 
 .action-panel {
@@ -1085,7 +1190,7 @@ th {
   gap: 10px;
   min-height: 72px;
   border: 1px solid var(--line);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 12px;
   font-size: 12px;
   line-height: 1.45;
@@ -1178,14 +1283,14 @@ th {
   gap: 12px;
   min-height: 210px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   box-shadow: 4px 4px 0 var(--ink);
   padding: 16px;
 }
 
 .repo-home-card:hover,
 .repo-home-card.active {
-  background: #edf6e8;
+  background: var(--ok-soft);
 }
 
 .repo-home-card-head,
@@ -1270,7 +1375,7 @@ th {
 
 .repo-sync-head > span {
   border: 1px solid var(--ink);
-  background: #edf6e8;
+  background: var(--ok-soft);
   padding: 8px 10px;
   font-size: 12px;
   font-weight: 800;
@@ -1288,7 +1393,7 @@ th {
   gap: 9px;
   max-width: 720px;
   border: 1px solid var(--ink);
-  background: #fff1c9;
+  background: var(--warn-soft);
   padding: 10px 12px;
 }
 
@@ -1298,7 +1403,7 @@ th {
   gap: 9px;
   max-width: 560px;
   border: 1px solid var(--ink);
-  background: #edf6e8;
+  background: var(--ok-soft);
   padding: 10px 12px;
 }
 
@@ -1339,7 +1444,7 @@ th {
 
 .github-setup-guide {
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
 }
 
 .github-setup-guide summary {
@@ -1446,7 +1551,7 @@ th {
 .setup-value code {
   overflow-x: auto;
   border: 1px solid var(--line);
-  background: #fff8ea;
+  background: var(--surface-2);
   padding: 9px 10px;
   font-family: inherit;
   font-size: 12px;
@@ -1483,7 +1588,7 @@ th {
 
 .permission-grid b {
   border: 1px solid var(--ink);
-  background: #edf6e8;
+  background: var(--ok-soft);
   padding: 9px;
   font-size: 12px;
 }
@@ -1504,7 +1609,7 @@ th {
   gap: 10px;
   min-height: 62px;
   padding: 10px;
-  background: #fffdf6;
+  background: var(--surface);
 }
 
 .sync-repo-row + .sync-repo-row {
@@ -1512,7 +1617,7 @@ th {
 }
 
 .sync-repo-row.synced {
-  background: #edf6e8;
+  background: var(--ok-soft);
 }
 
 .sync-repo-row strong {
@@ -1566,7 +1671,7 @@ th {
   min-height: 180px;
   gap: 8px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
 }
 
 .empty-repo-state svg {
@@ -1615,7 +1720,7 @@ th {
 .repo-detail-totals > div {
   min-width: 140px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 12px;
 }
 
@@ -1683,16 +1788,16 @@ th {
   align-content: start;
   gap: 10px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 12px;
 }
 
 .provider-connect-card.connected {
-  background: #edf6e8;
+  background: var(--ok-soft);
 }
 
 .provider-connect-card.pending {
-  background: #fff1c9;
+  background: var(--warn-soft);
 }
 
 .provider-connect-title {
@@ -1729,7 +1834,7 @@ th {
   gap: 10px;
   align-items: start;
   border: 1px solid var(--ink);
-  background: #d8ead2;
+  background: var(--ok-mid);
   padding: 12px;
 }
 
@@ -1813,7 +1918,7 @@ th {
 .mini-setup-box code {
   overflow-x: auto;
   border: 1px solid var(--line);
-  background: #fff8ea;
+  background: var(--surface-2);
   padding: 7px;
 }
 
@@ -1832,14 +1937,14 @@ th {
 
 .provider-connect-footer > strong {
   border: 1px solid var(--ink);
-  background: #edf6e8;
+  background: var(--ok-soft);
   padding: 6px 9px;
   font-size: 12px;
 }
 
 .provider-accordion {
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
 }
 
 .provider-accordion + .provider-accordion {
@@ -1859,7 +1964,7 @@ th {
 }
 
 .provider-accordion summary:hover {
-  background: #fffdf6;
+  background: var(--surface);
 }
 
 .provider-accordion summary::-webkit-details-marker {
@@ -1918,14 +2023,14 @@ th {
 }
 
 .status-chip.connected {
-  background: #e3f3ea;
+  background: var(--ok-chip);
   color: var(--green);
   border-color: var(--green);
 }
 
 .status-chip.warn {
-  background: #fff1c9;
-  color: #8a6400;
+  background: var(--warn-soft);
+  color: var(--warn-ink);
   border-color: var(--yellow);
 }
 
@@ -1944,7 +2049,7 @@ th {
 }
 
 .amount-tag.warn {
-  color: #8a6400;
+  color: var(--warn-ink);
 }
 
 .amount-tag.muted {
@@ -1970,7 +2075,7 @@ th {
   gap: 8px;
   margin-bottom: 12px;
   border: 1px solid var(--ink);
-  background: #fff1c9;
+  background: var(--warn-soft);
   padding: 10px;
   font-size: 12px;
 }
@@ -2038,7 +2143,7 @@ th {
 }
 
 .provider-tab:hover {
-  background: #fff8e6;
+  background: var(--surface-2);
 }
 
 .provider-tab-input.cost:focus-visible ~ .provider-tab-list .provider-tab.cost,
@@ -2376,7 +2481,7 @@ th {
   width: 44px;
   height: 44px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   flex-shrink: 0;
 }
 
@@ -2414,7 +2519,7 @@ th {
   align-items: center;
   gap: 10px;
   border: 1px solid var(--line);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 8px 12px;
 }
 
@@ -2456,7 +2561,7 @@ th {
   align-items: center;
   gap: 10px;
   border: 1px solid var(--line);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 12px 14px;
   color: var(--muted);
   font-size: 13px;
@@ -2553,7 +2658,7 @@ th {
   align-items: center;
   gap: 6px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 5px 10px;
   cursor: pointer;
   font: inherit;
@@ -2662,7 +2767,7 @@ th {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #fff1c9;
+  background: var(--warn-soft);
 }
 
 .accounts-board.empty > svg {
@@ -2695,7 +2800,7 @@ th {
   align-items: center;
   gap: 10px;
   border: 1px solid var(--line);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 8px 12px;
 }
 
@@ -2773,7 +2878,7 @@ th {
   align-items: center;
   gap: 9px;
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 8px 12px 8px 10px;
   cursor: pointer;
   font: inherit;
@@ -2786,7 +2891,7 @@ th {
 }
 
 .account-chip.on {
-  background: #e3f3ea;
+  background: var(--ok-chip);
   box-shadow: 3px 3px 0 var(--green);
   border-color: var(--green);
 }
@@ -3026,7 +3131,7 @@ th {
 
 .aws-cadence select {
   border: 1px solid var(--ink);
-  background: #fffdf6;
+  background: var(--surface);
   padding: 5px 8px;
   font: inherit;
   font-size: 0.82rem;

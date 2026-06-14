@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { CloudCog, Loader2, LogIn } from "lucide-react"
+import { ThemeToggle } from "./ThemeToggle"
 
 async function signIn(email: string, name: string, accessCode: string) {
   const response = await fetch("/api/auth/sign-in", {
@@ -24,6 +25,9 @@ export function SignInForm() {
 
   return (
     <main className="signin-shell">
+      <div className="theme-toggle-floating">
+        <ThemeToggle />
+      </div>
       <section className="signin-panel">
         <div className="signin-mark">
           <CloudCog aria-hidden />
