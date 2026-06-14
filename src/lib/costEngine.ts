@@ -14,7 +14,7 @@ import { computeFreeTierUsage } from "./freeTier"
 import { attributeCostRows, attributeRepoForName, type VercelProjectLink } from "./costAttribution"
 import { readWorkspace, upsertConnection } from "./localStore"
 import { getAwsCostAndUsage, getAwsFreeTierUsage, type AwsCostRow, type AwsCredentials } from "./awsClient"
-import { listVercelBillingCharges } from "./vercelClient"
+import { fetchVercelAccountUsage, listVercelBillingCharges } from "./vercelClient"
 import { getCloudflareAccountResources, getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
 
@@ -178,63 +178,82 @@ async function loadVercelLive(
   const currentPeriod = period()
   const metadata = vercel.metadata as { teamId?: string | null; slug?: string | null; teams?: Array<{ id: string; slug: string }> }
   const scopes = buildVercelBillingScopes(metadata)
+  const token = vercel.accessToken
+  const syncedAt = new Date().toISOString()
 
-  try {
-    const allCharges = []
-    const errors: string[] = []
-    for (const scope of scopes) {
-      try {
-        allCharges.push(...(await listVercelBillingCharges(vercel.accessToken, { ...currentPeriod, ...scope })))
-      } catch (error) {
-        errors.push(error instanceof Error ? error.message : "Unknown Vercel billing error.")
-      }
+  const allCharges = []
+  const usage: ProviderUsageSample[] = []
+  const resources: ResourceUsageItem[] = []
+  const billingErrors: string[] = []
+  const usageErrors: string[] = []
+
+  for (const scope of scopes) {
+    // FOCUS billing charges produce dollar amounts but only exist on paid plans;
+    // on the free Hobby tier this 404s, which is expected and must NOT block the
+    // usage pull below.
+    try {
+      allCharges.push(...(await listVercelBillingCharges(token, { ...currentPeriod, ...scope })))
+    } catch (error) {
+      billingErrors.push(error instanceof Error ? error.message : "Unknown Vercel billing error.")
     }
 
-    if (allCharges.length === 0 && errors.length > 0) {
-      throw new Error(errors[0])
+    // Account usage works on every tier (including free), so free-tier accounts
+    // still see real consumption against their allowances.
+    const accountUsage = await fetchVercelAccountUsage(token, { ...currentPeriod, teamId: scope.teamId })
+    for (const metric of accountUsage.metrics) {
+      usage.push({ provider: "vercel", service: metric.service, quantity: metric.quantity, unit: metric.unit })
     }
-
-    // Usage is captured from every charge, including $0 free-tier lines, so the
-    // dashboard can show free-tier consumption even when there is no cost.
-    const usage = normalizeVercelUsage(allCharges)
-    const rows = normalizeVercelCharges(allCharges, repoScan, currentPeriod)
-    if (rows.length === 0) {
-      return {
-        rows: [],
-        usage,
-        sync: {
-          provider: "vercel",
-          status: "empty",
-          message: "Vercel billing returned no charge rows for the current month.",
-          rows: 0,
-          syncedAt: new Date().toISOString(),
-        },
-      }
-    }
-
-    return {
-      rows,
-      usage,
-      sync: {
+    for (const project of accountUsage.projects) {
+      if (project.requests <= 0 && project.bandwidthBytes <= 0) continue
+      resources.push({
         provider: "vercel",
-        status: "success",
-        message: `Loaded ${rows.length} live Vercel billing rows.`,
-        rows: rows.length,
-        syncedAt: new Date().toISOString(),
-      },
+        itemKey: `vercel::project::${project.id}`.toLowerCase(),
+        kind: "Vercel Project",
+        name: project.name,
+        quantity: Math.round(project.requests),
+        unit: "requests",
+      })
     }
-  } catch (error) {
+    if (accountUsage.error) usageErrors.push(accountUsage.error)
+  }
+
+  const rows = normalizeVercelCharges(allCharges, repoScan, currentPeriod)
+  const haveData = rows.length > 0 || usage.length > 0 || resources.length > 0
+
+  if (!haveData) {
+    // Nothing from billing OR usage. Surface a usage error first (billing 404 on
+    // free tier is normal and not worth showing as the failure).
+    const reason = usageErrors[0] ?? billingErrors[0]
     return {
       rows: [],
-      usage: [],
+      usage,
+      resources,
       sync: {
         provider: "vercel",
-        status: "error",
-        message: error instanceof Error ? error.message : "Failed to sync Vercel billing.",
+        status: reason ? "error" : "empty",
+        message: reason ?? "Vercel returned no billing or usage for the current month.",
         rows: 0,
-        syncedAt: new Date().toISOString(),
+        syncedAt,
       },
     }
+  }
+
+  const message =
+    rows.length > 0
+      ? `Loaded ${rows.length} live Vercel billing row${rows.length === 1 ? "" : "s"} and ${usage.length} usage metric${usage.length === 1 ? "" : "s"}.`
+      : `On the Vercel free tier — loaded ${usage.length} live usage metric${usage.length === 1 ? "" : "s"} (no billed cost this period).`
+
+  return {
+    rows,
+    usage,
+    resources,
+    sync: {
+      provider: "vercel",
+      status: "success",
+      message,
+      rows: rows.length,
+      syncedAt,
+    },
   }
 }
 
@@ -717,24 +736,6 @@ function normalizeVercelCharges(
       }
     })
     .filter((row): row is NormalizedCostRow => Boolean(row))
-}
-
-function normalizeVercelUsage(
-  charges: Array<Awaited<ReturnType<typeof listVercelBillingCharges>>[number]>
-): ProviderUsageSample[] {
-  return charges
-    .map((charge): ProviderUsageSample | null => {
-      const quantity = numberValue(charge.ConsumedQuantity ?? charge.PricingQuantity)
-      const unit = stringValue(charge.ConsumedUnit) ?? stringValue(charge.PricingUnit)
-      if (!Number.isFinite(quantity) || quantity <= 0 || !unit) return null
-      return {
-        provider: "vercel",
-        service: stringValue(charge.ServiceName) ?? "Vercel usage",
-        quantity,
-        unit,
-      }
-    })
-    .filter((sample): sample is ProviderUsageSample => Boolean(sample))
 }
 
 function numberValue(value: unknown): number {

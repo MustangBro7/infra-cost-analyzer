@@ -29,11 +29,18 @@ interface FreeTierPlan {
 
 const FREE_TIER_PLANS: Partial<Record<Provider, FreeTierPlan>> = {
   vercel: {
+    // Vercel Hobby "included usage" per https://vercel.com/docs/limits. Matchers
+    // are precise and non-overlapping so each measured metric (emitted by
+    // fetchVercelAccountUsage) lands on exactly one allowance line.
     planName: "Vercel Hobby",
     allowances: [
-      { service: "Fast Data Transfer", limit: 100, unit: "GB", match: /data\s*transfer|bandwidth|egress/i },
-      { service: "Edge Requests", limit: 1_000_000, unit: "requests", match: /edge\s*request|invocation|function/i },
-      { service: "Image Optimization", limit: 5_000, unit: "source images", match: /image/i },
+      { service: "Fast Data Transfer", limit: 100, unit: "GB", match: /fast data transfer/i },
+      { service: "Edge Requests", limit: 1_000_000, unit: "requests", match: /edge\s*request/i },
+      { service: "Function Invocations", limit: 1_000_000, unit: "invocations", match: /function invocation/i },
+      { service: "Provisioned Memory", limit: 360, unit: "GB-hours", match: /provisioned memory|gb-?hours?/i },
+      { service: "Build Execution", limit: 6_000, unit: "minutes", match: /build execution/i },
+      { service: "Monitoring Events", limit: 250_000, unit: "events", match: /monitoring/i },
+      { service: "Image Optimization", limit: 1_000, unit: "source images", match: /image/i },
     ],
   },
   cloudflare: {
