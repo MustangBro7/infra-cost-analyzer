@@ -41,9 +41,12 @@ export async function refreshAnalysisSnapshot(input: {
   requestedRepo?: string | null
   githubRepos: GitHubRepoSummary[]
   repoPath?: string | null
+  forceCostExplorer?: boolean
 }): Promise<AnalysisSnapshot> {
   const scan = await scanForRepo(input)
-  const analysis = await buildAnalysisWithLiveData(scan, process.env, input.userId)
+  const analysis = await buildAnalysisWithLiveData(scan, process.env, input.userId, {
+    forceCostExplorer: input.forceCostExplorer === true,
+  })
   const snapshot: AnalysisSnapshot = {
     key: snapshotKeyForRepo(input.requestedRepo),
     analysis,

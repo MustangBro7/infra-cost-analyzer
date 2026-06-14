@@ -225,6 +225,26 @@ export async function setAwsCostExplorer(userId: string, enabled: boolean) {
 }
 
 /**
+ * Sets how often Cost Explorer (billed $0.01/call) may be auto-refreshed:
+ * "manual" (only on demand), "daily", "weekly" or "monthly". Between refreshes
+ * the last cached result is reused, so page loads don't keep re-billing.
+ */
+export async function setAwsCostExplorerInterval(userId: string, interval: string) {
+  const allowed = new Set(["manual", "daily", "weekly", "monthly"])
+  if (!allowed.has(interval)) throw new Error("Invalid Cost Explorer interval.")
+  const workspace = await readWorkspace(userId)
+  const aws = workspace.connections.aws
+  if (!aws || aws.status !== "connected") {
+    throw new Error("AWS is not connected.")
+  }
+  await upsertConnection(userId, {
+    ...aws,
+    metadata: { ...aws.metadata, costExplorerInterval: interval },
+  })
+  return { costExplorerInterval: interval }
+}
+
+/**
  * Connects AWS using the credentials the AWS CLI already wrote to
  * ~/.aws/credentials (lowest-friction path: run `aws configure` once, then
  * click connect). Only works where the server has a real home directory.

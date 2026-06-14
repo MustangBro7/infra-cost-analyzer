@@ -371,6 +371,59 @@ export function ProviderConnectPanel({
                       )}
                       {(saved.metadata as { costExplorer?: boolean }).costExplorer ? "Turn off cost data" : "Pull cost data ($0.01/refresh)"}
                     </button>
+                    {(saved.metadata as { costExplorer?: boolean }).costExplorer ? (
+                      <div className="aws-cadence">
+                        <label>
+                          <span>Auto-refresh cost</span>
+                          <select
+                            value={(saved.metadata as { costExplorerInterval?: string }).costExplorerInterval ?? "daily"}
+                            disabled={Boolean(busy)}
+                            onChange={(event) =>
+                              run("aws-cadence", async () => {
+                                await jsonRequest("/api/aws/cost-explorer", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ interval: event.target.value }),
+                                })
+                                setMessage(`Cost Explorer auto-refresh set to ${event.target.value}.`)
+                              })
+                            }
+                          >
+                            <option value="manual">Manual only</option>
+                            <option value="daily">Once a day</option>
+                            <option value="weekly">Once a week</option>
+                            <option value="monthly">Once a month</option>
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          className="command-button"
+                          disabled={Boolean(busy)}
+                          onClick={() =>
+                            run("aws-cost-now", async () => {
+                              const repo = new URLSearchParams(window.location.search).get("repo")
+                              await jsonRequest("/api/aws/cost-refresh", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ repo }),
+                              })
+                              setMessage("Pulled fresh AWS cost (~$0.01).")
+                            })
+                          }
+                        >
+                          {busy === "aws-cost-now" ? <Loader2 className="spin" aria-hidden /> : <Cloud aria-hidden />}
+                          Pull cost now ($0.01)
+                        </button>
+                        <small className="aws-cadence-note">
+                          {(() => {
+                            const last = (saved.metadata as { costExplorerLastFetchedAt?: string | null }).costExplorerLastFetchedAt
+                            return last
+                              ? `Last pulled ${new Date(last).toLocaleString()}. Refreshes reuse this until the next scheduled pull.`
+                              : "Not pulled yet — set a cadence or pull now. Between pulls, refreshes are free."
+                          })()}
+                        </small>
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <>

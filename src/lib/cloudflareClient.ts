@@ -199,6 +199,90 @@ export async function getCloudflareAccountUsage(
   return { usage, error }
 }
 
+export interface CloudflareResource {
+  kind: "Worker" | "Domain"
+  name: string
+  quantity: number
+  unit: string
+}
+
+/**
+ * Lists the account's discrete infra resources with usage so each can be
+ * assigned to a repo: Workers broken out per script, and domains (zones) per
+ * request volume. Best-effort — each query is independent and a failure just
+ * omits that resource kind.
+ */
+export async function getCloudflareAccountResources(
+  token: string,
+  accountId: string,
+  period: { from: string; to: string }
+): Promise<CloudflareResource[]> {
+  const variables = {
+    accountTag: accountId,
+    start: `${period.from}T00:00:00Z`,
+    end: `${period.to}T23:59:59Z`,
+  }
+  const resources: CloudflareResource[] = []
+
+  // Workers, broken out per script.
+  try {
+    const query = `query($accountTag: string, $start: string, $end: string) {
+      viewer { accounts(filter: { accountTag: $accountTag }) {
+        workersInvocationsAdaptive(limit: 200, filter: { datetime_geq: $start, datetime_leq: $end }) {
+          sum { requests }
+          dimensions { scriptName }
+        }
+      } }
+    }`
+    const data = await cloudflareGraphQL<{
+      viewer?: { accounts?: Array<{ workersInvocationsAdaptive?: Array<{ sum?: { requests?: number }; dimensions?: { scriptName?: string } }> }> }
+    }>(token, query, variables)
+    const byScript = new Map<string, number>()
+    for (const node of data.viewer?.accounts?.[0]?.workersInvocationsAdaptive ?? []) {
+      const name = node.dimensions?.scriptName
+      if (!name) continue
+      byScript.set(name, (byScript.get(name) ?? 0) + (node.sum?.requests ?? 0))
+    }
+    for (const [name, requests] of byScript) {
+      if (requests > 0) resources.push({ kind: "Worker", name, quantity: requests, unit: "requests" })
+    }
+  } catch {
+    // Workers analytics unavailable — skip.
+  }
+
+  // Domains (zones) under this account, by request volume.
+  try {
+    const zones = await cloudflareRequest<Array<{ id: string; name: string }>>(
+      `/zones?account.id=${encodeURIComponent(accountId)}&per_page=50`,
+      token
+    )
+    const zoneTags = zones.map((zone) => zone.id)
+    if (zoneTags.length > 0) {
+      const query = `query($zoneTags: [string!], $start: string, $end: string) {
+        viewer { zones(filter: { zoneTag_in: $zoneTags }) {
+          zoneTag
+          httpRequests1mGroups(limit: 1, filter: { datetime_geq: $start, datetime_leq: $end }) {
+            sum { requests }
+          }
+        } }
+      }`
+      const data = await cloudflareGraphQL<{
+        viewer?: { zones?: Array<{ zoneTag?: string; httpRequests1mGroups?: Array<{ sum?: { requests?: number } }> }> }
+      }>(token, query, { zoneTags, start: variables.start, end: variables.end })
+      const nameByTag = new Map(zones.map((zone) => [zone.id, zone.name]))
+      for (const zone of data.viewer?.zones ?? []) {
+        const requests = (zone.httpRequests1mGroups ?? []).reduce((sum, node) => sum + (node.sum?.requests ?? 0), 0)
+        const name = zone.zoneTag ? nameByTag.get(zone.zoneTag) : undefined
+        if (name && requests > 0) resources.push({ kind: "Domain", name, quantity: requests, unit: "requests" })
+      }
+    }
+  } catch {
+    // Zone analytics unavailable — skip.
+  }
+
+  return resources
+}
+
 export async function verifyCloudflareToken(token: string) {
   const verified = await cloudflareRequest<{ id: string; status: string }>("/user/tokens/verify", token)
   if (verified.status !== "active") {

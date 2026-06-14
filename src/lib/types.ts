@@ -102,6 +102,22 @@ export interface ProviderBreakdown {
   signalCount: number
 }
 
+/**
+ * A discrete infrastructure resource within an account (e.g. a Cloudflare
+ * Worker script or a domain) with its usage, surfaced so the user can assign it
+ * to a repo for drilled-down visibility. Uses the same assignment mechanism as
+ * cost rows (stable `itemKey` + optional auto-attribution).
+ */
+export interface ResourceUsageItem {
+  provider: Provider
+  itemKey: string
+  kind: string
+  name: string
+  quantity: number
+  unit: string
+  attributedRepo?: string | null
+}
+
 export interface AnalysisResult {
   repo: {
     name: string
@@ -127,6 +143,7 @@ export interface AnalysisResult {
   providerBreakdown: ProviderBreakdown[]
   costRows: NormalizedCostRow[]
   freeTier: FreeTierUsageRow[]
+  resourceItems: ResourceUsageItem[]
   actions: string[]
   liveSync: Array<{
     provider: Provider

@@ -454,6 +454,13 @@ function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore
 function sanitizeMetadata(metadata: Record<string, unknown>) {
   const copy = { ...metadata }
   delete copy.refreshToken
+  // Don't ship the cached AWS cost rows to the client; expose only when they
+  // were last fetched so the UI can show "last pulled X ago".
+  const cache = copy.costExplorerCache as { fetchedAt?: string } | undefined
+  if (cache) {
+    copy.costExplorerLastFetchedAt = cache.fetchedAt ?? null
+    delete copy.costExplorerCache
+  }
   return copy
 }
 

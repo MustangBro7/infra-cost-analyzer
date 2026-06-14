@@ -18,6 +18,7 @@ import { RepoSyncPanel } from "./RepoSyncPanel"
 import { ProviderConnectPanel } from "./ProviderConnectPanel"
 import { RepoAccountPicker } from "./RepoAccountPicker"
 import { ProviderCostPanel } from "./ProviderCostPanel"
+import { ProviderResourcePanel } from "./ProviderResourcePanel"
 import { AnalysisRefresher } from "./AnalysisRefresher"
 import { ProviderLogo } from "./ProviderLogo"
 import { SignInForm } from "./SignInForm"
@@ -442,6 +443,7 @@ function ProviderAccordion({
   const restRows = rows.filter((row) => !isAssignedHere(row, assignments, repoFullName, repoShort))
   const projectTotal = sumCost(projectRows)
   const restTotal = sumCost(restRows)
+  const resourceItems = (analysis.resourceItems ?? []).filter((item) => item.provider === connection.provider)
   const signals = providerSignals(connection.provider, analysis.signals)
   const freeTier = providerFreeTier(connection.provider, analysis.freeTier)
   const hasCost = rows.length > 0
@@ -542,6 +544,15 @@ function ProviderAccordion({
               </div>
             ) : null}
             {hasUsage ? <FreeTierUsage rows={freeTier} hasCost={hasCost} costDataOff={costDataOff} /> : null}
+            {resourceItems.length ? (
+              <ProviderResourcePanel
+                items={resourceItems}
+                repoFullName={repoFullName}
+                selectedShort={repoShort}
+                assignments={assignments}
+                repoLabels={repoLabels}
+              />
+            ) : null}
           </section>
           <section>
             <h3>Repo evidence</h3>

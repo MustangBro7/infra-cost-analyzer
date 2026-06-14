@@ -67,24 +67,50 @@ export function costItemKey(row: NormalizedCostRow): string {
 }
 
 /**
- * Whether a row counts toward `selected` repo: a manual assignment always wins
- * (a repo full name, or the account sentinel meaning "none"); otherwise we fall
- * back to the auto-attributed short name.
+ * Whether an item (identified by its stable key + auto-attributed short name)
+ * counts toward `selected` repo: a manual assignment always wins (a repo full
+ * name, or the account sentinel meaning "none"); otherwise we fall back to the
+ * auto-attributed short name. Works for both cost rows and resource items.
  */
+export function isKeyAssignedHere(
+  itemKey: string,
+  attributedRepo: string | null | undefined,
+  assignments: Record<string, string>,
+  selectedFullName: string,
+  selectedShort: string
+): boolean {
+  const manual = assignments[itemKey]
+  if (manual === ACCOUNT_SENTINEL) return false
+  if (manual) return manual === selectedFullName
+  return (attributedRepo ?? null) === selectedShort
+}
+
 export function isAssignedHere(
   row: NormalizedCostRow,
   assignments: Record<string, string>,
   selectedFullName: string,
   selectedShort: string
 ): boolean {
-  const manual = assignments[costItemKey(row)]
-  if (manual === ACCOUNT_SENTINEL) return false
-  if (manual) return manual === selectedFullName
-  return (row.attributedRepo ?? null) === selectedShort
+  return isKeyAssignedHere(costItemKey(row), row.attributedRepo, assignments, selectedFullName, selectedShort)
 }
 
-/** The repo full name a row is manually assigned to, if any (not the sentinel). */
-export function manualTarget(row: NormalizedCostRow, assignments: Record<string, string>): string | null {
-  const manual = assignments[costItemKey(row)]
+/** The repo full name an item is manually assigned to, if any (not the sentinel). */
+export function manualTargetForKey(itemKey: string, assignments: Record<string, string>): string | null {
+  const manual = assignments[itemKey]
   return manual && manual !== ACCOUNT_SENTINEL ? manual : null
+}
+
+export function manualTarget(row: NormalizedCostRow, assignments: Record<string, string>): string | null {
+  return manualTargetForKey(costItemKey(row), assignments)
+}
+
+/** Best-effort auto-attribution of a resource by its name matching a repo. */
+export function attributeRepoForName(name: string, repoShortNames: string[]): string | null {
+  const hay = name.toLowerCase()
+  return (
+    repoShortNames
+      .map((repo) => repo.toLowerCase().trim())
+      .filter((repo) => repo.length > 2)
+      .find((repo) => hay.includes(repo)) ?? null
+  )
 }

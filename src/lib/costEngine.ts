@@ -6,15 +6,16 @@ import type {
   ProviderBreakdown,
   ProviderUsageSample,
   RepoSignal,
+  ResourceUsageItem,
   WorkspaceStore,
 } from "./types"
 import { buildProviderConnections } from "./providerCatalog"
 import { computeFreeTierUsage } from "./freeTier"
-import { attributeCostRows, type VercelProjectLink } from "./costAttribution"
-import { readWorkspace } from "./localStore"
+import { attributeCostRows, attributeRepoForName, type VercelProjectLink } from "./costAttribution"
+import { readWorkspace, upsertConnection } from "./localStore"
 import { getAwsCostAndUsage, getAwsFreeTierUsage, type AwsCostRow, type AwsCredentials } from "./awsClient"
 import { listVercelBillingCharges } from "./vercelClient"
-import { getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
+import { getCloudflareAccountResources, getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
 
 function period() {
@@ -74,20 +75,21 @@ export async function buildAnalysisWithLiveData(
   repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
   env: NodeJS.ProcessEnv,
   userId: string,
-  options?: { skipCostExplorer?: boolean }
+  options?: { skipCostExplorer?: boolean; forceCostExplorer?: boolean }
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
   const [vercel, cloudflare, gcp, aws] = await Promise.all([
     loadVercelLive(workspace, repoScan),
     loadCloudflareLive(workspace),
     loadGcpLive(workspace),
-    loadAwsLive(workspace, options),
+    loadAwsLive(workspace, userId, options),
   ])
   const standard = [vercel, cloudflare, gcp]
   const costRows = [...standard.flatMap((result) => result.rows), ...aws.rows]
   const usage = [...standard.flatMap((result) => result.usage), ...aws.usage]
   const liveSync = [...standard.map((result) => result.sync), aws.sync]
-  return finalizeAnalysis(repoScan, env, workspace, costRows, usage, liveSync, aws.freeTier)
+  const resourceItems = [vercel, cloudflare, gcp, aws].flatMap((result) => result.resources ?? [])
+  return finalizeAnalysis(repoScan, env, workspace, costRows, usage, liveSync, aws.freeTier, resourceItems)
 }
 
 function finalizeAnalysis(
@@ -97,7 +99,8 @@ function finalizeAnalysis(
   costRows: NormalizedCostRow[],
   usage: ProviderUsageSample[],
   liveSync: AnalysisResult["liveSync"],
-  providerFreeTier: FreeTierUsageRow[]
+  providerFreeTier: FreeTierUsageRow[],
+  resourceItems: ResourceUsageItem[] = []
 ): AnalysisResult {
   // Attribute each account-wide row to a repo within its account (Vercel
   // project→repo link, or a resource named after a repo) so the repo view can
@@ -110,6 +113,10 @@ function finalizeAnalysis(
   const vercelProjects = ((workspace.connections.vercel?.metadata as { linkedProjects?: VercelProjectLink[] } | undefined)
     ?.linkedProjects ?? []) as VercelProjectLink[]
   costRows = attributeCostRows(costRows, { repoShortNames, vercelProjects })
+  const attributedResources = resourceItems.map((item) => ({
+    ...item,
+    attributedRepo: attributeRepoForName(item.name, repoShortNames),
+  }))
   const providerBreakdown = summarizeByProvider(costRows, repoScan.signals)
   const exactCost = costRows
     .filter((row) => row.attribution !== "inferred")
@@ -138,12 +145,18 @@ function finalizeAnalysis(
     providerBreakdown,
     costRows,
     freeTier: [...computeFreeTierUsage(costRows, usage, providerConnections), ...providerFreeTier],
+    resourceItems: attributedResources,
     actions,
     liveSync,
   }
 }
 
-type LiveResult = { rows: NormalizedCostRow[]; usage: ProviderUsageSample[]; sync: AnalysisResult["liveSync"][number] }
+type LiveResult = {
+  rows: NormalizedCostRow[]
+  usage: ProviderUsageSample[]
+  sync: AnalysisResult["liveSync"][number]
+  resources?: ResourceUsageItem[]
+}
 
 function notConnected(provider: Provider, message: string): LiveResult {
   return {
@@ -295,6 +308,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
 
     const rows: NormalizedCostRow[] = []
     const usage: ProviderUsageSample[] = []
+    const resources: ResourceUsageItem[] = []
     const errors: string[] = []
     const usageErrors: string[] = []
     for (const account of accounts.slice(0, 5)) {
@@ -311,6 +325,19 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
         ...accountUsage.usage.map((sample) => ({ provider: "cloudflare" as const, service: sample.service, quantity: sample.quantity, unit: sample.unit }))
       )
       if (accountUsage.error) usageErrors.push(accountUsage.error)
+      // Per-resource breakdown (Workers per script, domains) so the user can
+      // assign individual infra to a repo for drilled-down usage.
+      const accountResources = await getCloudflareAccountResources(cloudflare.accessToken, account.id, currentPeriod)
+      for (const resource of accountResources) {
+        resources.push({
+          provider: "cloudflare",
+          itemKey: `cloudflare::${resource.kind}::${resource.name}`.toLowerCase(),
+          kind: resource.kind,
+          name: resource.name,
+          quantity: resource.quantity,
+          unit: resource.unit,
+        })
+      }
     }
 
     // Only fail when we got nothing at all. Free-tier accounts have no paid
@@ -324,12 +351,13 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
       return {
         rows: [],
         usage,
+        resources,
         sync: {
           provider: "cloudflare",
-          status: usage.length > 0 ? "success" : usageErrors.length > 0 ? "error" : "empty",
+          status: usage.length > 0 || resources.length > 0 ? "success" : usageErrors.length > 0 ? "error" : "empty",
           message:
-            usage.length > 0
-              ? `No paid subscriptions; loaded ${usage.length} live usage metric(s).`
+            usage.length > 0 || resources.length > 0
+              ? `No paid subscriptions; loaded ${usage.length} usage metric(s) and ${resources.length} resource(s).`
               : `Cloudflare returned no paid subscriptions for this account.${usageNote}`,
           rows: 0,
           syncedAt: new Date().toISOString(),
@@ -340,6 +368,7 @@ async function loadCloudflareLive(workspace: WorkspaceStore): Promise<LiveResult
     return {
       rows,
       usage,
+      resources,
       sync: {
         provider: "cloudflare",
         status: "success",
@@ -452,6 +481,29 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
 
 type AwsLiveResult = LiveResult & { freeTier: FreeTierUsageRow[] }
 
+export type CostExplorerInterval = "manual" | "daily" | "weekly" | "monthly"
+type AwsCostCache = { fetchedAt: string; rows: AwsCostRow[] }
+
+const COST_EXPLORER_INTERVAL_MS: Record<string, number> = {
+  daily: 86_400_000,
+  weekly: 604_800_000,
+  monthly: 2_592_000_000, // ~30 days
+}
+
+/**
+ * Whether a fresh Cost Explorer call is due, given when it last ran and the
+ * chosen cadence. "manual" never auto-fetches (the user pulls on demand); each
+ * billed $0.01 call is gated by this so a page refresh can't keep hitting it.
+ */
+export function costExplorerDue(fetchedAt: string | undefined, interval: string): boolean {
+  if (interval === "manual") return false
+  if (!fetchedAt) return true
+  const ms = COST_EXPLORER_INTERVAL_MS[interval] ?? COST_EXPLORER_INTERVAL_MS.daily
+  const last = new Date(fetchedAt).getTime()
+  if (Number.isNaN(last)) return true
+  return Date.now() - last >= ms
+}
+
 function awsPeriod(currentPeriod: { from: string; to: string }) {
   // Cost Explorer's End date is exclusive, so cover the month by ending on the
   // first day of the next month.
@@ -491,7 +543,8 @@ function awsFreeTierRows(usage: Awaited<ReturnType<typeof getAwsFreeTierUsage>>)
  */
 async function loadAwsLive(
   workspace: WorkspaceStore,
-  options?: { skipCostExplorer?: boolean }
+  userId: string,
+  options?: { skipCostExplorer?: boolean; forceCostExplorer?: boolean }
 ): Promise<AwsLiveResult> {
   const aws = workspace.connections.aws
   const notConnectedResult: AwsLiveResult = {
@@ -511,14 +564,39 @@ async function loadAwsLive(
   // Cost Explorer GetCostAndUsage bills $0.01/request, so only call it when the
   // user opted in — and never on a background cron (skipCostExplorer) so a
   // schedule can't silently rack up charges. Free Tier usage is always free.
-  const costExplorerEnabled =
-    !options?.skipCostExplorer && (aws.metadata as { costExplorer?: boolean }).costExplorer === true
+  const meta = aws.metadata as {
+    costExplorer?: boolean
+    costExplorerInterval?: string
+    costExplorerCache?: AwsCostCache
+  }
+  const costExplorerEnabled = !options?.skipCostExplorer && meta.costExplorer === true
+  const interval = meta.costExplorerInterval ?? "daily"
+  const cache = meta.costExplorerCache
+  // Honour the cadence: only actually hit the billed API when forced or due;
+  // otherwise reuse the last cached result so refreshes cost nothing.
+  const fetchCostExplorer =
+    costExplorerEnabled && (options?.forceCostExplorer === true || costExplorerDue(cache?.fetchedAt, interval))
 
   const currentPeriod = period()
   const [costResult, freeTierResult] = await Promise.allSettled([
-    costExplorerEnabled ? getAwsCostAndUsage(credentials, awsPeriod(currentPeriod)) : Promise.resolve([] as AwsCostRow[]),
+    fetchCostExplorer
+      ? getAwsCostAndUsage(credentials, awsPeriod(currentPeriod))
+      : Promise.resolve((cache?.rows ?? []) as AwsCostRow[]),
     getAwsFreeTierUsage(credentials),
   ])
+
+  // Persist the fresh result so future loads can reuse it without re-billing.
+  if (fetchCostExplorer && costResult.status === "fulfilled") {
+    try {
+      await upsertConnection(userId, {
+        ...aws,
+        metadata: { ...meta, costExplorerCache: { fetchedAt: new Date().toISOString(), rows: costResult.value } },
+      })
+    } catch {
+      // Caching is best-effort; a write failure shouldn't break the analysis.
+    }
+  }
+  const usedCache = costExplorerEnabled && !fetchCostExplorer && (cache?.rows.length ?? 0) > 0
 
   const rows: NormalizedCostRow[] = []
   const usage: ProviderUsageSample[] = []
@@ -549,7 +627,7 @@ async function loadAwsLive(
   const freeTier = freeTierResult.status === "fulfilled" ? awsFreeTierRows(freeTierResult.value) : []
 
   const failures: string[] = []
-  if (costExplorerEnabled && costResult.status === "rejected") {
+  if (fetchCostExplorer && costResult.status === "rejected") {
     failures.push(costResult.reason instanceof Error ? costResult.reason.message : "AWS Cost Explorer query failed.")
   }
   if (freeTierResult.status === "rejected") {
@@ -571,7 +649,13 @@ async function loadAwsLive(
       syncedAt: new Date().toISOString(),
     }
   } else {
-    const costNote = costExplorerEnabled ? `${rows.length} cost rows` : "cost data off"
+    const costNote = !costExplorerEnabled
+      ? "cost data off"
+      : fetchCostExplorer
+        ? `${rows.length} cost rows (fresh)`
+        : usedCache
+          ? `${rows.length} cost rows (cached)`
+          : "no cached cost yet"
     sync = {
       provider: "aws",
       status: "success",

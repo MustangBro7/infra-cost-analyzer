@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { ACCOUNT_SENTINEL, attributeRepoForRow, costItemKey, isAssignedHere, manualTarget } from "../src/lib/costAttribution"
+import { ACCOUNT_SENTINEL, attributeRepoForName, attributeRepoForRow, costItemKey, isAssignedHere, isKeyAssignedHere, manualTarget } from "../src/lib/costAttribution"
 import type { NormalizedCostRow } from "../src/lib/types"
 
 function row(partial: Partial<NormalizedCostRow>): NormalizedCostRow {
@@ -67,4 +67,19 @@ test("with no assignment, falls back to auto-attribution", () => {
   const r = row({ attributedRepo: "gpay-cost-analyzer" })
   assert.equal(isAssignedHere(r, {}, "acme/gpay-cost-analyzer", "gpay-cost-analyzer"), true)
   assert.equal(isAssignedHere(r, {}, "acme/other-app", "other-app"), false)
+})
+
+test("attributeRepoForName matches a resource named after a repo", () => {
+  assert.equal(attributeRepoForName("infra-cost-analyzer-cron", ["infra-cost-analyzer", "other"]), "infra-cost-analyzer")
+  assert.equal(attributeRepoForName("gpayanalyze.co.in", ["infra-cost-analyzer"]), null)
+})
+
+test("isKeyAssignedHere works for resource items (manual wins, sentinel detaches)", () => {
+  const key = "cloudflare::worker::infra-cost-analyzer"
+  // auto-matched
+  assert.equal(isKeyAssignedHere(key, "infra-cost-analyzer", {}, "me/infra-cost-analyzer", "infra-cost-analyzer"), true)
+  // manually moved to another repo
+  assert.equal(isKeyAssignedHere(key, "infra-cost-analyzer", { [key]: "me/other" }, "me/infra-cost-analyzer", "infra-cost-analyzer"), false)
+  // sentinel detaches
+  assert.equal(isKeyAssignedHere(key, "infra-cost-analyzer", { [key]: ACCOUNT_SENTINEL }, "me/infra-cost-analyzer", "infra-cost-analyzer"), false)
 })
