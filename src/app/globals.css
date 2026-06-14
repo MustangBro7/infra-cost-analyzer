@@ -2002,6 +2002,76 @@ th {
   text-transform: uppercase;
 }
 
+.provider-detail-tabs {
+  position: relative;
+  display: grid;
+  gap: 12px;
+}
+
+.provider-tab-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.provider-tab-list {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid var(--ink);
+  background: var(--panel-strong);
+}
+
+.provider-tab {
+  min-width: 118px;
+  border-right: 1px solid var(--ink);
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  text-transform: uppercase;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.provider-tab:last-child {
+  border-right: 0;
+}
+
+.provider-tab:hover {
+  background: #fff8e6;
+}
+
+.provider-tab-input.cost:focus-visible ~ .provider-tab-list .provider-tab.cost,
+.provider-tab-input.evidence:focus-visible ~ .provider-tab-list .provider-tab.evidence {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+.provider-tab-input.cost:checked ~ .provider-tab-list .provider-tab.cost,
+.provider-tab-input.evidence:checked ~ .provider-tab-list .provider-tab.evidence {
+  background: var(--ink);
+  color: var(--panel);
+}
+
+.provider-tab-panels {
+  min-width: 0;
+}
+
+.provider-tab-panel {
+  min-width: 0;
+}
+
+.provider-tab-panel h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.provider-tab-input.cost:checked ~ .provider-tab-panels .provider-tab-panel.evidence,
+.provider-tab-input.evidence:checked ~ .provider-tab-panels .provider-tab-panel.cost {
+  display: none;
+}
+
 .resource-list,
 .signal-compact-list {
   display: grid;

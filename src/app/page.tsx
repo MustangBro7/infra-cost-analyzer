@@ -535,88 +535,115 @@ function ProviderAccordion({
           </div>
         ) : null}
 
-        <div className="provider-detail-grid">
-          <section>
-            <h3>Live resources and cost</h3>
-            {costDataOff ? (
-              <div className="provider-warning">
-                <ShieldAlert aria-hidden />
-                <span>
-                  Cost data is off, so your AWS spend isn’t shown — this is not a confirmation that everything is free.
-                  If you have paid resources running, turn on <b>Pull cost data</b> on the AWS card above ($0.01 per
-                  refresh) to see your actual cost.
-                </span>
-              </div>
-            ) : null}
+        <div className="provider-detail-tabs">
+          <input
+            className="provider-tab-input cost"
+            type="radio"
+            id={`${connection.provider}-cost-tab`}
+            name={`${connection.provider}-detail-tab`}
+            defaultChecked
+          />
+          <input
+            className="provider-tab-input evidence"
+            type="radio"
+            id={`${connection.provider}-evidence-tab`}
+            name={`${connection.provider}-detail-tab`}
+          />
+          <div className="provider-tab-list" role="group" aria-label={`${providerName(connection.provider)} details`}>
+            <label className="provider-tab cost" htmlFor={`${connection.provider}-cost-tab`}>
+              Cost
+            </label>
+            <label className="provider-tab evidence" htmlFor={`${connection.provider}-evidence-tab`}>
+              Repo evidence
+            </label>
+          </div>
 
-            {hasCost ? (
-              <ProviderCostPanel
-                rows={rows}
-                repoFullName={repoFullName}
-                selectedShort={repoShort}
-                assignments={assignments}
-                repoLabels={repoLabels}
-              />
-            ) : null}
-            {!hasCost && !hasUsage && !costDataOff ? (
-              <div className="empty-provider-block">
-                <DatabaseZap aria-hidden />
-                <span>No live billing rows for this account yet. Add the required billing access on the Overview to show actual costs.</span>
-              </div>
-            ) : null}
-            {hasResources ? (
-              <>
-                {projectUsageRows.length ? (
-                  <FreeTierUsage
-                    rows={projectUsageRows}
-                    hasCost={hasCost}
-                    heading="This project’s usage"
-                    subtext="Re-derived from the resources assigned to this repo below."
-                  />
-                ) : null}
-                {accountWideUsage.length ? (
-                  <FreeTierUsage
-                    rows={accountWideUsage}
-                    hasCost={hasCost}
-                    heading="Account-wide usage"
-                    subtext="Metrics that aren’t tied to a single resource — shared across the whole account."
-                  />
-                ) : null}
-              </>
-            ) : hasUsage ? (
-              <FreeTierUsage rows={freeTier} hasCost={hasCost} costDataOff={costDataOff} />
-            ) : null}
-            {resourceItems.length ? (
-              <ProviderResourcePanel
-                items={resourceItems}
-                repoFullName={repoFullName}
-                selectedShort={repoShort}
-                assignments={assignments}
-                repoLabels={repoLabels}
-              />
-            ) : null}
-          </section>
-          <section>
-            <h3>Repo evidence</h3>
-            {signals.length ? (
-              <div className="signal-compact-list">
-                {signals.map((signal) => (
-                  <article key={signal.id}>
-                    <Signal aria-hidden />
-                    <div>
-                      <strong>{signal.title}</strong>
-                      <span>{signal.sourcePath}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-provider-block">
-                <Signal aria-hidden />
-                <span>No repo evidence found for this provider.</span>
-              </div>
-            )}
-          </section>
+          <div className="provider-tab-panels">
+            <section className="provider-tab-panel cost">
+              <h3>Live resources and cost</h3>
+              {costDataOff ? (
+                <div className="provider-warning">
+                  <ShieldAlert aria-hidden />
+                  <span>
+                    Cost data is off, so your AWS spend isn’t shown — this is not a confirmation that everything is
+                    free. If you have paid resources running, turn on <b>Pull cost data</b> on the AWS card above
+                    ($0.01 per refresh) to see your actual cost.
+                  </span>
+                </div>
+              ) : null}
+
+              {hasCost ? (
+                <ProviderCostPanel
+                  rows={rows}
+                  repoFullName={repoFullName}
+                  selectedShort={repoShort}
+                  assignments={assignments}
+                  repoLabels={repoLabels}
+                />
+              ) : null}
+              {!hasCost && !hasUsage && !costDataOff ? (
+                <div className="empty-provider-block">
+                  <DatabaseZap aria-hidden />
+                  <span>
+                    No live billing rows for this account yet. Add the required billing access on the Overview to show
+                    actual costs.
+                  </span>
+                </div>
+              ) : null}
+              {hasResources ? (
+                <>
+                  {projectUsageRows.length ? (
+                    <FreeTierUsage
+                      rows={projectUsageRows}
+                      hasCost={hasCost}
+                      heading="This project’s usage"
+                      subtext="Re-derived from the resources assigned to this repo below."
+                    />
+                  ) : null}
+                  {accountWideUsage.length ? (
+                    <FreeTierUsage
+                      rows={accountWideUsage}
+                      hasCost={hasCost}
+                      heading="Account-wide usage"
+                      subtext="Metrics that aren’t tied to a single resource — shared across the whole account."
+                    />
+                  ) : null}
+                </>
+              ) : hasUsage ? (
+                <FreeTierUsage rows={freeTier} hasCost={hasCost} costDataOff={costDataOff} />
+              ) : null}
+              {resourceItems.length ? (
+                <ProviderResourcePanel
+                  items={resourceItems}
+                  repoFullName={repoFullName}
+                  selectedShort={repoShort}
+                  assignments={assignments}
+                  repoLabels={repoLabels}
+                />
+              ) : null}
+            </section>
+            <section className="provider-tab-panel evidence">
+              <h3>Repo evidence</h3>
+              {signals.length ? (
+                <div className="signal-compact-list">
+                  {signals.map((signal) => (
+                    <article key={signal.id}>
+                      <Signal aria-hidden />
+                      <div>
+                        <strong>{signal.title}</strong>
+                        <span>{signal.sourcePath}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-provider-block">
+                  <Signal aria-hidden />
+                  <span>No repo evidence found for this provider.</span>
+                </div>
+              )}
+            </section>
+          </div>
         </div>
       </div>
     </details>
