@@ -20,6 +20,7 @@ const EMPTY_WORKSPACE: WorkspaceStore = {
   syncedRepoFullNames: [],
   events: [],
   analysisSnapshots: {},
+  repoProviderLinks: {},
 }
 
 const EMPTY_STORE: AppStore = {
@@ -168,6 +169,7 @@ export async function readStore(): Promise<AppStore> {
         syncedRepoFullNames: parsed.selectedRepoFullName ? [parsed.selectedRepoFullName] : [],
         events: parsed.events ?? [],
         analysisSnapshots: {},
+        repoProviderLinks: {},
       },
     },
   }
@@ -342,6 +344,27 @@ export async function unsyncGitHubRepo(userId: string, fullName: string) {
   await writeWorkspace(userId, workspace)
 }
 
+/**
+ * Sets which connected provider accounts a repo is linked to. An empty list
+ * clears the link (the repo falls back to its derived default).
+ */
+export async function setRepoProviderLinks(userId: string, repoFullName: string, providers: Provider[]) {
+  const workspace = await readWorkspace(userId)
+  const unique = [...new Set(providers)]
+  if (unique.length === 0) {
+    delete workspace.repoProviderLinks[repoFullName]
+  } else {
+    workspace.repoProviderLinks[repoFullName] = unique
+  }
+  workspace.events = withEvent(workspace.events, {
+    provider: "github",
+    level: "success",
+    message: `Updated provider accounts for ${repoFullName}.`,
+  })
+  await writeWorkspace(userId, workspace)
+  return workspace.repoProviderLinks[repoFullName] ?? []
+}
+
 export async function appendEvent(userId: string, event: Omit<ConnectionEvent, "id" | "createdAt">) {
   const workspace = await readWorkspace(userId)
   workspace.events = withEvent(workspace.events, event)
@@ -366,6 +389,7 @@ export async function publicStore(userId: string) {
     selectedRepoFullName: workspace.selectedRepoFullName,
     syncedRepoFullNames: workspace.syncedRepoFullNames,
     githubRepos: workspace.githubRepos,
+    repoProviderLinks: workspace.repoProviderLinks,
     events: events.slice(0, 30),
     connections: Object.fromEntries(
       Object.entries(workspace.connections).map(([provider, connection]) => [
@@ -403,6 +427,7 @@ function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore
     syncedRepoFullNames,
     events: workspace.events ?? [],
     analysisSnapshots: workspace.analysisSnapshots ?? {},
+    repoProviderLinks: workspace.repoProviderLinks ?? {},
   }
 }
 

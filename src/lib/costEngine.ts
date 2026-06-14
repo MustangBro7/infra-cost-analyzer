@@ -89,22 +89,6 @@ export async function buildAnalysisWithLiveData(
   return finalizeAnalysis(repoScan, env, workspace, costRows, usage, liveSync, aws.freeTier)
 }
 
-/**
- * Lowercased terms that identify the repo in account-wide billing metadata.
- * Used to tie an account-wide cost row back to this repo when a resource is
- * named after it (e.g. a Vercel project or a Worker script).
- */
-export function repoScopeTerms(repo: AnalysisResult["repo"]): string[] {
-  return [repo.name, `${repo.owner}/${repo.name}`]
-    .map((term) => term.toLowerCase().trim())
-    .filter((term) => term.length > 2)
-}
-
-export function scopeCostRow(row: NormalizedCostRow, terms: string[]): NormalizedCostRow["scope"] {
-  const haystack = `${row.serviceName} ${row.resourceName ?? ""} ${row.resourceId ?? ""}`.toLowerCase()
-  return terms.some((term) => haystack.includes(term)) ? "repo" : "account"
-}
-
 function finalizeAnalysis(
   repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
   env: NodeJS.ProcessEnv,
@@ -114,14 +98,6 @@ function finalizeAnalysis(
   liveSync: AnalysisResult["liveSync"],
   providerFreeTier: FreeTierUsageRow[]
 ): AnalysisResult {
-  // Tag every cost row as tied to this repo (resource named after it) or
-  // account-wide. Usage/free-tier metering is account-wide, but attributed to
-  // this repo when the repo's scan detected that provider — i.e. this repo is
-  // what deploys to it. Everything else is shared "account-level".
-  const terms = repoScopeTerms(repoScan.repo)
-  const detectedProviders = new Set(repoScan.signals.map((signal) => signal.provider))
-  const scopedCostRows = costRows.map((row) => ({ ...row, scope: scopeCostRow(row, terms) }))
-  costRows = scopedCostRows
   const providerBreakdown = summarizeByProvider(costRows, repoScan.signals)
   const exactCost = costRows
     .filter((row) => row.attribution !== "inferred")
@@ -149,10 +125,7 @@ function finalizeAnalysis(
     providerConnections,
     providerBreakdown,
     costRows,
-    freeTier: [...computeFreeTierUsage(costRows, usage, providerConnections), ...providerFreeTier].map((row) => ({
-      ...row,
-      scope: (detectedProviders.has(row.provider) ? "repo" : "account") as FreeTierUsageRow["scope"],
-    })),
+    freeTier: [...computeFreeTierUsage(costRows, usage, providerConnections), ...providerFreeTier],
     actions,
     liveSync,
   }
