@@ -73,15 +73,17 @@ export interface ProviderUsageSample {
 }
 
 /**
- * Free-tier usage line shown when a connected provider's cost is $0. `used`
- * is null when the provider does not report consumption for that allowance.
+ * Free-tier / consumption usage line for a connected provider. `used` is null
+ * when the provider publishes an allowance but reported no consumption; `limit`
+ * is null when the provider reported real usage for which we have no published
+ * free allowance (we still show the measured amount, like AWS does).
  */
 export interface FreeTierUsageRow {
   provider: Provider
   planName: string
   service: string
   used: number | null
-  limit: number
+  limit: number | null
   unit: string
   remaining: number | null
   percentUsed: number | null

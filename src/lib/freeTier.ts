@@ -38,12 +38,14 @@ const FREE_TIER_PLANS: Partial<Record<Provider, FreeTierPlan>> = {
   },
   cloudflare: {
     planName: "Cloudflare Free",
-    // Workers free tier is 100k requests/day; expressed monthly (~30 days) so it
-    // compares against the monthly request total from the Analytics API.
+    // Free-tier limits expressed monthly (~30 days) so they compare against the
+    // monthly totals returned by the GraphQL Analytics API. Daily limits are
+    // multiplied out: Workers 100k/day, D1 5M read/day & 100k written/day.
     allowances: [
-      { service: "Workers Requests", limit: 3_000_000, unit: "requests/mo", match: /worker|request/i },
-      { service: "R2 Storage", limit: 10, unit: "GB", match: /r2|storage|bucket/i },
-      { service: "D1 Rows Read", limit: 5_000_000, unit: "rows/day", match: /d1|database|rows?/i },
+      { service: "Workers Requests", limit: 3_000_000, unit: "requests/mo", match: /workers requests/i },
+      { service: "R2 Storage", limit: 10, unit: "GB", match: /r2 storage/i },
+      { service: "D1 Rows Read", limit: 150_000_000, unit: "rows/mo", match: /d1 rows read|rows read/i },
+      { service: "D1 Rows Written", limit: 3_000_000, unit: "rows/mo", match: /d1 rows written|rows written/i },
     ],
   },
   gcp: {
@@ -61,12 +63,34 @@ function roundTo(value: number, digits = 2) {
   return Math.round(value * factor) / factor
 }
 
+function providerDisplay(provider: Provider): string {
+  if (provider === "gcp") return "Google Cloud"
+  if (provider === "aws") return "AWS"
+  return provider.charAt(0).toUpperCase() + provider.slice(1)
+}
+
+/** Collapses repeated usage samples of the same service+unit into one total. */
+function aggregateUsage(samples: ProviderUsageSample[]): ProviderUsageSample[] {
+  const map = new Map<string, ProviderUsageSample>()
+  for (const sample of samples) {
+    if (!Number.isFinite(sample.quantity) || sample.quantity <= 0) continue
+    const key = `${sample.service}|||${sample.unit}`
+    const existing = map.get(key)
+    if (existing) existing.quantity += sample.quantity
+    else map.set(key, { ...sample })
+  }
+  return [...map.values()]
+}
+
 /**
- * Builds free-tier usage lines for every connected provider whose measured cost
- * is $0 (i.e. it is operating inside the free tier for this period). Measured
- * usage samples are attributed to allowances by service/unit keyword; when no
- * sample matches an allowance, the line is returned with `used: null` so the UI
- * can show the limit without inventing a consumption figure.
+ * Builds usage lines for every connected provider. Three kinds of line:
+ *  1. Measured usage attributed to a published free allowance (used + limit).
+ *  2. Measured usage with no published allowance — shown with `limit: null` so
+ *     nothing the provider actually reports is ever hidden, in free OR paid tier
+ *     (this mirrors how AWS surfaces every reported metric).
+ *  3. Published allowances with no reported usage (`used: null`) — shown only
+ *     while the provider is still on the free tier, so paid accounts aren't
+ *     padded with empty allowance lines.
  */
 export function computeFreeTierUsage(
   costRows: NormalizedCostRow[],
@@ -77,23 +101,28 @@ export function computeFreeTierUsage(
 
   for (const connection of connections) {
     if (connection.status !== "connected") continue
+    // AWS gets its usage from the dedicated Free Tier API (appended separately as
+    // FreeTierUsageRows), so skip it here to avoid duplicate lines.
+    if (connection.provider === "aws") continue
     const plan = FREE_TIER_PLANS[connection.provider]
-    if (!plan) continue
+    const planName = plan?.planName ?? `${providerDisplay(connection.provider)} usage`
 
     // A provider with no billed cost is "on the free tier"; one with cost has
-    // moved into paid usage. We surface allowance usage in BOTH cases so usage
-    // is shown married with cost, not only when the bill is $0.
+    // moved into paid usage. We surface usage in BOTH cases so consumption is
+    // shown married with cost, not only when the bill is $0.
     const providerCost = costRows
       .filter((row) => row.provider === connection.provider)
       .reduce((sum, row) => sum + row.cost, 0)
     const onFreeTier = providerCost <= 0.005
 
-    const providerUsage = usage.filter((sample) => sample.provider === connection.provider)
+    const providerUsage = aggregateUsage(usage.filter((sample) => sample.provider === connection.provider))
+    const attributed = new Set<ProviderUsageSample>()
 
-    for (const allowance of plan.allowances) {
+    for (const allowance of plan?.allowances ?? []) {
       const matched = providerUsage.filter(
         (sample) => allowance.match.test(sample.service) || allowance.match.test(sample.unit)
       )
+      matched.forEach((sample) => attributed.add(sample))
       const used = matched.length ? roundTo(matched.reduce((sum, sample) => sum + sample.quantity, 0)) : null
 
       // When the provider is already billing, an allowance line we can't measure
@@ -106,7 +135,7 @@ export function computeFreeTierUsage(
 
       rows.push({
         provider: connection.provider,
-        planName: plan.planName,
+        planName,
         service: allowance.service,
         used,
         limit: allowance.limit,
@@ -116,8 +145,27 @@ export function computeFreeTierUsage(
         source: used === null ? "allowance" : "measured",
         note:
           used === null
-            ? `${plan.planName} published allowance. This provider did not report live ${allowance.unit} usage for the current period.`
-            : `Measured against the ${plan.planName} allowance from live provider usage for the current period.`,
+            ? `${planName} published allowance. This provider did not report live ${allowance.unit} usage for the current period.`
+            : `Measured against the ${planName} allowance from live provider usage for the current period.`,
+      })
+    }
+
+    // Every reported metric that didn't map to a known allowance is still shown
+    // (limit unknown), so no live usage is hidden regardless of tier.
+    for (const sample of providerUsage) {
+      if (attributed.has(sample)) continue
+      const used = roundTo(sample.quantity)
+      rows.push({
+        provider: connection.provider,
+        planName,
+        service: sample.service,
+        used,
+        limit: null,
+        unit: sample.unit,
+        remaining: null,
+        percentUsed: null,
+        source: "measured",
+        note: `Live ${sample.unit} reported by ${providerDisplay(connection.provider)} for the current period. No published free-tier limit is tracked for this metric.`,
       })
     }
   }

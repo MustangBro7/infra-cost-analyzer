@@ -106,23 +106,33 @@ function FreeTierUsage({
       <div className="free-tier-list">
         {rows.map((row) => {
           const pct = row.percentUsed ?? 0
+          // Three states: (a) allowance with no reported usage, (b) measured
+          // usage with a known limit, (c) measured usage with no published limit.
+          const unmetered = row.used !== null && row.limit === null
           return (
             <article key={`${row.provider}-${row.service}`} className="free-tier-row" title={row.note}>
               <div className="free-tier-row-head">
                 <strong>{row.service}</strong>
                 {row.used === null ? (
-                  <span className="free-tier-allowance">{quantity(row.limit)} {row.unit} included</span>
+                  <span className="free-tier-allowance">{quantity(row.limit ?? 0)} {row.unit} included</span>
+                ) : unmetered ? (
+                  <span className="free-tier-measured">{quantity(row.used)} {row.unit} used</span>
                 ) : (
                   <span className="free-tier-remaining">{quantity(row.remaining ?? 0)} {row.unit} left</span>
                 )}
               </div>
               <div className="free-tier-bar" aria-hidden>
-                <span className={row.used === null ? "free-tier-fill unknown" : "free-tier-fill"} style={{ width: `${Math.max(pct, row.used === null ? 0 : 2)}%` }} />
+                <span
+                  className={row.used === null || unmetered ? "free-tier-fill unknown" : "free-tier-fill"}
+                  style={{ width: `${unmetered ? 100 : Math.max(pct, row.used === null ? 0 : 2)}%` }}
+                />
               </div>
               <small>
                 {row.used === null
-                  ? `Usage not reported by provider · ${quantity(row.limit)} ${row.unit} free`
-                  : `${quantity(row.used)} of ${quantity(row.limit)} ${row.unit} used (${pct}%)`}
+                  ? `Usage not reported by provider · ${quantity(row.limit ?? 0)} ${row.unit} free`
+                  : unmetered
+                    ? `${quantity(row.used)} ${row.unit} used · no published free-tier limit`
+                    : `${quantity(row.used)} of ${quantity(row.limit ?? 0)} ${row.unit} used (${pct}%)`}
               </small>
             </article>
           )

@@ -87,6 +87,63 @@ test("usage is shown married with cost when measured (provider is billing)", () 
   assert.equal(transfer.source, "measured")
 })
 
+test("reported usage with no published allowance is still shown (limit unknown)", () => {
+  const usage: ProviderUsageSample[] = [
+    { provider: "cloudflare", service: "R2 Operations", quantity: 42_000, unit: "operations" },
+  ]
+  const rows = computeFreeTierUsage([], usage, [connection("cloudflare", "connected")])
+  const ops = rows.find((row) => row.service === "R2 Operations")
+  assert.ok(ops, "R2 Operations usage must be shown even without a published limit")
+  assert.equal(ops.used, 42_000)
+  assert.equal(ops.limit, null)
+  assert.equal(ops.remaining, null)
+  assert.equal(ops.percentUsed, null)
+  assert.equal(ops.source, "measured")
+})
+
+test("reported usage on a billing provider is shown even with no allowance match", () => {
+  const costRows: NormalizedCostRow[] = [
+    {
+      provider: "cloudflare",
+      serviceName: "Workers Paid",
+      resourceId: null,
+      resourceName: "acct",
+      billingPeriodStart: "2026-06-01",
+      billingPeriodEnd: "2026-06-30",
+      cost: 5,
+      currency: "USD",
+      attribution: "verified",
+      attributionReason: "live",
+      signalId: null,
+      source: "live",
+    },
+  ]
+  const usage: ProviderUsageSample[] = [
+    { provider: "cloudflare", service: "R2 Operations", quantity: 1_000, unit: "operations" },
+  ]
+  const rows = computeFreeTierUsage(costRows, usage, [connection("cloudflare", "connected")])
+  assert.ok(rows.find((row) => row.service === "R2 Operations"))
+})
+
+test("duplicate usage samples of the same metric are summed into one line", () => {
+  const usage: ProviderUsageSample[] = [
+    { provider: "cloudflare", service: "Workers Requests", quantity: 1_000, unit: "requests" },
+    { provider: "cloudflare", service: "Workers Requests", quantity: 2_000, unit: "requests" },
+  ]
+  const rows = computeFreeTierUsage([], usage, [connection("cloudflare", "connected")])
+  const workers = rows.filter((row) => row.service === "Workers Requests")
+  assert.equal(workers.length, 1)
+  assert.equal(workers[0].used, 3_000)
+})
+
+test("AWS is skipped here (it has its own Free Tier API path)", () => {
+  const usage: ProviderUsageSample[] = [
+    { provider: "aws", service: "Amazon EC2", quantity: 100, unit: "Hrs" },
+  ]
+  const rows = computeFreeTierUsage([], usage, [connection("aws", "connected")])
+  assert.equal(rows.length, 0)
+})
+
 test("disconnected providers are ignored", () => {
   const rows = computeFreeTierUsage([], [], [connection("gcp", "setup_required")])
   assert.equal(rows.length, 0)

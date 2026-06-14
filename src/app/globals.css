@@ -2213,6 +2213,12 @@ th {
   font-size: 0.85rem;
 }
 
+.free-tier-measured {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
 .free-tier-bar {
   position: relative;
   height: 8px;
