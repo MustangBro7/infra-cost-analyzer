@@ -21,6 +21,7 @@ const EMPTY_WORKSPACE: WorkspaceStore = {
   events: [],
   analysisSnapshots: {},
   repoProviderLinks: {},
+  costAssignments: {},
 }
 
 const EMPTY_STORE: AppStore = {
@@ -170,6 +171,7 @@ export async function readStore(): Promise<AppStore> {
         events: parsed.events ?? [],
         analysisSnapshots: {},
         repoProviderLinks: {},
+        costAssignments: {},
       },
     },
   }
@@ -365,6 +367,22 @@ export async function setRepoProviderLinks(userId: string, repoFullName: string,
   return workspace.repoProviderLinks[repoFullName] ?? []
 }
 
+/**
+ * Manually assigns a billing line item (by its stable key) to a repo, or clears
+ * the assignment (target === null). Lets the user split an account's cost across
+ * repos by hand.
+ */
+export async function setCostAssignment(userId: string, itemKey: string, target: string | null) {
+  const workspace = await readWorkspace(userId)
+  if (target === null) {
+    delete workspace.costAssignments[itemKey]
+  } else {
+    workspace.costAssignments[itemKey] = target
+  }
+  await writeWorkspace(userId, workspace)
+  return workspace.costAssignments[itemKey] ?? null
+}
+
 export async function appendEvent(userId: string, event: Omit<ConnectionEvent, "id" | "createdAt">) {
   const workspace = await readWorkspace(userId)
   workspace.events = withEvent(workspace.events, event)
@@ -390,6 +408,7 @@ export async function publicStore(userId: string) {
     syncedRepoFullNames: workspace.syncedRepoFullNames,
     githubRepos: workspace.githubRepos,
     repoProviderLinks: workspace.repoProviderLinks,
+    costAssignments: workspace.costAssignments,
     events: events.slice(0, 30),
     connections: Object.fromEntries(
       Object.entries(workspace.connections).map(([provider, connection]) => [
@@ -428,6 +447,7 @@ function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore
     events: workspace.events ?? [],
     analysisSnapshots: workspace.analysisSnapshots ?? {},
     repoProviderLinks: workspace.repoProviderLinks ?? {},
+    costAssignments: workspace.costAssignments ?? {},
   }
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { attributeRepoForRow } from "../src/lib/costAttribution"
+import { ACCOUNT_SENTINEL, attributeRepoForRow, costItemKey, isAssignedHere, manualTarget } from "../src/lib/costAttribution"
 import type { NormalizedCostRow } from "../src/lib/types"
 
 function row(partial: Partial<NormalizedCostRow>): NormalizedCostRow {
@@ -45,4 +45,26 @@ test("a row that mentions no known repo stays account-level (null)", () => {
 test("a Vercel project linking to an unknown repo is not attributed", () => {
   const otherCtx = { repoShortNames: ["gpay-cost-analyzer"], vercelProjects: [{ id: "prj_9", repo: "some-other-repo" }] }
   assert.equal(attributeRepoForRow(row({ resourceId: "prj_9" }), otherCtx), null)
+})
+
+test("manual assignment overrides auto-attribution", () => {
+  const r = row({ provider: "cloudflare", serviceName: "Workers Paid", attributedRepo: null })
+  const assignments = { [costItemKey(r)]: "acme/gpay-cost-analyzer" }
+  assert.equal(isAssignedHere(r, assignments, "acme/gpay-cost-analyzer", "gpay-cost-analyzer"), true)
+  assert.equal(isAssignedHere(r, assignments, "acme/other-app", "other-app"), false)
+  assert.equal(manualTarget(r, assignments), "acme/gpay-cost-analyzer")
+})
+
+test("the account sentinel detaches an auto-matched row from its repo", () => {
+  const r = row({ attributedRepo: "gpay-cost-analyzer" })
+  assert.equal(isAssignedHere(r, {}, "acme/gpay-cost-analyzer", "gpay-cost-analyzer"), true)
+  const assignments = { [costItemKey(r)]: ACCOUNT_SENTINEL }
+  assert.equal(isAssignedHere(r, assignments, "acme/gpay-cost-analyzer", "gpay-cost-analyzer"), false)
+  assert.equal(manualTarget(r, assignments), null)
+})
+
+test("with no assignment, falls back to auto-attribution", () => {
+  const r = row({ attributedRepo: "gpay-cost-analyzer" })
+  assert.equal(isAssignedHere(r, {}, "acme/gpay-cost-analyzer", "gpay-cost-analyzer"), true)
+  assert.equal(isAssignedHere(r, {}, "acme/other-app", "other-app"), false)
 })

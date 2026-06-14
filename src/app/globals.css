@@ -2439,6 +2439,55 @@ th {
   margin-top: 8px;
 }
 
+.provider-cost-panel {
+  display: grid;
+  gap: 4px;
+}
+
+.resource-row.assignable {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+}
+
+.assign-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ink);
+  background: #fffdf6;
+  padding: 5px 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: box-shadow 0.14s ease, background 0.14s ease;
+}
+
+.assign-btn:hover {
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.assign-btn:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.assign-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.assign-btn.add {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.assign-btn.remove {
+  border-color: var(--red);
+  color: var(--red);
+}
+
 /* ---- Overview hero + connected accounts board ---- */
 .overview-hero {
   margin-bottom: 14px;

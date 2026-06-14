@@ -49,3 +49,42 @@ export function attributeCostRows(rows: NormalizedCostRow[], ctx: AttributionCon
     return attributedRepo ? { ...row, attributedRepo } : { ...row, attributedRepo: null }
   })
 }
+
+// ---- Manual assignment of account line items to a repo ----
+
+// Sentinel meaning "explicitly account-level" — the user pulled this item out of
+// every repo, overriding any auto-attribution.
+export const ACCOUNT_SENTINEL = "__account__"
+
+/**
+ * Stable key for a billing line item, used to remember the user's manual
+ * assignment of it to a repo across live refreshes. provider + service +
+ * resource is stable enough (AWS rows group by service, Vercel/Cloudflare carry
+ * a resource id).
+ */
+export function costItemKey(row: NormalizedCostRow): string {
+  return `${row.provider}::${row.serviceName}::${row.resourceId ?? row.resourceName ?? ""}`.toLowerCase()
+}
+
+/**
+ * Whether a row counts toward `selected` repo: a manual assignment always wins
+ * (a repo full name, or the account sentinel meaning "none"); otherwise we fall
+ * back to the auto-attributed short name.
+ */
+export function isAssignedHere(
+  row: NormalizedCostRow,
+  assignments: Record<string, string>,
+  selectedFullName: string,
+  selectedShort: string
+): boolean {
+  const manual = assignments[costItemKey(row)]
+  if (manual === ACCOUNT_SENTINEL) return false
+  if (manual) return manual === selectedFullName
+  return (row.attributedRepo ?? null) === selectedShort
+}
+
+/** The repo full name a row is manually assigned to, if any (not the sentinel). */
+export function manualTarget(row: NormalizedCostRow, assignments: Record<string, string>): string | null {
+  const manual = assignments[costItemKey(row)]
+  return manual && manual !== ACCOUNT_SENTINEL ? manual : null
+}

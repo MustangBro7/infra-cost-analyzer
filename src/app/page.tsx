@@ -17,6 +17,7 @@ import type { ReactNode } from "react"
 import { RepoSyncPanel } from "./RepoSyncPanel"
 import { ProviderConnectPanel } from "./ProviderConnectPanel"
 import { RepoAccountPicker } from "./RepoAccountPicker"
+import { ProviderCostPanel } from "./ProviderCostPanel"
 import { AnalysisRefresher } from "./AnalysisRefresher"
 import { ProviderLogo } from "./ProviderLogo"
 import { SignInForm } from "./SignInForm"
@@ -25,6 +26,7 @@ import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore } from "@/lib/localStore"
 import { CONNECTABLE_PROVIDERS, resolveLinkedProviders } from "@/lib/repoLinks"
+import { isAssignedHere } from "@/lib/costAttribution"
 import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
 export const runtime = "nodejs"
@@ -70,12 +72,6 @@ function providerColor(provider: Provider) {
 
 function sumCost(rows: NormalizedCostRow[]) {
   return rows.reduce((sum, row) => sum + row.cost, 0)
-}
-
-// Within a linked account, "this project" is the rows attributed to this repo;
-// the rest is everything else in that account.
-function isThisProject(row: NormalizedCostRow, repoShort: string) {
-  return (row.attributedRepo ?? null) === repoShort
 }
 
 function breakdownByProvider(rows: NormalizedCostRow[]) {
@@ -394,7 +390,9 @@ function RepositoryDashboard({
           })
           const repoShortName = repo.name.toLowerCase()
           const projectCost = sumCost(
-            analysis.costRows.filter((row) => linked.includes(row.provider) && (row.attributedRepo ?? null) === repoShortName)
+            analysis.costRows.filter(
+              (row) => linked.includes(row.provider) && isAssignedHere(row, state.costAssignments, repo.fullName, repoShortName)
+            )
           )
           return (
             <a key={repo.fullName} href={`/?repo=${encodeURIComponent(repo.fullName)}`} className={repo.fullName === selectedRepo ? "repo-home-card active" : "repo-home-card"}>
@@ -422,37 +420,26 @@ function RepositoryDashboard({
   )
 }
 
-function CostRows({ rows }: { rows: NormalizedCostRow[] }) {
-  return (
-    <div className="resource-list">
-      {rows.map((row) => (
-        <article key={`${row.provider}-${row.serviceName}-${row.resourceName}-${row.signalId}`} className="resource-row">
-          <div>
-            <strong>{row.serviceName}</strong>
-            <span>{row.resourceName ?? row.resourceId ?? "Unmapped resource"}</span>
-            <small>Actual billing row · {row.attribution.replace("_", " ")}</small>
-          </div>
-          <b>{money(row.cost)}</b>
-        </article>
-      ))}
-    </div>
-  )
-}
-
 function ProviderAccordion({
   analysis,
   connection,
+  repoFullName,
   repoShort,
+  assignments,
+  repoLabels,
   costDataOff = false,
 }: {
   analysis: AnalysisResult
   connection: ProviderConnection
+  repoFullName: string
   repoShort: string
+  assignments: Record<string, string>
+  repoLabels: Record<string, string>
   costDataOff?: boolean
 }) {
   const rows = providerRows(connection.provider, analysis.costRows)
-  const projectRows = rows.filter((row) => isThisProject(row, repoShort))
-  const restRows = rows.filter((row) => !isThisProject(row, repoShort))
+  const projectRows = rows.filter((row) => isAssignedHere(row, assignments, repoFullName, repoShort))
+  const restRows = rows.filter((row) => !isAssignedHere(row, assignments, repoFullName, repoShort))
   const projectTotal = sumCost(projectRows)
   const restTotal = sumCost(restRows)
   const signals = providerSignals(connection.provider, analysis.signals)
@@ -539,18 +526,14 @@ function ProviderAccordion({
               </div>
             ) : null}
 
-            {projectRows.length ? (
-              <div className="cost-group">
-                <h4 className="cost-group-label project">This project</h4>
-                <CostRows rows={projectRows} />
-              </div>
-            ) : null}
-            {restRows.length ? (
-              <div className="cost-group">
-                <h4 className="cost-group-label rest">Rest of this account</h4>
-                <p className="cost-group-note">Billed to this account but not tied to this repo’s project.</p>
-                <CostRows rows={restRows} />
-              </div>
+            {hasCost ? (
+              <ProviderCostPanel
+                rows={rows}
+                repoFullName={repoFullName}
+                selectedShort={repoShort}
+                assignments={assignments}
+                repoLabels={repoLabels}
+              />
             ) : null}
             {!hasCost && !hasUsage && !costDataOff ? (
               <div className="empty-provider-block">
@@ -608,11 +591,13 @@ function RepoDetail({
   })
   const linkedSet = new Set<Provider>(linked)
   const repoShort = analysis.repo.name.toLowerCase()
+  const assignments = state.costAssignments
+  const repoLabels = Object.fromEntries(state.githubRepos.map((entry) => [entry.fullName, entry.name]))
   const linkedCostRows = analysis.costRows.filter((row) => linkedSet.has(row.provider))
   // Within the linked accounts, split the cost actually tied to this project
-  // from the rest of those accounts.
-  const projectCostRows = linkedCostRows.filter((row) => isThisProject(row, repoShort))
-  const restTotal = sumCost(linkedCostRows.filter((row) => !isThisProject(row, repoShort)))
+  // (auto-attributed or manually assigned) from the rest of those accounts.
+  const projectCostRows = linkedCostRows.filter((row) => isAssignedHere(row, assignments, selectedName, repoShort))
+  const restTotal = sumCost(linkedCostRows.filter((row) => !isAssignedHere(row, assignments, selectedName, repoShort)))
   const measuredUsageCount = analysis.freeTier.filter((row) => row.source === "measured" && linkedSet.has(row.provider)).length
   const linkedConnections = analysis.providerConnections.filter((connection) => linkedSet.has(connection.provider))
   // Providers this repo detected that can't be linked because they aren't
@@ -699,7 +684,16 @@ function RepoDetail({
                 const costDataOff =
                   connection.provider === "aws" && connection.status === "connected" && meta?.costExplorer !== true
                 return (
-                  <ProviderAccordion key={connection.provider} analysis={analysis} connection={connection} repoShort={repoShort} costDataOff={costDataOff} />
+                  <ProviderAccordion
+                    key={connection.provider}
+                    analysis={analysis}
+                    connection={connection}
+                    repoFullName={selectedName}
+                    repoShort={repoShort}
+                    assignments={assignments}
+                    repoLabels={repoLabels}
+                    costDataOff={costDataOff}
+                  />
                 )
               })}
             </section>

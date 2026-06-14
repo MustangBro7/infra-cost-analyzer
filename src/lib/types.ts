@@ -181,6 +181,10 @@ export interface WorkspaceStore {
   // name). When unset for a repo, a sensible default is derived (the connected
   // providers its scan detected). Drives per-repo cost filtering.
   repoProviderLinks: Record<string, Provider[]>
+  // Manual assignment of individual account billing line items to a repo, keyed
+  // by a stable cost-item key. Value is a repo full name, or "__account__" to
+  // force account-level. Lets the user split an account's cost across repos.
+  costAssignments: Record<string, string>
 }
 
 export interface LocalUser {
