@@ -1,16 +1,17 @@
 import {
   ArrowLeft,
   ArrowUpRight,
-  CheckCircle2,
   ChevronDown,
   CloudCog,
   DatabaseZap,
   FolderGit2,
   Gauge,
   Github,
+  Layers,
   RefreshCw,
   ShieldAlert,
   Signal,
+  Wallet,
 } from "lucide-react"
 import { RepoSyncPanel } from "./RepoSyncPanel"
 import { ProviderConnectPanel } from "./ProviderConnectPanel"
@@ -27,11 +28,41 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 function money(value: number) {
+  const abs = Math.abs(value)
+  // Show cents for anything under $1,000 (and any non-whole amount above it) so
+  // small real costs like $0.34 are never rounded away to "$0"; whole dollars
+  // only for clean large numbers. One rule everywhere keeps amounts consistent.
+  const fractionDigits = abs > 0 && (abs < 1000 || value % 1 !== 0) ? 2 : 0
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
   }).format(value)
+}
+
+function monthLabel(period: { from: string }) {
+  const date = new Date(`${period.from}T00:00:00Z`)
+  if (Number.isNaN(date.getTime())) return "this month"
+  return date.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+}
+
+function providerName(provider: Provider) {
+  if (provider === "gcp") return "Google Cloud"
+  if (provider === "aws") return "AWS"
+  return provider.charAt(0).toUpperCase() + provider.slice(1)
+}
+
+const PROVIDER_COLOR: Partial<Record<Provider, string>> = {
+  aws: "#d79c22",
+  cloudflare: "#b54035",
+  gcp: "#285f9f",
+  vercel: "#151515",
+  azure: "#7152a5",
+}
+
+function providerColor(provider: Provider) {
+  return PROVIDER_COLOR[provider] ?? "#696459"
 }
 
 function currentRepoFullName(analysis: AnalysisResult) {
@@ -139,6 +170,80 @@ function FreeTierUsage({
         })}
       </div>
     </div>
+  )
+}
+
+/**
+ * The headline "what does this repo cost, and where" surface. Shows the total
+ * up front, a single stacked bar split by provider, and an aligned legend so the
+ * biggest line items are obvious at a glance — drill-down lives in the
+ * per-provider accordions below.
+ */
+function CostOverview({ analysis }: { analysis: AnalysisResult }) {
+  const breakdown = analysis.providerBreakdown.filter((entry) => entry.total > 0.005)
+  const total = analysis.summary.totalCost
+  const measuredUsage = analysis.freeTier.filter((row) => row.source === "measured").length
+  const usageProviders = new Set(
+    analysis.freeTier.filter((row) => row.source === "measured").map((row) => row.provider)
+  ).size
+
+  return (
+    <section className="cost-overview" aria-label="Cost overview">
+      <div className="cost-overview-head">
+        <div>
+          <p>Total Cost · {monthLabel(analysis.period)}</p>
+          <h2>{money(total)}</h2>
+          <span>
+            {breakdown.length > 0
+              ? `Live month-to-date spend across ${breakdown.length} ${breakdown.length === 1 ? "provider" : "providers"}.`
+              : usageProviders > 0
+                ? `No billed spend yet — ${measuredUsage} live usage metric${measuredUsage === 1 ? "" : "s"} tracked across ${usageProviders} connected provider${usageProviders === 1 ? "" : "s"}.`
+                : "No billed spend yet. Connect a provider below to pull live cost and usage."}
+          </span>
+        </div>
+        <span className="cost-overview-icon">
+          <Wallet aria-hidden />
+        </span>
+      </div>
+
+      {breakdown.length > 0 ? (
+        <>
+          <div className="cost-bar" role="img" aria-label="Cost split by provider">
+            {breakdown.map((entry) => (
+              <span
+                key={entry.provider}
+                className="cost-bar-seg"
+                style={{ width: `${Math.max((entry.total / total) * 100, 1.5)}%`, background: providerColor(entry.provider) }}
+                title={`${providerName(entry.provider)} · ${money(entry.total)}`}
+              />
+            ))}
+          </div>
+          <div className="cost-legend">
+            {breakdown.map((entry) => {
+              const pct = total > 0 ? Math.round((entry.total / total) * 100) : 0
+              return (
+                <div key={entry.provider} className="cost-legend-row">
+                  <span className="cost-legend-dot" style={{ background: providerColor(entry.provider) }} aria-hidden />
+                  <ProviderLogo provider={entry.provider} />
+                  <strong>{providerName(entry.provider)}</strong>
+                  <span className="cost-legend-pct">{pct}%</span>
+                  <b>{money(entry.total)}</b>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      ) : (
+        <div className="cost-overview-empty">
+          <Gauge aria-hidden />
+          <span>
+            {usageProviders > 0
+              ? "Everything connected is inside the free tier this month. Expand a provider below to see exactly how much you've used."
+              : "Once you connect a provider, its live cost and free-tier usage appear here and in the breakdown below."}
+          </span>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -253,20 +358,44 @@ function ProviderAccordion({
   const showSyncNote =
     connection.status === "connected" && sync && (sync.status === "error" || (hasUsage && !hasMeasuredUsage && sync.message.length > 0))
 
+  const statusTone =
+    connection.status === "connected"
+      ? "connected"
+      : connection.status === "setup_required"
+        ? "warn"
+        : "muted"
+
   return (
     <details className="provider-accordion" open={connection.detected || hasCost || hasUsage}>
       <summary>
         <ProviderLogo provider={connection.provider} />
-        <div>
-          <strong>{hasCost ? money(total) : costDataOff ? "Cost data off" : hasUsage ? "Free tier" : "No live cost"}</strong>
+        <div className="provider-sum-id">
+          <strong>{providerName(connection.provider)}</strong>
           <small>
-            {statusText(connection)} · {signals.length} repo signals ·{" "}
-            {hasCost
-              ? `${rows.length} live billing rows`
+            <span className={`status-chip ${statusTone}`}>{statusText(connection)}</span>
+            <span className="sum-meta">
+              {signals.length} {signals.length === 1 ? "signal" : "signals"}
+              {hasCost ? ` · ${rows.length} ${rows.length === 1 ? "row" : "rows"}` : ""}
+              {hasUsage ? ` · ${freeTier.length} usage` : ""}
+            </span>
+          </small>
+        </div>
+        <div className="provider-sum-amount">
+          {hasCost ? (
+            <strong>{money(total)}</strong>
+          ) : (
+            <span className={`amount-tag ${costDataOff ? "warn" : hasUsage ? "ok" : "muted"}`}>
+              {costDataOff ? "Cost off" : hasUsage ? "Free tier" : "No cost"}
+            </span>
+          )}
+          <small>
+            {hasCost && hasUsage
+              ? "+ usage tracked"
               : costDataOff
-                ? "spend not pulled — enable cost data"
-                : `${freeTier.length} free-tier allowances`}
-            {hasCost && hasUsage ? " · usage tracked" : ""}
+                ? "enable cost data"
+                : hasUsage
+                  ? "within free tier"
+                  : "no live data"}
           </small>
         </div>
         <ChevronDown aria-hidden />
@@ -377,15 +506,11 @@ function RepoDetail({
         </div>
         <div className="repo-detail-totals">
           <div>
-            <span>Live MTD cost</span>
-            <strong>{hasScan ? money(analysis.summary.totalCost) : "Pending"}</strong>
-          </div>
-          <div>
             <span>Providers</span>
             <strong>{hasScan ? relevantProviders.length : 0}</strong>
           </div>
           <div>
-            <span>Signals</span>
+            <span>Repo signals</span>
             <strong>{hasScan ? analysis.summary.signals : 0}</strong>
           </div>
         </div>
@@ -393,15 +518,16 @@ function RepoDetail({
 
       {hasScan ? (
         <>
+          <CostOverview analysis={analysis} />
           <ProviderConnectPanel providerConnections={relevantProviders} initialState={state} />
           <section className="provider-deep-dive" aria-label="Provider cost breakdown">
             <div className="deep-dive-heading">
               <div>
-                <p>Hosting Providers</p>
-                <h2>Expand a provider for live cost rows and repo evidence</h2>
-                <span className="live-cost-note">Repo scan detects providers, but dollar amounts appear only from connected billing sources. No estimates are shown.</span>
+                <p>By Provider</p>
+                <h2>Expand any provider for exact cost rows, usage, and repo evidence</h2>
+                <span className="live-cost-note">Only live billing sources produce dollar amounts — nothing here is estimated.</span>
               </div>
-              <CheckCircle2 aria-hidden />
+              <Layers aria-hidden />
             </div>
             {relevantProviders.map((connection) => {
               const meta = state.connections[connection.provider]?.metadata as { costExplorer?: boolean } | undefined
