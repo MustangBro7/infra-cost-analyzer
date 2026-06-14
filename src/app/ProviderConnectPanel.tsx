@@ -280,7 +280,17 @@ export function ProviderConnectPanel({
                   <ConnectedProviderState
                     provider="gcp"
                     connection={saved}
-                    detail={(saved.metadata as { billingExportTable?: string | null }).billingExportTable ? "Billing export table is saved for live GCP cost rows." : "Project access is connected. Add a Billing Export table later to pull actual GCP costs."}
+                    detail={(() => {
+                      const metadata = saved.metadata as {
+                        billingExportDataset?: string | null
+                        billingExportTable?: string | null
+                      }
+                      if (metadata.billingExportTable) return "Billing export table is saved for live GCP cost rows."
+                      if (metadata.billingExportDataset) {
+                        return `BigQuery dataset ${metadata.billingExportDataset} is ready. Enable Cloud Billing export to populate the cost table.`
+                      }
+                      return "Project access is connected. Add a Billing Export table later to pull actual GCP costs."
+                    })()}
                   />
                 ) : (
                   <>

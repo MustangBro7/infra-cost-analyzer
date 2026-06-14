@@ -400,12 +400,15 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
     return notConnected("gcp", "Connect Google Cloud to pull exact cost rows from the billing export.")
   }
 
-  const metadata = gcp.metadata as { billingExportTable?: string | null }
+  const metadata = gcp.metadata as { billingExportDataset?: string | null; billingExportTable?: string | null }
   const tableId = metadata.billingExportTable
   if (!tableId) {
+    const dataset = metadata.billingExportDataset
     return notConnected(
       "gcp",
-      "Google Cloud is connected. Add your BigQuery billing export table to pull exact cost rows."
+      dataset
+        ? `Google Cloud is connected and BigQuery dataset ${dataset} is ready. Enable Cloud Billing export to that dataset, then the billing table will be used for exact cost rows.`
+        : "Google Cloud is connected. Add your BigQuery billing export table to pull exact cost rows."
     )
   }
 
