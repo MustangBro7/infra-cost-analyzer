@@ -2231,6 +2231,22 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .resource-row.assignable {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .resource-row.assignable b {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .resource-row.assignable .assign-btn {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
   .provider-token-form,
   .provider-token-form.single {
     grid-template-columns: 1fr;
@@ -2515,8 +2531,21 @@ th {
 }
 
 .resource-row.assignable {
+  display: grid;
+  align-items: center;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 12px;
+}
+
+.resource-row.assignable b {
+  min-width: 84px;
+  justify-self: end;
+  text-align: right;
+}
+
+.resource-row.assignable .assign-btn {
+  min-width: 108px;
+  justify-content: center;
 }
 
 .assign-btn {
