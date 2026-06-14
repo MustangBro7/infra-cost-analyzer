@@ -69,6 +69,61 @@ function providerDisplay(provider: Provider): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
+/**
+ * Maps a resource kind (e.g. a Cloudflare "Worker") to the free-tier metric its
+ * usage rolls up into, so usage can be re-derived from just the resources a repo
+ * is assigned. Kinds with no published limit (e.g. domains) show usage only.
+ */
+const RESOURCE_METRICS: Record<string, { service: string; limit: number | null; unit: string }> = {
+  Worker: { service: "Workers Requests", limit: 3_000_000, unit: "requests/mo" },
+  Domain: { service: "Domain Requests", limit: null, unit: "requests" },
+}
+
+/** The free-tier metric service a resource kind contributes to (for de-duping). */
+export function resourceMetricService(kind: string): string | null {
+  return RESOURCE_METRICS[kind]?.service ?? null
+}
+
+/**
+ * Builds usage rows from a set of resources (e.g. the Cloudflare Workers a repo
+ * is assigned), aggregated per metric and compared to the free allowance — so a
+ * repo's usage reflects only the resources assigned to it.
+ */
+export function resourceUsageRows(
+  provider: Provider,
+  items: { kind: string; quantity: number; unit: string }[]
+): FreeTierUsageRow[] {
+  const planName = FREE_TIER_PLANS[provider]?.planName ?? `${providerDisplay(provider)} usage`
+  const byKind = new Map<string, number>()
+  for (const item of items) {
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) continue
+    byKind.set(item.kind, (byKind.get(item.kind) ?? 0) + item.quantity)
+  }
+  const rows: FreeTierUsageRow[] = []
+  for (const [kind, quantity] of byKind) {
+    const metric = RESOURCE_METRICS[kind] ?? {
+      service: `${kind} usage`,
+      limit: null,
+      unit: items.find((item) => item.kind === kind)?.unit ?? "",
+    }
+    const used = roundTo(quantity)
+    const limit = metric.limit
+    rows.push({
+      provider,
+      planName,
+      service: metric.service,
+      used,
+      limit,
+      unit: metric.unit,
+      remaining: limit != null ? roundTo(Math.max(limit - used, 0)) : null,
+      percentUsed: limit ? roundTo(Math.min((used / limit) * 100, 100), 1) : null,
+      source: "measured",
+      note: `Filtered to the ${kind.toLowerCase()} resource(s) assigned to this repo.`,
+    })
+  }
+  return rows
+}
+
 /** Collapses repeated usage samples of the same service+unit into one total. */
 function aggregateUsage(samples: ProviderUsageSample[]): ProviderUsageSample[] {
   const map = new Map<string, ProviderUsageSample>()

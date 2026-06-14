@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { computeFreeTierUsage } from "../src/lib/freeTier"
+import { computeFreeTierUsage, resourceMetricService, resourceUsageRows } from "../src/lib/freeTier"
 import type { NormalizedCostRow, ProviderConnection, ProviderUsageSample } from "../src/lib/types"
 
 function connection(provider: ProviderConnection["provider"], status: ProviderConnection["status"]): ProviderConnection {
@@ -142,6 +142,32 @@ test("AWS is skipped here (it has its own Free Tier API path)", () => {
   ]
   const rows = computeFreeTierUsage([], usage, [connection("aws", "connected")])
   assert.equal(rows.length, 0)
+})
+
+test("resourceUsageRows aggregates assigned Worker resources into Workers Requests", () => {
+  const rows = resourceUsageRows("cloudflare", [
+    { kind: "Worker", quantity: 4_649, unit: "requests" },
+    { kind: "Worker", quantity: 351, unit: "requests" },
+  ])
+  const workers = rows.find((row) => row.service === "Workers Requests")
+  assert.ok(workers)
+  assert.equal(workers.used, 5_000)
+  assert.equal(workers.limit, 3_000_000)
+  assert.equal(workers.remaining, 2_995_000)
+  assert.equal(workers.source, "measured")
+})
+
+test("a Domain resource shows usage with no published limit", () => {
+  const rows = resourceUsageRows("cloudflare", [{ kind: "Domain", quantity: 2_200, unit: "requests" }])
+  const domain = rows.find((row) => row.service === "Domain Requests")
+  assert.ok(domain)
+  assert.equal(domain.used, 2_200)
+  assert.equal(domain.limit, null)
+})
+
+test("resourceMetricService maps a kind to its rolled-up metric (for de-duping)", () => {
+  assert.equal(resourceMetricService("Worker"), "Workers Requests")
+  assert.equal(resourceMetricService("Database"), null)
 })
 
 test("disconnected providers are ignored", () => {

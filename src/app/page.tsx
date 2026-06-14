@@ -27,7 +27,8 @@ import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore } from "@/lib/localStore"
 import { CONNECTABLE_PROVIDERS, resolveLinkedProviders } from "@/lib/repoLinks"
-import { isAssignedHere } from "@/lib/costAttribution"
+import { isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
+import { resourceMetricService, resourceUsageRows } from "@/lib/freeTier"
 import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
 export const runtime = "nodejs"
@@ -123,23 +124,31 @@ function FreeTierUsage({
   rows,
   hasCost,
   costDataOff = false,
+  heading: headingOverride,
+  subtext: subtextOverride,
 }: {
   rows: FreeTierUsageRow[]
   hasCost: boolean
   costDataOff?: boolean
+  heading?: string
+  subtext?: string
 }) {
   if (!rows.length) return null
   const planName = rows[0].planName
-  const heading = costDataOff
-    ? `Free-tier usage — ${planName}`
-    : hasCost
-      ? `Free-tier allowance — ${planName}`
-      : `On the free tier — ${planName}`
-  const subtext = costDataOff
-    ? "Free-tier usage only. Spend is not pulled, so this is not your full cost."
-    : hasCost
-      ? "Live usage this period against each free allowance, shown alongside the billed cost above."
-      : "No billed cost this period. Here is how much of the free allowance is left."
+  const heading =
+    headingOverride ??
+    (costDataOff
+      ? `Free-tier usage — ${planName}`
+      : hasCost
+        ? `Free-tier allowance — ${planName}`
+        : `On the free tier — ${planName}`)
+  const subtext =
+    subtextOverride ??
+    (costDataOff
+      ? "Free-tier usage only. Spend is not pulled, so this is not your full cost."
+      : hasCost
+        ? "Live usage this period against each free allowance, shown alongside the billed cost above."
+        : "No billed cost this period. Here is how much of the free allowance is left.")
   return (
     <div className="free-tier-block">
       <div className="free-tier-head">
@@ -443,9 +452,21 @@ function ProviderAccordion({
   const restRows = rows.filter((row) => !isAssignedHere(row, assignments, repoFullName, repoShort))
   const projectTotal = sumCost(projectRows)
   const restTotal = sumCost(restRows)
-  const resourceItems = (analysis.resourceItems ?? []).filter((item) => item.provider === connection.provider)
   const signals = providerSignals(connection.provider, analysis.signals)
   const freeTier = providerFreeTier(connection.provider, analysis.freeTier)
+  const resourceItems = (analysis.resourceItems ?? []).filter((item) => item.provider === connection.provider)
+  const hasResources = resourceItems.length > 0
+  const assignedResources = resourceItems.filter((item) =>
+    isKeyAssignedHere(item.itemKey, item.attributedRepo, assignments, repoFullName, repoShort)
+  )
+  // When a provider exposes per-resource usage (Cloudflare), the repo's usage is
+  // re-derived from just the resources assigned to it; metrics no resource maps
+  // to (R2, D1, …) stay account-wide.
+  const projectUsageRows = hasResources ? resourceUsageRows(connection.provider, assignedResources) : []
+  const coveredServices = new Set(
+    resourceItems.map((item) => resourceMetricService(item.kind)).filter((service): service is string => Boolean(service))
+  )
+  const accountWideUsage = hasResources ? freeTier.filter((row) => !coveredServices.has(row.service)) : freeTier
   const hasCost = rows.length > 0
   const hasProjectCost = projectRows.length > 0
   const hasUsage = freeTier.length > 0
@@ -543,7 +564,28 @@ function ProviderAccordion({
                 <span>No live billing rows for this account yet. Add the required billing access on the Overview to show actual costs.</span>
               </div>
             ) : null}
-            {hasUsage ? <FreeTierUsage rows={freeTier} hasCost={hasCost} costDataOff={costDataOff} /> : null}
+            {hasResources ? (
+              <>
+                {projectUsageRows.length ? (
+                  <FreeTierUsage
+                    rows={projectUsageRows}
+                    hasCost={hasCost}
+                    heading="This project’s usage"
+                    subtext="Re-derived from the resources assigned to this repo below."
+                  />
+                ) : null}
+                {accountWideUsage.length ? (
+                  <FreeTierUsage
+                    rows={accountWideUsage}
+                    hasCost={hasCost}
+                    heading="Account-wide usage"
+                    subtext="Metrics that aren’t tied to a single resource — shared across the whole account."
+                  />
+                ) : null}
+              </>
+            ) : hasUsage ? (
+              <FreeTierUsage rows={freeTier} hasCost={hasCost} costDataOff={costDataOff} />
+            ) : null}
             {resourceItems.length ? (
               <ProviderResourcePanel
                 items={resourceItems}
