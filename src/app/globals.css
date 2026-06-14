@@ -2384,6 +2384,61 @@ th {
   color: var(--green);
 }
 
+.cost-footnote {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--ink);
+  background: var(--panel-strong);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.cost-footnote svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.cost-footnote strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- This-project vs rest-of-account groups (inside an account accordion) ---- */
+.cost-group + .cost-group {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.cost-group-label {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cost-group-label.project {
+  color: var(--green);
+}
+
+.cost-group-label.rest {
+  color: var(--muted);
+}
+
+.cost-group-note {
+  margin: -4px 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.cost-group .free-tier-block {
+  margin-top: 8px;
+}
+
 /* ---- Overview hero + connected accounts board ---- */
 .overview-hero {
   margin-bottom: 14px;

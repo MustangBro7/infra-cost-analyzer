@@ -59,6 +59,9 @@ export interface NormalizedCostRow {
   attributionReason: string
   signalId: string | null
   source?: "live"
+  // Lowercased short name of the repo this row is tied to within its account
+  // (e.g. a Vercel project linked to the repo). null = account-level / shared.
+  attributedRepo?: string | null
 }
 
 /**

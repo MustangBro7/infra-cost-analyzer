@@ -1,0 +1,48 @@
+import test from "node:test"
+import assert from "node:assert/strict"
+import { attributeRepoForRow } from "../src/lib/costAttribution"
+import type { NormalizedCostRow } from "../src/lib/types"
+
+function row(partial: Partial<NormalizedCostRow>): NormalizedCostRow {
+  return {
+    provider: "vercel",
+    serviceName: "Service",
+    resourceId: null,
+    resourceName: null,
+    billingPeriodStart: "2026-06-01",
+    billingPeriodEnd: "2026-06-30",
+    cost: 1,
+    currency: "USD",
+    attribution: "verified",
+    attributionReason: "live",
+    signalId: null,
+    source: "live",
+    ...partial,
+  }
+}
+
+const ctx = {
+  repoShortNames: ["gpay-cost-analyzer", "other-app"],
+  vercelProjects: [{ id: "prj_123", name: "gpay-web", repo: "gpay-cost-analyzer", org: "acme" }],
+}
+
+test("Vercel charge maps to its repo via the linked project (by id)", () => {
+  assert.equal(attributeRepoForRow(row({ resourceId: "prj_123" }), ctx), "gpay-cost-analyzer")
+})
+
+test("Vercel charge maps to its repo via the linked project (by name)", () => {
+  assert.equal(attributeRepoForRow(row({ resourceName: "gpay-web" }), ctx), "gpay-cost-analyzer")
+})
+
+test("a resource named after a known repo is attributed to it (any provider)", () => {
+  assert.equal(attributeRepoForRow(row({ provider: "aws", resourceName: "other-app-bucket" }), ctx), "other-app")
+})
+
+test("a row that mentions no known repo stays account-level (null)", () => {
+  assert.equal(attributeRepoForRow(row({ provider: "cloudflare", serviceName: "Workers Paid", resourceName: "acct" }), ctx), null)
+})
+
+test("a Vercel project linking to an unknown repo is not attributed", () => {
+  const otherCtx = { repoShortNames: ["gpay-cost-analyzer"], vercelProjects: [{ id: "prj_9", repo: "some-other-repo" }] }
+  assert.equal(attributeRepoForRow(row({ resourceId: "prj_9" }), otherCtx), null)
+})

@@ -10,6 +10,7 @@ import type {
 } from "./types"
 import { buildProviderConnections } from "./providerCatalog"
 import { computeFreeTierUsage } from "./freeTier"
+import { attributeCostRows, type VercelProjectLink } from "./costAttribution"
 import { readWorkspace } from "./localStore"
 import { getAwsCostAndUsage, getAwsFreeTierUsage, type AwsCostRow, type AwsCredentials } from "./awsClient"
 import { listVercelBillingCharges } from "./vercelClient"
@@ -98,6 +99,17 @@ function finalizeAnalysis(
   liveSync: AnalysisResult["liveSync"],
   providerFreeTier: FreeTierUsageRow[]
 ): AnalysisResult {
+  // Attribute each account-wide row to a repo within its account (Vercel
+  // project→repo link, or a resource named after a repo) so the repo view can
+  // split "this project" from "rest of the account".
+  const syncedRepos = workspace.githubRepos.filter((repo) => workspace.syncedRepoFullNames.includes(repo.fullName))
+  const repoShortNames = [
+    repoScan.repo.name,
+    ...(syncedRepos.length ? syncedRepos : workspace.githubRepos).map((repo) => repo.name),
+  ]
+  const vercelProjects = ((workspace.connections.vercel?.metadata as { linkedProjects?: VercelProjectLink[] } | undefined)
+    ?.linkedProjects ?? []) as VercelProjectLink[]
+  costRows = attributeCostRows(costRows, { repoShortNames, vercelProjects })
   const providerBreakdown = summarizeByProvider(costRows, repoScan.signals)
   const exactCost = costRows
     .filter((row) => row.attribution !== "inferred")
