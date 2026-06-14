@@ -46,6 +46,14 @@ export interface ProviderConnection {
   lastError?: string | null
 }
 
+/**
+ * Whether a cost/usage line is tied to the repository currently in view
+ * ("repo") or is account-wide and shared across everything you run ("account").
+ * Provider billing is account-wide; only some lines (e.g. a Vercel project
+ * linked to the repo, a resource named after it) can be tied to one repo.
+ */
+export type CostScope = "repo" | "account"
+
 export interface NormalizedCostRow {
   provider: Provider
   serviceName: string
@@ -59,6 +67,7 @@ export interface NormalizedCostRow {
   attributionReason: string
   signalId: string | null
   source?: "live"
+  scope?: CostScope
 }
 
 /**
@@ -89,6 +98,7 @@ export interface FreeTierUsageRow {
   percentUsed: number | null
   source: "measured" | "allowance"
   note: string
+  scope?: CostScope
 }
 
 export interface ProviderBreakdown {

@@ -2384,6 +2384,98 @@ th {
   color: var(--green);
 }
 
+.cost-account-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--ink);
+  background: var(--panel-strong);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.cost-account-note svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.cost-account-note strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Connect-detected prompt ---- */
+.connect-prompt {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  border: 1px solid var(--ink);
+  background: #fff1c9;
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 14px 16px;
+}
+
+.connect-prompt > svg {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.connect-prompt strong {
+  display: block;
+  font-size: 15px;
+}
+
+.connect-prompt span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.connect-prompt-logos {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* ---- Repo vs account scope groups (inside a provider accordion) ---- */
+.scope-group + .scope-group {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.scope-label {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scope-label.repo {
+  color: var(--green);
+}
+
+.scope-label.account {
+  color: var(--muted);
+}
+
+.scope-note {
+  margin: -4px 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.scope-group .free-tier-block {
+  margin-top: 8px;
+}
+
 .free-tier-block {
   width: 100%;
   border: 1px solid var(--line);

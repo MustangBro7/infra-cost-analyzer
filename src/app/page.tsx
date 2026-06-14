@@ -8,6 +8,7 @@ import {
   Gauge,
   Github,
   Layers,
+  PlugZap,
   RefreshCw,
   ShieldAlert,
   Signal,
@@ -22,7 +23,7 @@ import { SignOutButton } from "./SignOutButton"
 import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore } from "@/lib/localStore"
-import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
+import type { AnalysisResult, CostScope, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -65,6 +66,27 @@ function providerColor(provider: Provider) {
   return PROVIDER_COLOR[provider] ?? "#696459"
 }
 
+function rowScope(row: { scope?: CostScope }): CostScope {
+  return row.scope ?? "account"
+}
+
+function rowsInScope(rows: NormalizedCostRow[], scope: CostScope) {
+  return rows.filter((row) => rowScope(row) === scope)
+}
+
+function sumCost(rows: NormalizedCostRow[]) {
+  return rows.reduce((sum, row) => sum + row.cost, 0)
+}
+
+function breakdownByProvider(rows: NormalizedCostRow[]) {
+  const totals = new Map<Provider, number>()
+  for (const row of rows) totals.set(row.provider, (totals.get(row.provider) ?? 0) + row.cost)
+  return [...totals.entries()]
+    .map(([provider, total]) => ({ provider, total }))
+    .filter((entry) => entry.total > 0.005)
+    .sort((a, b) => b.total - a.total)
+}
+
 function currentRepoFullName(analysis: AnalysisResult) {
   return `${analysis.repo.owner}/${analysis.repo.name}`
 }
@@ -82,10 +104,6 @@ function repoList(state: Awaited<ReturnType<typeof publicStore>>, analysis: Anal
     defaultBranch: "local",
     htmlUrl: analysis.repo.remoteUrl ?? analysis.repo.path,
   }]
-}
-
-function providerTotal(provider: Provider, rows: NormalizedCostRow[]) {
-  return rows.filter((row) => row.provider === provider).reduce((sum, row) => sum + row.cost, 0)
 }
 
 function providerSignals(provider: Provider, signals: RepoSignal[]) {
@@ -108,23 +126,31 @@ function FreeTierUsage({
   rows,
   hasCost,
   costDataOff = false,
+  headingOverride,
+  subtextOverride,
 }: {
   rows: FreeTierUsageRow[]
   hasCost: boolean
   costDataOff?: boolean
+  headingOverride?: string
+  subtextOverride?: string
 }) {
   if (!rows.length) return null
   const planName = rows[0].planName
-  const heading = costDataOff
-    ? `Free-tier usage — ${planName}`
-    : hasCost
-      ? `Free-tier allowance — ${planName}`
-      : `On the free tier — ${planName}`
-  const subtext = costDataOff
-    ? "Free-tier usage only. Spend is not pulled, so this is not your full cost."
-    : hasCost
-      ? "Live usage this period against each free allowance, shown alongside the billed cost above."
-      : "No billed cost this period. Here is how much of the free allowance is left."
+  const heading =
+    headingOverride ??
+    (costDataOff
+      ? `Free-tier usage — ${planName}`
+      : hasCost
+        ? `Free-tier allowance — ${planName}`
+        : `On the free tier — ${planName}`)
+  const subtext =
+    subtextOverride ??
+    (costDataOff
+      ? "Free-tier usage only. Spend is not pulled, so this is not your full cost."
+      : hasCost
+        ? "Live usage this period against each free allowance, shown alongside the billed cost above."
+        : "No billed cost this period. Here is how much of the free allowance is left.")
   return (
     <div className="free-tier-block">
       <div className="free-tier-head">
@@ -174,31 +200,32 @@ function FreeTierUsage({
 }
 
 /**
- * The headline "what does this repo cost, and where" surface. Shows the total
- * up front, a single stacked bar split by provider, and an aligned legend so the
- * biggest line items are obvious at a glance — drill-down lives in the
- * per-provider accordions below.
+ * The headline "what does THIS repo cost" surface. Leads with the cost tied to
+ * the repository in view (a stacked bar + aligned legend), and surfaces the
+ * account-wide shared cost separately so account-level totals never masquerade
+ * as one repo's spend. Drill-down lives in the per-provider accordions below.
  */
 function CostOverview({ analysis }: { analysis: AnalysisResult }) {
-  const breakdown = analysis.providerBreakdown.filter((entry) => entry.total > 0.005)
-  const total = analysis.summary.totalCost
-  const measuredUsage = analysis.freeTier.filter((row) => row.source === "measured").length
-  const usageProviders = new Set(
-    analysis.freeTier.filter((row) => row.source === "measured").map((row) => row.provider)
-  ).size
+  const repoRows = rowsInScope(analysis.costRows, "repo")
+  const accountRows = rowsInScope(analysis.costRows, "account")
+  const repoTotal = sumCost(repoRows)
+  const accountTotal = sumCost(accountRows)
+  const repoBreakdown = breakdownByProvider(repoRows)
+  const repoUsage = analysis.freeTier.filter((row) => row.source === "measured" && rowScope(row) === "repo").length
 
   return (
     <section className="cost-overview" aria-label="Cost overview">
       <div className="cost-overview-head">
         <div>
-          <p>Total Cost · {monthLabel(analysis.period)}</p>
-          <h2>{money(total)}</h2>
+          <p>This Repo · {monthLabel(analysis.period)}</p>
+          <h2>{money(repoTotal)}</h2>
           <span>
-            {breakdown.length > 0
-              ? `Live month-to-date spend across ${breakdown.length} ${breakdown.length === 1 ? "provider" : "providers"}.`
-              : usageProviders > 0
-                ? `No billed spend yet — ${measuredUsage} live usage metric${measuredUsage === 1 ? "" : "s"} tracked across ${usageProviders} connected provider${usageProviders === 1 ? "" : "s"}.`
-                : "No billed spend yet. Connect a provider below to pull live cost and usage."}
+            {repoBreakdown.length > 0
+              ? `Cost tied to this repository across ${repoBreakdown.length} ${repoBreakdown.length === 1 ? "provider" : "providers"}.`
+              : repoUsage > 0
+                ? `No billed cost tied to this repo — ${repoUsage} live usage metric${repoUsage === 1 ? "" : "s"} tracked for the providers it deploys to.`
+                : "No cost tied directly to this repository this month."}
+            {accountTotal > 0.005 ? ` ${money(accountTotal)} more is account-level (shared).` : ""}
           </span>
         </div>
         <span className="cost-overview-icon">
@@ -206,21 +233,21 @@ function CostOverview({ analysis }: { analysis: AnalysisResult }) {
         </span>
       </div>
 
-      {breakdown.length > 0 ? (
+      {repoBreakdown.length > 0 ? (
         <>
-          <div className="cost-bar" role="img" aria-label="Cost split by provider">
-            {breakdown.map((entry) => (
+          <div className="cost-bar" role="img" aria-label="Repo cost split by provider">
+            {repoBreakdown.map((entry) => (
               <span
                 key={entry.provider}
                 className="cost-bar-seg"
-                style={{ width: `${Math.max((entry.total / total) * 100, 1.5)}%`, background: providerColor(entry.provider) }}
+                style={{ width: `${Math.max((entry.total / repoTotal) * 100, 1.5)}%`, background: providerColor(entry.provider) }}
                 title={`${providerName(entry.provider)} · ${money(entry.total)}`}
               />
             ))}
           </div>
           <div className="cost-legend">
-            {breakdown.map((entry) => {
-              const pct = total > 0 ? Math.round((entry.total / total) * 100) : 0
+            {repoBreakdown.map((entry) => {
+              const pct = repoTotal > 0 ? Math.round((entry.total / repoTotal) * 100) : 0
               return (
                 <div key={entry.provider} className="cost-legend-row">
                   <span className="cost-legend-dot" style={{ background: providerColor(entry.provider) }} aria-hidden />
@@ -237,12 +264,22 @@ function CostOverview({ analysis }: { analysis: AnalysisResult }) {
         <div className="cost-overview-empty">
           <Gauge aria-hidden />
           <span>
-            {usageProviders > 0
-              ? "Everything connected is inside the free tier this month. Expand a provider below to see exactly how much you've used."
-              : "Once you connect a provider, its live cost and free-tier usage appear here and in the breakdown below."}
+            {repoUsage > 0
+              ? "Nothing billable is tied to this repo this month. Expand a provider below to see its usage."
+              : "No live cost is tied to this repository yet. Connect the providers it uses below to pull cost and usage."}
           </span>
         </div>
       )}
+
+      {accountTotal > 0.005 ? (
+        <div className="cost-account-note">
+          <Layers aria-hidden />
+          <span>
+            <strong>{money(accountTotal)} account-level</strong> — shared across everything you run, not tied to this
+            repo. It’s broken out under each provider below.
+          </span>
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -291,7 +328,9 @@ function RepositoryDashboard({
   state: Awaited<ReturnType<typeof publicStore>>
 }) {
   const knownRepo = currentRepoFullName(analysis)
-  const knownTotal = repos.some((repo) => repo.fullName === knownRepo) ? analysis.summary.totalCost : 0
+  const onAccount = repos.some((repo) => repo.fullName === knownRepo)
+  const accountTotal = onAccount ? analysis.summary.totalCost : 0
+  const repoScopedTotal = onAccount ? sumCost(rowsInScope(analysis.costRows, "repo")) : 0
   const providerCount = new Set(analysis.providerConnections.filter((connection) => connection.detected).map((connection) => connection.provider)).size
 
   return (
@@ -302,8 +341,8 @@ function RepositoryDashboard({
           <h1>{repos.length} repos</h1>
         </div>
         <div className="repo-home-metric">
-          <span>Live MTD cost</span>
-          <strong>{money(knownTotal)}</strong>
+          <span>Account MTD cost</span>
+          <strong>{money(accountTotal)}</strong>
         </div>
         <div className="repo-home-metric">
           <span>Detected providers</span>
@@ -313,7 +352,7 @@ function RepositoryDashboard({
 
       <section className="repo-home-grid" aria-label="Synced repositories">
         {repos.map((repo) => {
-          const hasCost = repo.fullName === knownRepo
+          const scanned = repo.fullName === knownRepo
           return (
             <a key={repo.fullName} href={`/?repo=${encodeURIComponent(repo.fullName)}`} className={repo.fullName === selectedRepo ? "repo-home-card active" : "repo-home-card"}>
               <div className="repo-home-card-head">
@@ -323,8 +362,8 @@ function RepositoryDashboard({
               <h2>{repo.fullName}</h2>
               <p>{repo.defaultBranch}</p>
               <div className="repo-card-metrics">
-                <strong>{hasCost ? money(analysis.summary.totalCost) : "Pending scan"}</strong>
-                <span>{hasCost ? `Live billing only · ${analysis.summary.signals} repo signals` : "Synced, awaiting remote scan"}</span>
+                <strong>{scanned ? money(repoScopedTotal) : "Pending scan"}</strong>
+                <span>{scanned ? `Tied to this repo · ${analysis.summary.signals} signals` : "Synced, awaiting remote scan"}</span>
               </div>
             </a>
           )
@@ -333,6 +372,23 @@ function RepositoryDashboard({
 
       <RepoSyncPanel initialState={state} />
     </>
+  )
+}
+
+function CostRows({ rows }: { rows: NormalizedCostRow[] }) {
+  return (
+    <div className="resource-list">
+      {rows.map((row) => (
+        <article key={`${row.provider}-${row.serviceName}-${row.resourceName}-${row.signalId}`} className="resource-row">
+          <div>
+            <strong>{row.serviceName}</strong>
+            <span>{row.resourceName ?? row.resourceId ?? "Unmapped resource"}</span>
+            <small>Actual billing row · {row.attribution.replace("_", " ")}</small>
+          </div>
+          <b>{money(row.cost)}</b>
+        </article>
+      ))}
+    </div>
   )
 }
 
@@ -345,12 +401,19 @@ function ProviderAccordion({
   connection: ProviderConnection
   costDataOff?: boolean
 }) {
-  const rows = providerRows(connection.provider, analysis.costRows)
+  const allRows = providerRows(connection.provider, analysis.costRows)
+  const repoRows = rowsInScope(allRows, "repo")
+  const accountRows = rowsInScope(allRows, "account")
+  const repoTotal = sumCost(repoRows)
+  const accountTotal = sumCost(accountRows)
   const signals = providerSignals(connection.provider, analysis.signals)
-  const total = providerTotal(connection.provider, analysis.costRows)
   const freeTier = providerFreeTier(connection.provider, analysis.freeTier)
-  const hasCost = rows.length > 0
+  const repoFree = freeTier.filter((row) => rowScope(row) === "repo")
+  const accountFree = freeTier.filter((row) => rowScope(row) === "account")
+  const hasCost = allRows.length > 0
+  const hasRepoCost = repoRows.length > 0
   const hasUsage = freeTier.length > 0
+  const hasAccount = accountRows.length > 0 || accountFree.length > 0
   const sync = analysis.liveSync.find((entry) => entry.provider === connection.provider)
   const hasMeasuredUsage = freeTier.some((row) => row.source === "measured")
   // Surface why usage/cost is empty when connected but a sync errored, or usage
@@ -375,27 +438,29 @@ function ProviderAccordion({
             <span className={`status-chip ${statusTone}`}>{statusText(connection)}</span>
             <span className="sum-meta">
               {signals.length} {signals.length === 1 ? "signal" : "signals"}
-              {hasCost ? ` · ${rows.length} ${rows.length === 1 ? "row" : "rows"}` : ""}
+              {hasCost ? ` · ${allRows.length} ${allRows.length === 1 ? "row" : "rows"}` : ""}
               {hasUsage ? ` · ${freeTier.length} usage` : ""}
             </span>
           </small>
         </div>
         <div className="provider-sum-amount">
-          {hasCost ? (
-            <strong>{money(total)}</strong>
+          {hasRepoCost ? (
+            <strong>{money(repoTotal)}</strong>
           ) : (
-            <span className={`amount-tag ${costDataOff ? "warn" : hasUsage ? "ok" : "muted"}`}>
-              {costDataOff ? "Cost off" : hasUsage ? "Free tier" : "No cost"}
+            <span className={`amount-tag ${costDataOff ? "warn" : repoFree.length ? "ok" : "muted"}`}>
+              {costDataOff ? "Cost off" : repoFree.length ? "Free tier" : accountTotal > 0.005 ? "Account-level" : "No cost"}
             </span>
           )}
           <small>
-            {hasCost && hasUsage
-              ? "+ usage tracked"
+            {accountTotal > 0.005
+              ? `+ ${money(accountTotal)} account-level`
               : costDataOff
                 ? "enable cost data"
-                : hasUsage
-                  ? "within free tier"
-                  : "no live data"}
+                : repoFree.length
+                  ? "this repo’s usage"
+                  : hasAccount
+                    ? "account-level only"
+                    : "no live data"}
           </small>
         </div>
         <ChevronDown aria-hidden />
@@ -427,26 +492,45 @@ function ProviderAccordion({
                 </span>
               </div>
             ) : null}
-            {hasCost ? (
-              <div className="resource-list">
-                {rows.map((row) => (
-                  <article key={`${row.provider}-${row.serviceName}-${row.resourceName}-${row.signalId}`} className="resource-row">
-                    <div>
-                      <strong>{row.serviceName}</strong>
-                      <span>{row.resourceName ?? row.resourceId ?? "Unmapped resource"}</span>
-                      <small>Actual billing row · {row.attribution.replace("_", " ")}</small>
-                    </div>
-                    <b>{money(row.cost)}</b>
-                  </article>
-                ))}
+
+            {repoRows.length || repoFree.length ? (
+              <div className="scope-group">
+                <h4 className="scope-label repo">This repo</h4>
+                {repoRows.length ? <CostRows rows={repoRows} /> : null}
+                {repoFree.length ? (
+                  <FreeTierUsage
+                    rows={repoFree}
+                    hasCost={hasRepoCost}
+                    costDataOff={costDataOff}
+                    headingOverride={`This repo’s usage — ${repoFree[0].planName}`}
+                    subtextOverride="Live usage for the provider this repository deploys to."
+                  />
+                ) : null}
               </div>
-            ) : !hasUsage && !costDataOff ? (
+            ) : null}
+
+            {accountRows.length || accountFree.length ? (
+              <div className="scope-group">
+                <h4 className="scope-label account">Account-level (shared)</h4>
+                <p className="scope-note">Not tied to this repo — shared across everything you run on this provider.</p>
+                {accountRows.length ? <CostRows rows={accountRows} /> : null}
+                {accountFree.length ? (
+                  <FreeTierUsage
+                    rows={accountFree}
+                    hasCost={accountRows.length > 0}
+                    headingOverride={`Account-level usage — ${accountFree[0].planName}`}
+                    subtextOverride="Account-wide metering across your whole account, not just this repo."
+                  />
+                ) : null}
+              </div>
+            ) : null}
+
+            {!hasCost && !hasUsage && !costDataOff ? (
               <div className="empty-provider-block">
                 <DatabaseZap aria-hidden />
                 <span>No live billing rows for this provider yet. Connect the provider or add the required billing export to show actual costs.</span>
               </div>
             ) : null}
-            {hasUsage ? <FreeTierUsage rows={freeTier} hasCost={hasCost} costDataOff={costDataOff} /> : null}
           </section>
           <section>
             <h3>Repo evidence</h3>
@@ -490,6 +574,13 @@ function RepoDetail({
   const relevantProviders = analysis.providerConnections.filter((connection) => {
     return connection.detected || connection.status === "connected" || providerRows(connection.provider, analysis.costRows).length > 0
   })
+  // Providers this repo's scan detected but that aren't connected yet — prompt
+  // the user to connect them so this repo's live cost/usage can be pulled. Only
+  // the providers the connect panel can actually wire up.
+  const connectable = new Set<Provider>(["vercel", "cloudflare", "gcp", "aws"])
+  const detectedNotConnected = relevantProviders.filter(
+    (connection) => connection.detected && connection.status !== "connected" && connectable.has(connection.provider)
+  )
 
   return (
     <>
@@ -519,6 +610,26 @@ function RepoDetail({
       {hasScan ? (
         <>
           <CostOverview analysis={analysis} />
+          {detectedNotConnected.length ? (
+            <div className="connect-prompt" role="status">
+              <PlugZap aria-hidden />
+              <div>
+                <strong>
+                  This repo uses {detectedNotConnected.map((connection) => providerName(connection.provider)).join(", ")} —
+                  connect to see live cost
+                </strong>
+                <span>
+                  Detected in {selectedName} but not connected yet. Connect{" "}
+                  {detectedNotConnected.length === 1 ? "it" : "them"} below to pull this repo’s live cost and usage.
+                </span>
+              </div>
+              <div className="connect-prompt-logos">
+                {detectedNotConnected.map((connection) => (
+                  <ProviderLogo key={connection.provider} provider={connection.provider} />
+                ))}
+              </div>
+            </div>
+          ) : null}
           <ProviderConnectPanel providerConnections={relevantProviders} initialState={state} />
           <section className="provider-deep-dive" aria-label="Provider cost breakdown">
             <div className="deep-dive-heading">
