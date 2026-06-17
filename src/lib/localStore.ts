@@ -211,6 +211,43 @@ export async function createOrUpdateUserSession(input: { email: string; name?: s
   return { user, session }
 }
 
+export async function getUserById(id: string | undefined | null): Promise<LocalUser | null> {
+  if (!id) return null
+  const store = await readStore()
+  return store.users[id] ?? null
+}
+
+/**
+ * Upserts a user keyed by their Clerk user id. Auth is owned by Clerk; this
+ * keeps a lightweight local mirror so the existing per-user workspace/connection
+ * model keeps working. Returns the user; the caller checks getUserById first to
+ * decide whether this is a first sign-in (and should run provider auto-connect).
+ */
+export async function createClerkUser(input: { id: string; email: string; name?: string | null }): Promise<LocalUser> {
+  const store = await readStore()
+  const now = new Date().toISOString()
+  const email = normalizeEmail(input.email)
+  const existing = store.users[input.id]
+  const user: LocalUser = {
+    id: input.id,
+    email,
+    name: input.name?.trim() || email.split("@")[0] || "User",
+    createdAt: existing?.createdAt ?? now,
+    lastSignedInAt: now,
+  }
+  store.users[input.id] = user
+  store.workspaces[input.id] = store.workspaces[input.id] ?? structuredClone(EMPTY_WORKSPACE)
+  if (!existing) {
+    store.workspaces[input.id].events = withEvent(store.workspaces[input.id].events, {
+      provider: "system",
+      level: "success",
+      message: `${user.email} signed in.`,
+    })
+  }
+  await writeStore(store)
+  return user
+}
+
 export async function getUserBySessionId(sessionId: string | undefined | null): Promise<LocalUser | null> {
   if (!sessionId) return null
   const store = await readStore()

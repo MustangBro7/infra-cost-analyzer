@@ -14,6 +14,7 @@ import {
   Wallet,
 } from "lucide-react"
 import type { ReactNode } from "react"
+import { redirect } from "next/navigation"
 import { RepoSyncPanel } from "./RepoSyncPanel"
 import { ProviderConnectPanel } from "./ProviderConnectPanel"
 import { RepoAccountPicker } from "./RepoAccountPicker"
@@ -21,7 +22,6 @@ import { ProviderCostPanel } from "./ProviderCostPanel"
 import { ProviderResourcePanel } from "./ProviderResourcePanel"
 import { AnalysisRefresher } from "./AnalysisRefresher"
 import { ProviderLogo } from "./ProviderLogo"
-import { SignInForm } from "./SignInForm"
 import { SignOutButton } from "./SignOutButton"
 import { ThemeToggle } from "./ThemeToggle"
 import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
@@ -795,8 +795,11 @@ function RepoDetail({
 }
 
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  // Clerk middleware (src/proxy.ts) already gates this route, so an
+  // unauthenticated request is redirected to /sign-in before reaching here. The
+  // guard remains as a defensive fallback.
   const user = await currentUserFromCookies()
-  if (!user) return <SignInForm />
+  if (!user) redirect("/sign-in")
 
   const params = await searchParams
   const rawRepo = params.repo

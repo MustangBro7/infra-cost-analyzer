@@ -4,6 +4,16 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2025-05-05",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Clerk publishable key + route hints are public (the publishable key is
+  // safe to ship to the browser). The matching CLERK_SECRET_KEY is set as a
+  // Worker secret: `npx wrangler secret put CLERK_SECRET_KEY`.
+  "vars": {
+    "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_bG95YWwtZGFzc2llLTY0LmNsZXJrLmFjY291bnRzLmRldiQ",
+    "NEXT_PUBLIC_CLERK_SIGN_IN_URL": "/sign-in",
+    "NEXT_PUBLIC_CLERK_SIGN_UP_URL": "/sign-up",
+    "NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL": "/",
+    "NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL": "/"
+  },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"

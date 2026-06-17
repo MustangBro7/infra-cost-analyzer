@@ -1,50 +1,74 @@
-import { cookies } from "next/headers"
-import type { NextRequest, NextResponse } from "next/server"
-import { createOrUpdateUserSession, deleteSession, getUserBySessionId } from "./localStore"
+import type { NextRequest } from "next/server"
+import { auth, currentUser } from "@clerk/nextjs/server"
+import { appendEvent, createClerkUser, getUserById } from "./localStore"
+import { autoConnectFromEnv } from "./connectors"
 import type { LocalUser } from "./types"
 
-export const SESSION_COOKIE = "ica_session"
+/**
+ * Authentication is owned by Clerk (Google sign-in + email). This module keeps
+ * the original interface the rest of the app already consumes
+ * (currentUserFromCookies / currentUserFromRequest / requireUserFromRequest) so
+ * the ~25 route handlers and the page didn't have to change — they just receive
+ * a LocalUser backed by the Clerk session instead of a cookie session.
+ */
 
-export async function currentUserFromCookies(): Promise<LocalUser | null> {
-  const cookieStore = await cookies()
-  return getUserBySessionId(cookieStore.get(SESSION_COOKIE)?.value)
-}
+/**
+ * Resolves the signed-in Clerk user to our LocalUser mirror. The fast path is a
+ * single store read keyed by the Clerk user id (no Clerk Backend API call). On a
+ * user's very first request we hydrate their profile from Clerk and run the
+ * zero-click provider auto-connect that used to live in the sign-in route.
+ */
+async function resolveCurrentUser(): Promise<LocalUser | null> {
+  const { userId } = await auth()
+  if (!userId) return null
 
-export async function currentUserFromRequest(request: NextRequest): Promise<LocalUser | null> {
-  return getUserBySessionId(request.cookies.get(SESSION_COOKIE)?.value)
-}
+  const existing = await getUserById(userId)
+  if (existing) return existing
 
-export async function requireUserFromRequest(request: NextRequest): Promise<LocalUser> {
-  const user = await currentUserFromRequest(request)
-  if (!user) {
-    throw new AuthRequiredError()
+  const profile = await currentUser()
+  const email =
+    profile?.primaryEmailAddress?.emailAddress ??
+    profile?.emailAddresses?.[0]?.emailAddress ??
+    `${userId}@clerk.local`
+  const name =
+    [profile?.firstName, profile?.lastName].filter(Boolean).join(" ").trim() ||
+    profile?.username ||
+    email.split("@")[0] ||
+    "User"
+
+  const user = await createClerkUser({ id: userId, email, name })
+
+  // Zero-effort onboarding: connect every provider that has credentials
+  // available (local repo scan, or tokens in server env vars).
+  const outcomes = await autoConnectFromEnv(user.id)
+  for (const outcome of outcomes) {
+    if (!outcome.ok) {
+      await appendEvent(user.id, {
+        provider: "system",
+        level: "warning",
+        message: `Auto-connect for ${outcome.provider} failed: ${outcome.detail}`,
+      })
+    }
   }
   return user
 }
 
-export async function signInLocalUser(input: { email: string; name?: string | null }) {
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email.trim())) {
-    throw new Error("Enter a valid email address.")
+export async function currentUserFromCookies(): Promise<LocalUser | null> {
+  return resolveCurrentUser()
+}
+
+// The request argument is retained for call-site compatibility; Clerk reads the
+// session from the active request context, so it is no longer needed directly.
+export async function currentUserFromRequest(_request: NextRequest): Promise<LocalUser | null> {
+  return resolveCurrentUser()
+}
+
+export async function requireUserFromRequest(_request: NextRequest): Promise<LocalUser> {
+  const user = await resolveCurrentUser()
+  if (!user) {
+    throw new AuthRequiredError()
   }
-  return createOrUpdateUserSession(input)
-}
-
-export function setSessionCookie(response: NextResponse, sessionId: string) {
-  response.cookies.set(SESSION_COOKIE, sessionId, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-  })
-}
-
-export function clearSessionCookie(response: NextResponse) {
-  response.cookies.delete(SESSION_COOKIE)
-}
-
-export async function signOutSession(request: NextRequest) {
-  await deleteSession(request.cookies.get(SESSION_COOKIE)?.value)
+  return user
 }
 
 export class AuthRequiredError extends Error {

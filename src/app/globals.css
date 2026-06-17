@@ -191,6 +191,12 @@ a {
   line-height: 1.6;
 }
 
+.signin-clerk {
+  margin-top: 22px;
+  display: flex;
+  justify-content: center;
+}
+
 .signin-form {
   display: grid;
   gap: 10px;
