@@ -1,20 +1,5 @@
-import { execFileSync } from "node:child_process"
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import path from "node:path"
 import type { Provider, RepoSignal, SignalType } from "./types"
-
-const MAX_FILE_BYTES = 350_000
-const SKIP_DIRS = new Set([
-  ".git",
-  ".next",
-  ".turbo",
-  ".vercel",
-  "node_modules",
-  "dist",
-  "build",
-  "coverage",
-  "__pycache__",
-])
 
 const INTERESTING_EXACT = new Set([
   "package.json",
@@ -72,11 +57,6 @@ const RULES: Rule[] = [
   { provider: "docker", signalType: "container", title: "Container runtime reference", confidence: 0.7, content: /\b(docker build|docker compose|container_name|FROM node:|FROM python:)\b/i },
 ]
 
-function safeRelative(root: string, input: string): string {
-  const relative = path.relative(root, input).replaceAll(path.sep, "/")
-  return relative || "."
-}
-
 export function shouldInspectRepoPath(repoPath: string): boolean {
   const normalized = repoPath.replaceAll("\\", "/")
   const base = path.posix.basename(normalized)
@@ -84,34 +64,6 @@ export function shouldInspectRepoPath(repoPath: string): boolean {
   if (INTERESTING_EXACT.has(base)) return true
   if (INTERESTING_EXTS.has(ext)) return true
   return normalized.includes("/.github/workflows/") || normalized.startsWith(".github/workflows/")
-}
-
-function shouldInspect(filePath: string): boolean {
-  return shouldInspectRepoPath(filePath)
-}
-
-function walk(root: string, dir = root, files: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    if (SKIP_DIRS.has(entry)) continue
-    const full = path.join(dir, entry)
-    const stats = statSync(full)
-    if (stats.isDirectory()) {
-      walk(root, full, files)
-      continue
-    }
-    if (stats.isFile() && stats.size <= MAX_FILE_BYTES && shouldInspect(full)) {
-      files.push(full)
-    }
-  }
-  return files
-}
-
-function readText(filePath: string): string {
-  try {
-    return readFileSync(filePath, "utf8")
-  } catch {
-    return ""
-  }
 }
 
 function firstEvidence(content: string, rule: Rule, relativePath: string): string {
@@ -125,81 +77,12 @@ function idFor(provider: Provider, relativePath: string, index: number): string 
   return `${provider}:${relativePath}:${index}`.replace(/[^a-z0-9:._/-]/gi, "-")
 }
 
-function remoteUrl(repoPath: string): string | null {
-  try {
-    return execFileSync("git", ["-C", repoPath, "config", "--get", "remote.origin.url"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim() || null
-  } catch {
-    return null
-  }
-}
-
-function repoName(repoPath: string): { owner: string; name: string; remoteUrl: string | null } {
-  const remote = remoteUrl(repoPath)
-  const fallbackName = path.basename(repoPath)
-  if (!remote) return { owner: "local", name: fallbackName, remoteUrl: null }
-  const githubMatch = remote.match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/)
-  if (!githubMatch) return { owner: "remote", name: fallbackName, remoteUrl: remote }
-  return { owner: githubMatch[1], name: githubMatch[2], remoteUrl: remote }
-}
-
-export function resolveScanRoot(input?: string | null): string {
-  const configured = input || process.env.REPO_SCAN_ROOT || defaultScanRoot()
-  const resolved = path.resolve(/*turbopackIgnore: true*/ process.cwd(), configured)
-  if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
-    throw new Error(`Repository path is not readable: ${resolved}`)
-  }
-  return resolved
-}
-
-function defaultScanRoot(): string {
-  const cwd = process.cwd().replaceAll(path.sep, "/")
-  return cwd.endsWith(".next/standalone") ? "../../.." : ".."
-}
-
 /**
- * Like resolveScanRoot + scanRepository, but never throws. On serverless
- * runtimes without a real filesystem (Cloudflare Workers), returns an empty
- * scan so the dashboard still renders with live provider data only.
+ * The cost analysis runs over a set of repository files plus a repo identity.
+ * Files come exclusively from a connected GitHub repository (see
+ * scanInstallationRepository); this app does not read repositories from the
+ * local filesystem. Use emptyRepoScan() for the no-repo "overview" view.
  */
-export function scanRepositorySafe(repoPath?: string | null): ReturnType<typeof scanRepository> {
-  try {
-    return scanRepository(resolveScanRoot(repoPath))
-  } catch {
-    return {
-      repo: {
-        owner: process.env.REPO_OWNER || "MustangBro7",
-        name: process.env.REPO_NAME || "infra-cost-analyzer",
-        remoteUrl: null,
-        path: "(no filesystem on this runtime — live provider data only)",
-        scannedAt: new Date().toISOString(),
-      },
-      signals: [],
-    }
-  }
-}
-
-export function scanRepository(repoPath: string) {
-  const root = path.resolve(repoPath)
-  const files = walk(root)
-  const repoFiles = files.map((filePath) => {
-    const relativePath = safeRelative(root, filePath)
-    return {
-      path: relativePath.replaceAll(path.sep, "/"),
-      content: readText(filePath),
-    }
-  })
-  return scanRepositoryFiles({
-    repo: {
-      ...repoName(root),
-      path: root,
-    },
-    files: repoFiles,
-  })
-}
-
 export function scanRepositoryFiles(input: {
   repo: RepositoryIdentity
   files: RepositoryFile[]
@@ -236,6 +119,18 @@ export function scanRepositoryFiles(input: {
     },
     signals: deduped.sort((a, b) => b.confidence - a.confidence || a.sourcePath.localeCompare(b.sourcePath)),
   }
+}
+
+/**
+ * The "no repository selected" overview scan: no files, no repo signals. The
+ * dashboard still renders connected provider costs; repo-specific attribution
+ * appears once a GitHub repo is selected.
+ */
+export function emptyRepoScan(): ReturnType<typeof scanRepositoryFiles> {
+  return scanRepositoryFiles({
+    repo: { owner: "", name: "", path: "", remoteUrl: null },
+    files: [],
+  })
 }
 
 function inferResourceName(relativePath: string, content: string): string | undefined {

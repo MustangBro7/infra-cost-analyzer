@@ -240,20 +240,6 @@ export function ConnectFlow({ initialState }: { initialState: PublicState }) {
               <Github aria-hidden />
               Install GitHub App
             </button>
-            <button
-              type="button"
-              className="ghost-button"
-              disabled={Boolean(busy)}
-              onClick={() =>
-                run("github-local", async () => {
-                  await jsonRequest("/api/github/local-connect", { method: "POST" })
-                  setMessage("GitHub step completed using the local repository.")
-                })
-              }
-            >
-              {busy === "github-local" ? <Loader2 className="spin" aria-hidden /> : <CheckCircle2 aria-hidden />}
-              Use local repo
-            </button>
             {github ? (
               <button
                 type="button"

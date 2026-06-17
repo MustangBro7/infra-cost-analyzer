@@ -63,7 +63,7 @@ export function summarizeByProvider(costRows: NormalizedCostRow[], signals: Repo
 }
 
 export async function buildAnalysis(
-  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepositoryFiles>,
   env: NodeJS.ProcessEnv,
   userId = "usr_test"
 ): Promise<AnalysisResult> {
@@ -72,7 +72,7 @@ export async function buildAnalysis(
 }
 
 export async function buildAnalysisWithLiveData(
-  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepositoryFiles>,
   env: NodeJS.ProcessEnv,
   userId: string,
   options?: { skipCostExplorer?: boolean; forceCostExplorer?: boolean }
@@ -93,7 +93,7 @@ export async function buildAnalysisWithLiveData(
 }
 
 function finalizeAnalysis(
-  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepositoryFiles>,
   env: NodeJS.ProcessEnv,
   workspace: WorkspaceStore,
   costRows: NormalizedCostRow[],
@@ -168,7 +168,7 @@ function notConnected(provider: Provider, message: string): LiveResult {
 
 async function loadVercelLive(
   workspace: WorkspaceStore,
-  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepositoryFiles>
 ): Promise<LiveResult> {
   const vercel = workspace.connections.vercel
   if (!vercel?.accessToken || vercel.status !== "connected") {
@@ -702,7 +702,7 @@ function buildVercelBillingScopes(metadata: { teamId?: string | null; slug?: str
 
 function normalizeVercelCharges(
   charges: Array<Awaited<ReturnType<typeof listVercelBillingCharges>>[number]>,
-  repoScan: ReturnType<typeof import("./repoScanner").scanRepository>,
+  repoScan: ReturnType<typeof import("./repoScanner").scanRepositoryFiles>,
   currentPeriod: { from: string; to: string }
 ): NormalizedCostRow[] {
   const repoTerms = new Set([

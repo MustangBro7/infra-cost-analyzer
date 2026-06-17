@@ -1,40 +1,10 @@
-import { readWorkspace, saveGitHubRepos, upsertConnection } from "./localStore"
-import { scanRepositorySafe } from "./repoScanner"
+import { readWorkspace, upsertConnection } from "./localStore"
 import { fetchVercelPlan, listVercelProjects, verifyVercelToken } from "./vercelClient"
 import { listCloudflareAccounts, verifyCloudflareToken } from "./cloudflareClient"
 import { readWranglerOAuth } from "./wranglerAuth"
 import { discoverBillingExportTable, normalizeBillingExportTableId, verifyGcpServiceAccount } from "./gcpClient"
 import { verifyAwsCredentials, type AwsCredentials } from "./awsClient"
 import { readLocalAwsCredentials, resolveAwsCliCredentials } from "./awsLocalCreds"
-
-export async function connectGithubLocal(userId: string) {
-  const scan = scanRepositorySafe()
-  const repo = {
-    id: Date.now(),
-    owner: scan.repo.owner,
-    name: scan.repo.name,
-    fullName: `${scan.repo.owner}/${scan.repo.name}`,
-    private: true,
-    defaultBranch: "local",
-    htmlUrl: scan.repo.remoteUrl ?? scan.repo.path,
-  }
-  await saveGitHubRepos(userId, [repo], repo.fullName)
-  await upsertConnection(userId, {
-    provider: "github",
-    status: "connected",
-    accountLabel: repo.fullName,
-    selectedRepoFullName: repo.fullName,
-    connectedAt: new Date().toISOString(),
-    lastVerifiedAt: new Date().toISOString(),
-    lastError: null,
-    metadata: {
-      mode: "local",
-      path: scan.repo.path,
-      syncedRepoFullNames: [repo.fullName],
-    },
-  })
-  return repo
-}
 
 export async function connectVercelToken(
   userId: string,
@@ -302,15 +272,9 @@ export async function autoConnectFromEnv(userId: string): Promise<Array<{ provid
   const workspace = await readWorkspace(userId)
   const tasks: Array<{ provider: string; run: () => Promise<string> }> = []
 
-  if (workspace.connections.github?.status !== "connected") {
-    tasks.push({
-      provider: "github",
-      run: async () => {
-        const repo = await connectGithubLocal(userId)
-        return `local repo ${repo.fullName}`
-      },
-    })
-  }
+  // GitHub is connected per-user via the GitHub App (users authorize their own
+  // repos) — never auto-connected from server state. Provider accounts below are
+  // auto-connected only when server env credentials are present.
   if (workspace.connections.vercel?.status !== "connected" && process.env.VERCEL_TOKEN) {
     tasks.push({
       provider: "vercel",

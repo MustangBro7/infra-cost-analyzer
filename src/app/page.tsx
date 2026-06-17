@@ -90,19 +90,9 @@ function currentRepoFullName(analysis: AnalysisResult) {
   return `${analysis.repo.owner}/${analysis.repo.name}`
 }
 
-function repoList(state: Awaited<ReturnType<typeof publicStore>>, analysis: AnalysisResult) {
+function repoList(state: Awaited<ReturnType<typeof publicStore>>) {
   const synced = new Set(state.syncedRepoFullNames)
-  const syncedRepos = state.githubRepos.filter((repo) => synced.has(repo.fullName))
-  if (syncedRepos.length) return syncedRepos
-  return [{
-    id: 0,
-    owner: analysis.repo.owner,
-    name: analysis.repo.name,
-    fullName: currentRepoFullName(analysis),
-    private: true,
-    defaultBranch: "local",
-    htmlUrl: analysis.repo.remoteUrl ?? analysis.repo.path,
-  }]
+  return state.githubRepos.filter((repo) => synced.has(repo.fullName))
 }
 
 function providerSignals(provider: Provider, signals: RepoSignal[]) {
@@ -804,8 +794,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const params = await searchParams
   const rawRepo = params.repo
   const requestedRepo = Array.isArray(rawRepo) ? rawRepo[0] : rawRepo ?? null
-  const rawRepoPath = params.repoPath
-  const repoPath = Array.isArray(rawRepoPath) ? rawRepoPath[0] : rawRepoPath ?? null
   const state = { user, ...(await publicStore(user.id)) }
   // Renders from the persisted snapshot (DB read). Live provider/GitHub data is
   // refreshed out-of-band by <AnalysisRefresher>, not on every page load.
@@ -813,10 +801,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     userId: user.id,
     requestedRepo,
     githubRepos: state.githubRepos,
-    repoPath,
   })
   const analysis = snapshot.analysis
-  const repos = repoList(state, analysis)
+  const repos = repoList(state)
   const selectedRepo = requestedRepo ? repos.find((repo) => repo.fullName === requestedRepo) ?? null : null
 
   return (

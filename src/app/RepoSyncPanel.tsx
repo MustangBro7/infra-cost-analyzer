@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { CheckSquare, ClipboardCopy, ExternalLink, FolderGit2, Github, Info, Loader2, Plus, Square, Unplug } from "lucide-react"
+import { CheckSquare, ClipboardCopy, ExternalLink, FolderGit2, Github, Info, Square, Unplug } from "lucide-react"
 import type { ConnectionEvent, GitHubRepoSummary, Provider } from "@/lib/types"
 
 interface PublicState {
@@ -260,20 +260,6 @@ export function RepoSyncPanel({ initialState }: { initialState: PublicState }) {
             </div>
           </div>
         )}
-        <button
-          type="button"
-          className="ghost-button"
-          disabled={Boolean(busy)}
-          onClick={() =>
-            run("github-local", async () => {
-              await jsonRequest("/api/github/local-connect", { method: "POST" })
-              setMessage("Local repository synced.")
-            })
-          }
-        >
-          {busy === "github-local" ? <Loader2 className="spin" aria-hidden /> : <Plus aria-hidden />}
-          Use local repo
-        </button>
         {github ? (
           <button
             type="button"
@@ -355,7 +341,7 @@ export function RepoSyncPanel({ initialState }: { initialState: PublicState }) {
         <div className="empty-repo-state">
           <Github aria-hidden />
           <strong>No GitHub repositories synced yet</strong>
-          <span>{connectStatus?.configured ? "Choose GitHub repos or use the local repository to start." : "Use the local repository for now. Configure the GitHub App to select multiple GitHub repos."}</span>
+          <span>{connectStatus?.configured ? "Authorize the GitHub App and choose repositories to analyze." : "Configure the GitHub App to let users authorize and select their GitHub repos."}</span>
         </div>
       )}
 

@@ -10,14 +10,12 @@ export async function GET(request: NextRequest) {
   try {
     const user = await requireUserFromRequest(request)
     const repo = request.nextUrl.searchParams.get("repo")
-    const repoPath = request.nextUrl.searchParams.get("repoPath")
     const forceRefresh = request.nextUrl.searchParams.get("refresh") === "1"
     const workspace = await readWorkspace(user.id)
     const input = {
       userId: user.id,
       requestedRepo: repo,
       githubRepos: workspace.githubRepos,
-      repoPath,
     }
     // Default: serve the persisted snapshot (DB read, no live round-trip).
     // `?refresh=1` recomputes live data and updates the stored snapshot.

@@ -9,13 +9,12 @@ export const dynamic = "force-dynamic"
 export async function POST(request: NextRequest) {
   try {
     const user = await requireUserFromRequest(request)
-    const body = (await request.json().catch(() => ({}))) as { repo?: string | null; repoPath?: string | null }
+    const body = (await request.json().catch(() => ({}))) as { repo?: string | null }
     const workspace = await readWorkspace(user.id)
     const snapshot = await refreshAnalysisSnapshot({
       userId: user.id,
       requestedRepo: body.repo ?? null,
       githubRepos: workspace.githubRepos,
-      repoPath: body.repoPath ?? null,
     })
     return NextResponse.json({
       key: snapshot.key,

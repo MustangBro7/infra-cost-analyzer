@@ -2,24 +2,23 @@ import type { AnalysisSnapshot, GitHubRepoSummary } from "./types"
 import { buildAnalysisWithLiveData } from "./costEngine"
 import { scanInstallationRepository } from "./githubClient"
 import { readAnalysisSnapshot, readStore, readWorkspace, writeAnalysisSnapshot } from "./localStore"
-import { scanRepositorySafe } from "./repoScanner"
+import { emptyRepoScan } from "./repoScanner"
 
-export const LOCAL_SNAPSHOT_KEY = "__local__"
+export const OVERVIEW_SNAPSHOT_KEY = "__overview__"
 
 /**
- * Stable key under which a repo's analysis snapshot is persisted. The default
- * local scan uses a single shared key; remote repos are keyed by full name.
+ * Stable key under which a repo's analysis snapshot is persisted. The no-repo
+ * "overview" view uses a single shared key; GitHub repos are keyed by full name.
  */
 export function snapshotKeyForRepo(repoFullName?: string | null): string {
-  return repoFullName && repoFullName.length > 0 ? repoFullName : LOCAL_SNAPSHOT_KEY
+  return repoFullName && repoFullName.length > 0 ? repoFullName : OVERVIEW_SNAPSHOT_KEY
 }
 
 async function scanForRepo(input: {
   userId: string
   requestedRepo?: string | null
   githubRepos: GitHubRepoSummary[]
-  repoPath?: string | null
-}): Promise<ReturnType<typeof import("./repoScanner").scanRepository>> {
+}): Promise<ReturnType<typeof import("./repoScanner").scanRepositoryFiles>> {
   if (input.requestedRepo) {
     const repo = input.githubRepos.find((candidate) => candidate.fullName === input.requestedRepo)
     const workspace = await readWorkspace(input.userId)
@@ -28,7 +27,9 @@ async function scanForRepo(input: {
       return scanInstallationRepository(repo, installationId)
     }
   }
-  return scanRepositorySafe(input.repoPath)
+  // No GitHub repo selected (or its installation is gone): show the overview
+  // with connected provider costs only. Repos are connected via GitHub.
+  return emptyRepoScan()
 }
 
 /**
@@ -40,7 +41,6 @@ export async function refreshAnalysisSnapshot(input: {
   userId: string
   requestedRepo?: string | null
   githubRepos: GitHubRepoSummary[]
-  repoPath?: string | null
   forceCostExplorer?: boolean
 }): Promise<AnalysisSnapshot> {
   const scan = await scanForRepo(input)
@@ -65,7 +65,6 @@ export async function getOrCreateAnalysisSnapshot(input: {
   userId: string
   requestedRepo?: string | null
   githubRepos: GitHubRepoSummary[]
-  repoPath?: string | null
 }): Promise<AnalysisSnapshot> {
   const existing = await readAnalysisSnapshot(input.userId, snapshotKeyForRepo(input.requestedRepo))
   if (existing) return existing
