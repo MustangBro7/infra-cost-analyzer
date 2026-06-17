@@ -12,7 +12,9 @@
     "crons": ["0 */6 * * *"]
   },
   "vars": {
-    "APP_URL": "https://infra-cost-analyzer.abhinavmohan12.workers.dev"
+    // Custom domain, not the *.workers.dev URL: that one is gated by a
+    // Cloudflare Access policy that would 401 this server-to-server call.
+    "APP_URL": "https://api.ambrium.io"
   },
   "observability": {
     "enabled": true

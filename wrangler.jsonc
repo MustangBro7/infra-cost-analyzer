@@ -4,6 +4,14 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2025-05-05",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Custom domains: ambrium.io serves the app; api.ambrium.io serves the same
+  // Worker so backend (/api/*) calls have a dedicated host. Declared here so
+  // `wrangler deploy` keeps them attached. The raw *.workers.dev URL still
+  // exists but is gated by a Cloudflare Access policy — use the custom domains.
+  "routes": [
+    { "pattern": "ambrium.io", "custom_domain": true },
+    { "pattern": "api.ambrium.io", "custom_domain": true }
+  ],
   // Clerk publishable key + route hints are public (the publishable key is
   // safe to ship to the browser). The matching CLERK_SECRET_KEY is set as a
   // Worker secret: `npx wrangler secret put CLERK_SECRET_KEY`.
