@@ -1,10 +1,8 @@
 import { readWorkspace, upsertConnection } from "./localStore"
 import { fetchVercelPlan, listVercelProjects, verifyVercelToken } from "./vercelClient"
-import { listCloudflareAccounts, verifyCloudflareToken } from "./cloudflareClient"
-import { readWranglerOAuth } from "./wranglerAuth"
+import { verifyCloudflareToken } from "./cloudflareClient"
 import { discoverBillingExportTable, normalizeBillingExportTableId, verifyGcpServiceAccount } from "./gcpClient"
 import { verifyAwsCredentials, type AwsCredentials } from "./awsClient"
-import { readLocalAwsCredentials, resolveAwsCliCredentials } from "./awsLocalCreds"
 
 export async function connectVercelToken(
   userId: string,
@@ -76,43 +74,6 @@ export async function connectCloudflareToken(userId: string, token: string) {
  * API, which is what powers free-tier usage. Billing subscriptions may need a
  * scoped API token instead, but usage still works without it.
  */
-export async function connectCloudflareLocal(userId: string) {
-  const oauth = readWranglerOAuth()
-  if (!oauth) {
-    throw new Error(
-      "No wrangler login found. Run `wrangler login` (or paste a Cloudflare API token), then try again."
-    )
-  }
-  if (oauth.expired) {
-    throw new Error("Your wrangler login has expired. Run `wrangler login` again, then retry.")
-  }
-  let accounts: Awaited<ReturnType<typeof listCloudflareAccounts>>
-  try {
-    accounts = await listCloudflareAccounts(oauth.token)
-  } catch (error) {
-    throw new Error(
-      `Could not read Cloudflare accounts with the wrangler token: ${error instanceof Error ? error.message : "unknown error"}`
-    )
-  }
-  if (accounts.length === 0) {
-    throw new Error("The wrangler login has no readable Cloudflare accounts.")
-  }
-  await upsertConnection(userId, {
-    provider: "cloudflare",
-    status: "connected",
-    accountLabel: accounts[0]?.name ?? "Cloudflare account",
-    accessToken: oauth.token,
-    connectedAt: new Date().toISOString(),
-    lastVerifiedAt: new Date().toISOString(),
-    lastError: null,
-    metadata: {
-      authMode: "wrangler_oauth",
-      accounts: accounts.slice(0, 10).map((account) => ({ id: account.id, name: account.name })),
-    },
-  })
-  return { accountLabel: accounts[0]?.name ?? "Cloudflare account", accountCount: accounts.length }
-}
-
 export async function connectGcpKey(userId: string, keyJson: string, billingExportTable?: string | null) {
   const verified = await verifyGcpServiceAccount(keyJson)
   let exportTable = billingExportTable?.trim() ? normalizeBillingExportTableId(billingExportTable) : null
@@ -219,31 +180,6 @@ export async function setAwsCostExplorerInterval(userId: string, interval: strin
  * ~/.aws/credentials (lowest-friction path: run `aws configure` once, then
  * click connect). Only works where the server has a real home directory.
  */
-export async function connectAwsLocal(
-  userId: string,
-  profile?: string | null,
-  options?: { costExplorer?: boolean }
-) {
-  // Prefer static keys; fall back to resolving the live CLI/SSO session.
-  let credentials: AwsCredentials | null = null
-  let source = "aws cli"
-  const local = readLocalAwsCredentials(profile)
-  if (local) {
-    credentials = { accessKeyId: local.accessKeyId, secretAccessKey: local.secretAccessKey, sessionToken: local.sessionToken }
-    source = "~/.aws/credentials"
-  } else {
-    credentials = await resolveAwsCliCredentials(profile)
-    source = "aws cli session (sso)"
-  }
-  if (!credentials) {
-    throw new Error(
-      "No AWS CLI credentials found. Run `aws configure` (static keys) or `aws sso login`, then try again."
-    )
-  }
-  const result = await connectAwsKeys(userId, credentials, options)
-  return { ...result, source }
-}
-
 function decodeMaybeBase64(value: string) {
   const trimmed = value.trim()
   if (trimmed.startsWith("{")) return trimmed

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, KeyRound, Loader2, PlugZap, ShieldAlert, Unplug } from "lucide-react"
+import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, KeyRound, Loader2, PlugZap, Unplug } from "lucide-react"
 import type { Provider, ProviderConnection } from "@/lib/types"
 import { ProviderLogo } from "./ProviderLogo"
 
@@ -223,21 +223,7 @@ export function ProviderConnectPanel({
                   <ConnectedProviderState provider="cloudflare" connection={saved} detail="Cloudflare subscriptions are available when the token has billing access." />
                 ) : (
                   <>
-                    <p>If you deploy with wrangler, connect in one click — it reads your `wrangler login` to pull live Workers usage and free-tier remaining. Or paste a scoped API token for billing too.</p>
-                    <button
-                      type="button"
-                      className="command-button"
-                      disabled={Boolean(busy)}
-                      onClick={() =>
-                        run("cloudflare-local", async () => {
-                          await jsonRequest("/api/cloudflare/local-connect", { method: "POST" })
-                          setMessage("Cloudflare connected from wrangler login. Refreshing live usage.")
-                        })
-                      }
-                    >
-                      {busy === "cloudflare-local" ? <Loader2 className="spin" aria-hidden /> : <CloudCog aria-hidden />}
-                      Use wrangler login
-                    </button>
+                    <p>Paste a scoped Cloudflare API token to pull live Workers usage, free-tier remaining, and billing.</p>
                     <a className="ghost-button" href={CLOUDFLARE_TOKEN_URL} target="_blank" rel="noreferrer">
                       <ExternalLink aria-hidden />
                       Create Cloudflare token
@@ -437,33 +423,11 @@ export function ProviderConnectPanel({
                   </>
                 ) : (
                   <>
-                    <p>Connect with your AWS CLI (incl. SSO) in one click, or paste an access key. Read-only: needs freetier:GetFreeTierUsage (free) and, for spend, ce:GetCostAndUsage.</p>
+                    <p>Paste a read-only AWS access key. Needs freetier:GetFreeTierUsage (free) and, for spend, ce:GetCostAndUsage.</p>
                     <label className="aws-cost-optin">
                       <input type="checkbox" checked={awsCostExplorer} onChange={(event) => setAwsCostExplorer(event.target.checked)} />
                       <span>Also pull cost data via Cost Explorer (AWS bills $0.01 per refresh). Leave off for free-tier usage only ($0).</span>
                     </label>
-                    <button
-                      type="button"
-                      className="command-button"
-                      disabled={Boolean(busy)}
-                      onClick={() =>
-                        run("aws-local", async () => {
-                          await jsonRequest("/api/aws/local-connect", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ costExplorer: awsCostExplorer }),
-                          })
-                          setMessage("AWS connected from local CLI. Refreshing live usage.")
-                        })
-                      }
-                    >
-                      {busy === "aws-local" ? <Loader2 className="spin" aria-hidden /> : <KeyRound aria-hidden />}
-                      Use local AWS CLI
-                    </button>
-                    <div className="mini-setup-box">
-                      <ShieldAlert aria-hidden />
-                      <span>Local CLI (static keys or `aws sso login`) works in local dev. On the remote deployment, paste an access key instead.</span>
-                    </div>
                     <form
                       className="provider-token-form stacked"
                       onSubmit={(event) => {
