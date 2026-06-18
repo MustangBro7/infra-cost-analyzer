@@ -42,7 +42,7 @@ export const PROVIDERS: Record<Exclude<Provider, "unknown">, ProviderConfig> = {
     provider: "cloudflare",
     label: "Cloudflare",
     authMode: "api_token",
-    requiredSecrets: ["CLOUDFLARE_API_TOKEN"],
+    requiredSecrets: ["CLOUDFLARE_PROVIDER_API_TOKEN"],
     setupNotes: "Provide a scoped account token for Workers/Pages/D1/R2 inventory and billing usage where enabled.",
   },
   digitalocean: {

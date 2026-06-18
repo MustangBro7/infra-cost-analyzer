@@ -256,7 +256,7 @@ function decodeMaybeBase64(value: string) {
  *
  * Supported env vars:
  *   VERCEL_TOKEN (+ VERCEL_TEAM_ID / VERCEL_TEAM_SLUG)
- *   CLOUDFLARE_API_TOKEN
+ *   CLOUDFLARE_PROVIDER_API_TOKEN
  *   GCP_SERVICE_ACCOUNT_KEY (raw or base64 JSON) + optional GCP_BILLING_EXPORT_TABLE
  *
  * AWS is deliberately excluded — it is per-user (connected from the UI) so each
@@ -265,6 +265,11 @@ function decodeMaybeBase64(value: string) {
 export async function autoConnectFromEnv(userId: string): Promise<Array<{ provider: string; ok: boolean; detail: string }>> {
   const workspace = await readWorkspace(userId)
   const tasks: Array<{ provider: string; run: () => Promise<string> }> = []
+  // CLOUDFLARE_API_TOKEN remains a compatibility fallback for existing
+  // deployments. New setups use a provider-specific name so Wrangler does not
+  // mistake the application token for its own control-plane credential.
+  const cloudflareProviderToken =
+    process.env.CLOUDFLARE_PROVIDER_API_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN
 
   // GitHub is connected per-user via the GitHub App (users authorize their own
   // repos) — never auto-connected from server state. Provider accounts below are
@@ -283,11 +288,11 @@ export async function autoConnectFromEnv(userId: string): Promise<Array<{ provid
       },
     })
   }
-  if (workspace.connections.cloudflare?.status !== "connected" && process.env.CLOUDFLARE_API_TOKEN) {
+  if (workspace.connections.cloudflare?.status !== "connected" && cloudflareProviderToken) {
     tasks.push({
       provider: "cloudflare",
       run: async () => {
-        const result = await connectCloudflareToken(userId, process.env.CLOUDFLARE_API_TOKEN as string)
+        const result = await connectCloudflareToken(userId, cloudflareProviderToken)
         return result.accountLabel
       },
     })

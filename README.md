@@ -102,8 +102,10 @@ npm run analytics:backfill:d1 -- --dry-run
 npm run analytics:backfill:d1
 ```
 
-The command requires `CLOUDFLARE_ACCOUNT_ID`, `D1_DATABASE_ID`,
-`CLOUDFLARE_API_TOKEN`, and the production `MOTHERDUCK_DATABASE_URL`. It can also
+The command requires `CLOUDFLARE_ACCOUNT_ID`, `D1_DATABASE_ID`, a
+`CLOUDFLARE_API_TOKEN` with D1 read access, and the production
+`MOTHERDUCK_DATABASE_URL`. This control-plane token is separate from the
+application's `CLOUDFLARE_PROVIDER_API_TOKEN`. The command can also
 read a local export with `--file=.data/tenant-store.json`. The migration is
 idempotent and never copies sessions or provider credentials.
 
