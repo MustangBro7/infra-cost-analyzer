@@ -1,10 +1,37 @@
+import { randomUUID } from "node:crypto"
 import type { AnalysisSnapshot, GitHubRepoSummary } from "./types"
 import { buildAnalysisWithLiveData } from "./costEngine"
 import { scanInstallationRepository } from "./githubClient"
 import { readAnalysisSnapshot, readStore, readWorkspace, writeAnalysisSnapshot } from "./localStore"
 import { emptyRepoScan } from "./repoScanner"
+import { analyticsRuntimeFlags } from "./analytics/connection"
+import { drainAnalyticsOutbox, enqueueAnalyticsPayload } from "./analytics/outbox"
+import { analyticsPayloadFromSnapshot } from "./analytics/payload"
+import type { AnalyticsWriteResult } from "./analytics/types"
+import { writeAnalyticsPayload } from "./analytics/writer"
 
 export const OVERVIEW_SNAPSHOT_KEY = "__overview__"
+export type RefreshedAnalysisSnapshot = AnalysisSnapshot & { analytics: AnalyticsWriteResult }
+
+async function persistAnalyticsSnapshot(userId: string, snapshot: AnalysisSnapshot): Promise<AnalyticsWriteResult> {
+  const flags = await analyticsRuntimeFlags()
+  if (!flags.writes) return { status: "disabled", syncRunId: null }
+
+  const workspace = await readWorkspace(userId)
+  const payload = analyticsPayloadFromSnapshot({
+    userId,
+    snapshot,
+    syncRunId: randomUUID(),
+    costAssignments: workspace.costAssignments,
+  })
+  try {
+    await writeAnalyticsPayload(payload)
+    return { status: "written", syncRunId: payload.syncRunId }
+  } catch (error) {
+    await enqueueAnalyticsPayload(payload, error).catch(() => undefined)
+    return { status: "queued", syncRunId: payload.syncRunId }
+  }
+}
 
 /**
  * Stable key under which a repo's analysis snapshot is persisted. The no-repo
@@ -42,7 +69,7 @@ export async function refreshAnalysisSnapshot(input: {
   requestedRepo?: string | null
   githubRepos: GitHubRepoSummary[]
   forceCostExplorer?: boolean
-}): Promise<AnalysisSnapshot> {
+}): Promise<RefreshedAnalysisSnapshot> {
   const scan = await scanForRepo(input)
   const analysis = await buildAnalysisWithLiveData(scan, process.env, input.userId, {
     forceCostExplorer: input.forceCostExplorer === true,
@@ -53,7 +80,7 @@ export async function refreshAnalysisSnapshot(input: {
     computedAt: new Date().toISOString(),
   }
   await writeAnalysisSnapshot(input.userId, snapshot)
-  return snapshot
+  return { ...snapshot, analytics: await persistAnalyticsSnapshot(input.userId, snapshot) }
 }
 
 /**
@@ -77,7 +104,12 @@ export async function getOrCreateAnalysisSnapshot(input: {
  * cheap. Always skips Cost Explorer so a schedule can never incur AWS charges.
  * Driven by the cron worker via the protected /api/cron/refresh endpoint.
  */
-export async function refreshAllSnapshotsLiveData(): Promise<{ users: number; snapshots: number }> {
+export async function refreshAllSnapshotsLiveData(): Promise<{
+  users: number
+  snapshots: number
+  analyticsOutbox: { delivered: number; failed: number }
+}> {
+  const analyticsOutbox = await drainAnalyticsOutbox()
   const store = await readStore()
   let users = 0
   let snapshots = 0
@@ -89,12 +121,14 @@ export async function refreshAllSnapshotsLiveData(): Promise<{ users: number; sn
       try {
         const repoScan = { repo: snap.analysis.repo, signals: snap.analysis.signals }
         const analysis = await buildAnalysisWithLiveData(repoScan, process.env, userId, { skipCostExplorer: true })
-        await writeAnalysisSnapshot(userId, { key: snap.key, analysis, computedAt: new Date().toISOString() })
+        const refreshed = { key: snap.key, analysis, computedAt: new Date().toISOString() }
+        await writeAnalysisSnapshot(userId, refreshed)
+        await persistAnalyticsSnapshot(userId, refreshed)
         snapshots += 1
       } catch {
         // One user's failure shouldn't stop the rest of the sweep.
       }
     }
   }
-  return { users, snapshots }
+  return { users, snapshots, analyticsOutbox }
 }

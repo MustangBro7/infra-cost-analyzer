@@ -47,7 +47,7 @@ function formatError(error: unknown) {
 
 async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
-  const payload = await response.json().catch(() => ({}))
+  const payload = await response.json().catch(() => ({})) as { error?: unknown }
   if (!response.ok) {
     throw new Error(typeof payload.error === "string" ? payload.error : `Request failed with ${response.status}`)
   }

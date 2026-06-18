@@ -24,6 +24,7 @@ import { AnalysisRefresher } from "../AnalysisRefresher"
 import { ProviderLogo } from "../ProviderLogo"
 import { SignOutButton } from "../SignOutButton"
 import { ThemeToggle } from "../ThemeToggle"
+import { HistoricalAnalyticsPanel } from "../HistoricalAnalyticsPanel"
 import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore } from "@/lib/localStore"
@@ -417,15 +418,7 @@ function RepositoryDashboard({
 
           <AccountsBoard analysis={analysis} connectedProviders={connectedProviders} state={state} />
 
-          <section className="widgets-soon" aria-label="More dashboards coming">
-            <Layers aria-hidden />
-            <div>
-              <strong>Richer cost widgets are coming here</strong>
-              <span>
-                Service-level breakdowns, spend trends over time, and per-repo splits will live on this page. For now it shows your live month-to-date cost across connected accounts.
-              </span>
-            </div>
-          </section>
+          <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} />
         </>
       ) : null}
 
@@ -803,6 +796,8 @@ function RepoDetail({
               ) : null
             }
           />
+
+          <HistoricalAnalyticsPanel repo={selectedName} currentMonth={analysis.period.from.slice(0, 7)} />
 
           <RepoAccountPicker
             repo={selectedName}

@@ -3642,6 +3642,188 @@ th {
   }
 }
 
+.analytics-state,
+.analytics-dashboard {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  margin-top: 18px;
+}
+
+.analytics-state {
+  min-height: 112px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 22px;
+}
+
+.analytics-state svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.analytics-state strong,
+.analytics-state span {
+  display: block;
+}
+
+.analytics-state span {
+  color: var(--muted);
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.analytics-unavailable {
+  border-color: var(--red);
+  background: var(--err-soft);
+}
+
+.analytics-dashboard {
+  padding: 22px;
+}
+
+.analytics-heading,
+.analytics-chart-title,
+.analytics-breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.analytics-heading p {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.analytics-heading h2,
+.analytics-breakdowns h3 {
+  margin: 0;
+}
+
+.analytics-heading h2 {
+  font-size: 20px;
+}
+
+.analytics-freshness {
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.analytics-freshness.stale {
+  color: var(--yellow);
+}
+
+.analytics-currency-groups {
+  display: grid;
+  gap: 18px;
+  margin-top: 22px;
+}
+
+.analytics-chart {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.analytics-chart-title span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.analytics-bars {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(34px, 1fr));
+  gap: 7px;
+  height: 190px;
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.analytics-bar-column {
+  display: grid;
+  grid-template-rows: 22px 1fr 18px;
+  min-width: 34px;
+  text-align: center;
+}
+
+.analytics-bar-value {
+  overflow: hidden;
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.analytics-bar-track {
+  display: flex;
+  align-items: flex-end;
+  background: var(--track);
+  border: 1px solid var(--line);
+  min-height: 120px;
+}
+
+.analytics-bar-track > span {
+  display: block;
+  width: 100%;
+  background: var(--blue);
+  transition: height 180ms ease;
+}
+
+.analytics-bar-column small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.analytics-breakdowns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.analytics-breakdowns h3 {
+  font-size: 14px;
+  margin-bottom: 9px;
+}
+
+.analytics-breakdown-row {
+  min-height: 34px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.analytics-breakdown-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.analytics-breakdown-row small {
+  color: var(--muted);
+}
+
+.analytics-empty-copy {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@media (max-width: 760px) {
+  .analytics-bars {
+    grid-template-columns: repeat(12, 44px);
+  }
+
+  .analytics-breakdowns {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Theme rule: Ambrium is fully squared-off. This enforces no rounded corners
    anywhere — including form controls and third-party (Clerk) widgets. */
 *,

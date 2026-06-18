@@ -50,6 +50,63 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+### MotherDuck analytics
+
+D1 remains the application store. Historical cost, usage, and resource
+observations are stored in MotherDuck.
+
+1. Create `infra_cost_analyzer_dev`, `infra_cost_analyzer_staging`, and
+   `infra_cost_analyzer_prod` in MotherDuck.
+2. Create a read-write service token for each database.
+3. Put the development PostgreSQL endpoint in `.env.local`:
+
+```bash
+MOTHERDUCK_DATABASE_URL="postgresql://postgres:<token>@pg.us-east-1-aws.motherduck.com:5432/infra_cost_analyzer_dev?sslmode=require"
+ANALYTICS_ENABLED=true
+ANALYTICS_READS_ENABLED=true
+```
+
+4. Apply and seed the local analytical schema:
+
+```bash
+npm run analytics:migrate
+npm run analytics:seed -- --user=user_your_clerk_user_id
+npm run analytics:validate
+```
+
+`npm run dev` uses the direct development URL with the same `pg` repository and
+DuckDB SQL used in production. `npm run dev:parity` builds and runs the app in
+the Workers runtime. After the `ANALYTICS_DB` binding has been added, set this
+before parity preview to make Wrangler resolve that binding to the dev database:
+
+```bash
+export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_ANALYTICS_DB="$MOTHERDUCK_DATABASE_URL"
+```
+
+For production, create Hyperdrive with caching disabled because month-to-date
+analytical reads must reflect the latest completed sync:
+
+```bash
+npx wrangler hyperdrive create infra-cost-analyzer-motherduck \
+  --connection-string="$MOTHERDUCK_DATABASE_URL" \
+  --caching-disabled
+```
+
+Add the returned ID to `wrangler.jsonc` as binding `ANALYTICS_DB`, rerun
+`npm run cf-typegen`, apply migrations to the production database, and deploy.
+
+To migrate existing snapshots without calling provider APIs:
+
+```bash
+npm run analytics:backfill:d1 -- --dry-run
+npm run analytics:backfill:d1
+```
+
+The command requires `CLOUDFLARE_ACCOUNT_ID`, `D1_DATABASE_ID`,
+`CLOUDFLARE_API_TOKEN`, and the production `MOTHERDUCK_DATABASE_URL`. It can also
+read a local export with `--file=.data/tenant-store.json`. The migration is
+idempotent and never copies sessions or provider credentials.
+
 The first screen is local sign-in. Use different email addresses to test different tenants. Each signed-in user gets isolated:
 
 - repository selection;

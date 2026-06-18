@@ -26,7 +26,7 @@ export default function PairPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userCode: code }),
       })
-      const payload = await response.json().catch(() => ({}))
+      const payload = await response.json().catch(() => ({})) as { error?: unknown }
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Approval failed.")
       setStatus("done")
     } catch (err) {

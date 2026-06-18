@@ -23,7 +23,12 @@ export async function POST(request: NextRequest) {
       forceCostExplorer: true,
     })
     const awsSync = snapshot.analysis.liveSync.find((entry) => entry.provider === "aws")
-    return NextResponse.json({ status: "ok", computedAt: snapshot.computedAt, aws: awsSync ?? null })
+    return NextResponse.json({
+      status: "ok",
+      computedAt: snapshot.computedAt,
+      aws: awsSync ?? null,
+      analytics: snapshot.analytics,
+    })
   } catch (error) {
     if (error instanceof AuthRequiredError) {
       return NextResponse.json({ error: error.message }, { status: 401 })

@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
       computedAt: snapshot.computedAt,
       totalCost: snapshot.analysis.summary.totalCost,
       liveSync: snapshot.analysis.liveSync,
+      analytics: snapshot.analytics,
     })
   } catch (error) {
     if (error instanceof AuthRequiredError) {

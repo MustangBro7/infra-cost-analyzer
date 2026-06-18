@@ -12,23 +12,34 @@
     "test": "tsx --test tests/*.test.ts",
     "verify": "npm run check && npm run test && npm run build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "dev:parity": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "analytics:migrate": "tsx scripts/analytics.ts migrate",
+    "analytics:status": "tsx scripts/analytics.ts status",
+    "analytics:seed": "tsx scripts/analytics.ts seed",
+    "analytics:reset:dev": "tsx scripts/analytics.ts reset-dev",
+    "analytics:backfill:d1": "tsx scripts/analytics.ts backfill-d1",
+    "analytics:validate": "tsx scripts/analytics.ts validate"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.3",
     "@opennextjs/cloudflare": "^1.19.11",
     "lucide-react": "^0.511.0",
     "next": "^16.1.1",
+    "pg": "^8.21.0",
+    "pg-cloudflare": "^1.4.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tsx": "^4.20.6",
     "typescript": "^5",
-    "wrangler": "^4.100.0"
+    "wrangler": "^4.102.0"
   },
   "overrides": {
     "postcss": "^8.5.15"
