@@ -89,14 +89,14 @@ const CLOUDFLARE_TOKEN_URL = `https://dash.cloudflare.com/profile/api-tokens?per
     { key: "account_settings", type: "read" },
     { key: "billing", type: "read" },
   ])
-)}&name=${encodeURIComponent("Infra Cost Analyzer")}`
+)}&name=${encodeURIComponent("Ambrium")}`
 
 const VERCEL_TOKEN_URL = "https://vercel.com/account/settings/tokens"
 
 // One-paste terminal script: creates a read-only service account, grants the
 // two BigQuery roles needed for billing export queries, and copies the key.
 const GCP_SETUP_SCRIPT = `PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
-gcloud iam service-accounts create infra-cost-analyzer --display-name="Infra Cost Analyzer" 2>/dev/null
+gcloud iam service-accounts create infra-cost-analyzer --display-name="Ambrium" 2>/dev/null
 SA="infra-cost-analyzer@$PROJECT_ID.iam.gserviceaccount.com"
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA" --role="roles/bigquery.jobUser" --quiet >/dev/null
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA" --role="roles/bigquery.dataViewer" --quiet >/dev/null

@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         tokenExpiresAt: token.expires_at,
       },
     })
-    return NextResponse.redirect(new URL("/", request.url))
+    return NextResponse.redirect(new URL("/dashboard?view=repos", request.url))
   } catch (error) {
     const userId = request.nextUrl.searchParams.get("state")
     if (userId) await appendEvent(userId, {

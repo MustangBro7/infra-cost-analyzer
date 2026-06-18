@@ -1,14 +1,34 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 // /api/cron is called server-to-server by the separate cron Worker and
 // authenticates with its own CRON_SECRET header, not a Clerk session, so it must
-// bypass Clerk's session protection.
-const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)", "/api/cron(.*)"]);
+// bypass Clerk's session protection. The companion-CLI endpoints below
+// authenticate with a device code or a minted cliToken (not a Clerk session), so
+// they bypass too — but /api/cli/pair/approve and the /pair page stay protected
+// because the user must be signed in to approve a pairing.
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/api/cron(.*)",
+  "/api/cli/pair/start",
+  "/api/cli/pair/poll",
+  "/api/cli/aws/params",
+  "/api/cli/connect/(.*)",
+]);
 
 export default clerkMiddleware(async (auth, request) => {
-  if (!isPublicRoute(request)) {
-    await auth.protect();
+  if (isPublicRoute(request)) return;
+  const { userId, redirectToSignIn } = await auth();
+  if (userId) return;
+  // Unauthenticated on a protected route: send page visitors to the sign-in page
+  // (instead of a bare 404), and answer API requests with a 401 their callers
+  // expect rather than an HTML redirect.
+  if (request.nextUrl.pathname.startsWith("/api")) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
+  return redirectToSignIn();
 });
 
 export const config = {

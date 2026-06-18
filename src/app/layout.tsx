@@ -3,8 +3,8 @@ import type { Metadata } from "next"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Infra Cost Analyzer",
-  description: "Connect a GitHub repository and map the infrastructure costs behind it.",
+  title: "Ambrium",
+  description: "Connect your cloud providers and see exactly how your infrastructure costs split across repos.",
 }
 
 // Applies the saved theme before first paint so there is no flash of the wrong

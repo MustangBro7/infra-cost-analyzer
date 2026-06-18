@@ -13,7 +13,7 @@ import { buildProviderConnections } from "./providerCatalog"
 import { computeFreeTierUsage } from "./freeTier"
 import { attributeCostRows, attributeRepoForName, type VercelProjectLink } from "./costAttribution"
 import { readWorkspace, upsertConnection } from "./localStore"
-import { getAwsCostAndUsage, getAwsFreeTierUsage, type AwsCostRow, type AwsCredentials } from "./awsClient"
+import { getAwsCostAndUsage, getAwsFreeTierUsage, resolveAwsCredentials, type AwsCostRow, type AwsCredentials } from "./awsClient"
 import { fetchVercelAccountUsage, listVercelBillingCharges } from "./vercelClient"
 import { getCloudflareAccountResources, getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
@@ -575,13 +575,15 @@ async function loadAwsLive(
   }
   if (!aws?.accessToken || aws.status !== "connected") return notConnectedResult
 
-  let credentials: AwsCredentials
+  let credentials: AwsCredentials | null
   try {
-    credentials = JSON.parse(aws.accessToken) as AwsCredentials
+    // Stored value is either a role ref ({roleArn, externalId}) — assumed via STS
+    // to short-lived creds — or legacy access keys. resolveAwsCredentials handles both.
+    credentials = await resolveAwsCredentials(JSON.parse(aws.accessToken))
   } catch {
     return notConnectedResult
   }
-  if (!credentials.accessKeyId || !credentials.secretAccessKey) return notConnectedResult
+  if (!credentials?.accessKeyId || !credentials.secretAccessKey) return notConnectedResult
 
   // Cost Explorer GetCostAndUsage bills $0.01/request, so only call it when the
   // user opted in — and never on a background cron (skipCostExplorer) so a

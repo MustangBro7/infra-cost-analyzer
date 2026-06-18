@@ -1,0 +1,13 @@
+{
+  "name": "@ambrium/connect",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Ambrium companion CLI — pair with your account and auto-provision read-only cloud access.",
+  "bin": {
+    "ambrium-connect": "./connect.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

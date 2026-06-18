@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Infra Cost Analyzer — read-only cross-account role. Lets the Infra Cost
+  Analyzer SaaS principal assume a least-privilege role to read Cost Explorer and
+  Free Tier usage. No long-lived keys leave your account; access is gated by an
+  ExternalId and limited to the cost/usage actions below.
+
+Parameters:
+  TrustedAccountId:
+    Type: String
+    Description: AWS account ID of the Infra Cost Analyzer SaaS principal (it assumes this role).
+    AllowedPattern: "^[0-9]{12}$"
+  ExternalId:
+    Type: String
+    Description: Per-connection secret shown in the app; prevents confused-deputy access.
+    MinLength: 8
+    NoEcho: true
+  RoleName:
+    Type: String
+    Default: infra-cost-analyzer-readonly
+    Description: Name of the read-only role to create.
+
+Resources:
+  CostReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      Description: Read-only cost/usage access for Infra Cost Analyzer.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${TrustedAccountId}:root"
+            Action: "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ExternalId
+      Policies:
+        - PolicyName: cost-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "ce:GetCostAndUsage"
+                  - "ce:GetCostForecast"
+                  - "ce:GetDimensionValues"
+                  - "ce:GetTags"
+                  - "freetier:GetFreeTierUsage"
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Description: Paste this Role ARN into Infra Cost Analyzer to finish connecting.
+    Value: !GetAtt CostReadOnlyRole.Arn

@@ -12,6 +12,7 @@ import type {
   StoredConnection,
   WorkspaceStore,
 } from "./types"
+import { CONNECTABLE_PROVIDERS } from "./repoLinks"
 
 const EMPTY_WORKSPACE: WorkspaceStore = {
   connections: {},
@@ -28,6 +29,7 @@ const EMPTY_STORE: AppStore = {
   users: {},
   sessions: {},
   workspaces: {},
+  cliPairings: {},
 }
 
 let testStorePath: string | null = null
@@ -146,6 +148,7 @@ export async function readStore(): Promise<AppStore> {
       users: parsed.users ?? {},
       sessions: parsed.sessions ?? {},
       workspaces,
+      cliPairings: parsed.cliPairings ?? {},
     }
   }
 
@@ -174,6 +177,7 @@ export async function readStore(): Promise<AppStore> {
         costAssignments: {},
       },
     },
+    cliPairings: {},
   }
 }
 
@@ -444,6 +448,7 @@ export async function publicStore(userId: string) {
     selectedRepoFullName: workspace.selectedRepoFullName,
     syncedRepoFullNames: workspace.syncedRepoFullNames,
     githubRepos: workspace.githubRepos,
+    suggestedProviders: computeSuggestedProviders(workspace),
     repoProviderLinks: workspace.repoProviderLinks,
     costAssignments: workspace.costAssignments,
     events: events.slice(0, 30),
@@ -466,6 +471,32 @@ export async function publicStore(userId: string) {
       ])
     ),
   }
+}
+
+/**
+ * Connectable providers detected in the user's synced repos that aren't yet
+ * connected, ranked by how strongly they were detected (signal count across
+ * repos). Drives the "we found these in your repos — connect them" onboarding:
+ * the UI promotes exactly the providers a user actually uses instead of showing
+ * every provider equally.
+ */
+function computeSuggestedProviders(workspace: WorkspaceStore): Provider[] {
+  const connectable = new Set<Provider>(CONNECTABLE_PROVIDERS)
+  const syncedKeys = new Set(workspace.syncedRepoFullNames)
+  const connected = new Set<Provider>(
+    Object.values(workspace.connections)
+      .filter((connection): connection is StoredConnection => Boolean(connection) && connection!.status === "connected")
+      .map((connection) => connection.provider)
+  )
+  const counts = new Map<Provider, number>()
+  for (const [key, snapshot] of Object.entries(workspace.analysisSnapshots)) {
+    if (!syncedKeys.has(key)) continue
+    for (const signal of snapshot.analysis.signals) {
+      if (!connectable.has(signal.provider) || connected.has(signal.provider)) continue
+      counts.set(signal.provider, (counts.get(signal.provider) ?? 0) + 1)
+    }
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([provider]) => provider)
 }
 
 function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore {

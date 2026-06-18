@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server"
 import { auth, currentUser } from "@clerk/nextjs/server"
 import { appendEvent, createClerkUser, getUserById } from "./localStore"
+import { userIdFromCliToken } from "./cliPairing"
 import { autoConnectFromEnv } from "./connectors"
 import type { LocalUser } from "./types"
 
@@ -68,6 +69,20 @@ export async function requireUserFromRequest(_request: NextRequest): Promise<Loc
   if (!user) {
     throw new AuthRequiredError()
   }
+  return user
+}
+
+/**
+ * Authenticates a companion-CLI request via its `Authorization: Bearer <cliToken>`
+ * header (minted by the device-code pairing flow) instead of a Clerk session.
+ * Returns the LocalUser the token was paired to, or throws AuthRequiredError.
+ */
+export async function requireUserFromCliToken(request: NextRequest): Promise<LocalUser> {
+  const header = request.headers.get("authorization") ?? ""
+  const cliToken = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : ""
+  const userId = cliToken ? await userIdFromCliToken(cliToken) : null
+  const user = userId ? await getUserById(userId) : null
+  if (!user) throw new AuthRequiredError()
   return user
 }
 

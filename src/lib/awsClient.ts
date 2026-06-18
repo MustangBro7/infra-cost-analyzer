@@ -191,6 +191,111 @@ export async function verifyAwsCredentials(credentials: AwsCredentials): Promise
   return { accountId, arn }
 }
 
+export interface AwsRoleRef {
+  roleArn: string
+  externalId: string
+  region?: string
+}
+
+/**
+ * The SaaS principal: the app's own AWS identity (an IAM user with only
+ * sts:AssumeRole) that customer read-only roles trust. Locally these come from
+ * .env.local; in production they are Worker secrets. Never a customer credential.
+ */
+function saasCredentialsFromEnv(env: NodeJS.ProcessEnv = process.env): AwsCredentials | null {
+  const accessKeyId = env.AWS_SAAS_ACCESS_KEY_ID
+  const secretAccessKey = env.AWS_SAAS_SECRET_ACCESS_KEY
+  if (!accessKeyId || !secretAccessKey) return null
+  return { accessKeyId, secretAccessKey, sessionToken: env.AWS_SAAS_SESSION_TOKEN || null }
+}
+
+export function hasAwsSaasPrincipal(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.AWS_SAAS_ACCESS_KEY_ID && env.AWS_SAAS_SECRET_ACCESS_KEY)
+}
+
+/**
+ * Assumes a customer's read-only role via STS using the SaaS principal, gated by
+ * the per-connection ExternalId (confused-deputy protection). Returns short-lived
+ * role credentials (with a session token) used for the actual cost/usage calls.
+ * This is the engine behind the one-click "Launch Stack" connect: no long-lived
+ * customer keys are ever stored — only the role ARN + external id.
+ */
+export async function assumeAwsRole(
+  ref: AwsRoleRef,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<AwsCredentials & { accountId: string; arn: string }> {
+  const saas = saasCredentialsFromEnv(env)
+  if (!saas) {
+    throw new Error("AWS SaaS principal is not configured (set AWS_SAAS_ACCESS_KEY_ID and AWS_SAAS_SECRET_ACCESS_KEY).")
+  }
+  const payload = new URLSearchParams({
+    Action: "AssumeRole",
+    Version: "2011-06-15",
+    RoleArn: ref.roleArn,
+    RoleSessionName: "infra-cost-analyzer",
+    ExternalId: ref.externalId,
+    DurationSeconds: "3600",
+  }).toString()
+  const { amzDate, dateStamp } = timestamps()
+  const headers = { "content-type": "application/x-www-form-urlencoded; charset=utf-8" }
+  const signed = await sigv4Sign({
+    method: "POST",
+    host: "sts.amazonaws.com",
+    path: "/",
+    query: "",
+    headers,
+    payload,
+    service: "sts",
+    region: "us-east-1",
+    credentials: saas,
+    amzDate,
+    dateStamp,
+  })
+  const response = await fetch("https://sts.amazonaws.com/", {
+    method: "POST",
+    headers: { ...headers, ...signed.headers },
+    body: payload,
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(`AWS STS AssumeRole failed ${response.status}: ${text.slice(0, 500)}`)
+  }
+  const accessKeyId = text.match(/<AccessKeyId>([^<]+)<\/AccessKeyId>/)?.[1] ?? ""
+  const secretAccessKey = text.match(/<SecretAccessKey>([^<]+)<\/SecretAccessKey>/)?.[1] ?? ""
+  const sessionToken = text.match(/<SessionToken>([^<]+)<\/SessionToken>/)?.[1] ?? ""
+  const arn = text.match(/<Arn>([^<]+)<\/Arn>/)?.[1] ?? ""
+  const accountId = arn.match(/::(\d+):/)?.[1] ?? ""
+  if (!accessKeyId || !secretAccessKey || !sessionToken) {
+    throw new Error("AWS AssumeRole returned no credentials.")
+  }
+  return { accessKeyId, secretAccessKey, sessionToken, accountId, arn }
+}
+
+/**
+ * Turns whatever the AWS connection stored into usable credentials: a role
+ * reference ({roleArn, externalId}) is assumed via STS to short-lived creds; a
+ * legacy access-key object is returned as-is. Returns null if neither is usable.
+ */
+export async function resolveAwsCredentials(
+  parsed: unknown,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<AwsCredentials | null> {
+  if (parsed && typeof parsed === "object") {
+    const candidate = parsed as Partial<AwsRoleRef> & Partial<AwsCredentials>
+    if (typeof candidate.roleArn === "string" && typeof candidate.externalId === "string") {
+      const assumed = await assumeAwsRole(
+        { roleArn: candidate.roleArn, externalId: candidate.externalId, region: candidate.region },
+        env
+      )
+      return { accessKeyId: assumed.accessKeyId, secretAccessKey: assumed.secretAccessKey, sessionToken: assumed.sessionToken }
+    }
+    if (typeof candidate.accessKeyId === "string" && typeof candidate.secretAccessKey === "string") {
+      return { accessKeyId: candidate.accessKeyId, secretAccessKey: candidate.secretAccessKey, sessionToken: candidate.sessionToken ?? null }
+    }
+  }
+  return null
+}
+
 /**
  * Calls the AWS Free Tier Usage API (us-east-1 only, on the management account)
  * and returns the items with a positive free-tier limit. Each item carries the

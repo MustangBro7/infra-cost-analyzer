@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, KeyRound, Loader2, PlugZap, Unplug } from "lucide-react"
+import { CheckCircle2, ClipboardCopy, Cloud, CloudCog, ExternalLink, KeyRound, Loader2, PlugZap, Radar, Unplug } from "lucide-react"
 import type { Provider, ProviderConnection } from "@/lib/types"
 import { ProviderLogo } from "./ProviderLogo"
 
@@ -18,6 +18,9 @@ type PublicConnection = {
 
 interface PublicState {
   connections: Record<string, PublicConnection | null>
+  // Connectable providers detected in the user's synced repos but not yet
+  // connected, ranked by detection strength. Drives the "we found these" UX.
+  suggestedProviders?: Provider[]
 }
 
 const VERCEL_TOKEN_URL = "https://vercel.com/account/settings/tokens"
@@ -28,10 +31,10 @@ const CLOUDFLARE_TOKEN_URL = `https://dash.cloudflare.com/profile/api-tokens?per
     // Account Analytics: Read is required for live Workers usage metrics.
     { key: "account_analytics", type: "read" },
   ])
-)}&name=${encodeURIComponent("Infra Cost Analyzer")}`
+)}&name=${encodeURIComponent("Ambrium")}`
 
 const GCP_SETUP_SCRIPT = `PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
-gcloud iam service-accounts create infra-cost-analyzer --display-name="Infra Cost Analyzer" 2>/dev/null
+gcloud iam service-accounts create infra-cost-analyzer --display-name="Ambrium" 2>/dev/null
 SA="infra-cost-analyzer@$PROJECT_ID.iam.gserviceaccount.com"
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA" --role="roles/bigquery.jobUser" --quiet >/dev/null
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA" --role="roles/bigquery.dataViewer" --quiet >/dev/null
@@ -105,6 +108,8 @@ export function ProviderConnectPanel({
     const metadata = initialState.connections.gcp?.metadata as { billingExportTable?: string | null } | undefined
     return metadata?.billingExportTable ?? ""
   })
+  const [awsRoleArn, setAwsRoleArn] = React.useState("")
+  const [awsExternalId, setAwsExternalId] = React.useState("")
   const [awsAccessKeyId, setAwsAccessKeyId] = React.useState("")
   const [awsSecretAccessKey, setAwsSecretAccessKey] = React.useState("")
   const [awsSessionToken, setAwsSessionToken] = React.useState("")
@@ -113,11 +118,11 @@ export function ProviderConnectPanel({
   const [message, setMessage] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
 
-  async function refresh() {
+  const refresh = React.useCallback(async () => {
     const next = await jsonRequest<PublicState>("/api/state")
     setState(next)
     router.refresh()
-  }
+  }, [router])
 
   async function run(label: string, task: () => Promise<void>) {
     setBusy(label)
@@ -125,6 +130,16 @@ export function ProviderConnectPanel({
     setError(null)
     try {
       await task()
+      // After connecting a provider, recompute the current snapshot so live cost
+      // rows appear immediately instead of waiting for the next background pull.
+      if (label.endsWith("-connect")) {
+        const repo = new URLSearchParams(window.location.search).get("repo")
+        await jsonRequest("/api/analyze/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repo }),
+        }).catch(() => {})
+      }
       await refresh()
     } catch (err) {
       setError(formatError(err))
@@ -137,20 +152,21 @@ export function ProviderConnectPanel({
     return connection.detected || ["vercel", "cloudflare", "gcp", "aws"].includes(connection.provider)
   })
 
-  return (
-    <section className="provider-connect-panel" aria-label="Live billing connections">
-      <div className="provider-connect-head">
-        <div>
-          <p>Live Billing Connections</p>
-          <h2>Connect providers to show actual costs</h2>
-        </div>
-        <PlugZap aria-hidden />
-      </div>
+  const suggestedSet = new Set<Provider>(state.suggestedProviders ?? [])
+  const isConnected = (provider: Provider) => state.connections[provider]?.status === "connected"
+  const detectionRank = (connection: ProviderConnection) =>
+    suggestedSet.has(connection.provider) && !isConnected(connection.provider) ? 0 : 1
+  // Promote providers detected in the synced repos (and ones already connected);
+  // tuck the rest behind a disclosure so the user sees what they actually use.
+  const promoted = relevant
+    .filter((connection) => suggestedSet.has(connection.provider) || isConnected(connection.provider))
+    .sort((a, b) => detectionRank(a) - detectionRank(b))
+  const others = relevant.filter((connection) => !promoted.includes(connection))
 
-      <div className="provider-connect-grid">
-        {relevant.map((connection) => {
+  const renderCard = (connection: ProviderConnection) => {
           const saved = state.connections[connection.provider]
           const connected = saved?.status === "connected"
+          const detected = suggestedSet.has(connection.provider) && !connected
 
           if (connection.provider === "vercel") {
             const vercelPlan = vercelPlanLabel((saved?.metadata as { plan?: unknown } | undefined)?.plan)
@@ -160,6 +176,7 @@ export function ProviderConnectPanel({
                 <div className="provider-connect-title">
                   <ProviderBadge provider="vercel" />
                   <strong>{connected ? saved?.accountLabel : "Connect Vercel billing"}</strong>
+                  {detected ? <span className="detected-chip">Detected</span> : null}
                   {connected && vercelPlan ? <span className="plan-badge">{vercelPlan}</span> : null}
                 </div>
                 {connected && saved ? (
@@ -174,7 +191,11 @@ export function ProviderConnectPanel({
                   />
                 ) : (
                   <>
-                    <p>Paste a Vercel token to show live Vercel cost rows. No setup needed.</p>
+                    <p>Create a read-only Vercel token (opens Vercel in a new tab), then paste it here. Live cost rows appear on Pro/Team plans.</p>
+                    <a className="ghost-button" href={VERCEL_TOKEN_URL} target="_blank" rel="noreferrer">
+                      <ExternalLink aria-hidden />
+                      Create Vercel token
+                    </a>
                     <form
                       className="provider-token-form"
                       onSubmit={(event) => {
@@ -202,10 +223,6 @@ export function ProviderConnectPanel({
                         Verify
                       </button>
                     </form>
-                    <a className="ghost-button" href={VERCEL_TOKEN_URL} target="_blank" rel="noreferrer">
-                      <ExternalLink aria-hidden />
-                      Create Vercel token
-                    </a>
                   </>
                 )}
               </article>
@@ -218,6 +235,7 @@ export function ProviderConnectPanel({
                 <div className="provider-connect-title">
                   <ProviderBadge provider="cloudflare" />
                   <strong>{connected ? saved?.accountLabel : "Connect Cloudflare billing"}</strong>
+                  {detected ? <span className="detected-chip">Detected</span> : null}
                 </div>
                 {connected && saved ? (
                   <ConnectedProviderState provider="cloudflare" connection={saved} detail="Cloudflare subscriptions are available when the token has billing access." />
@@ -261,6 +279,7 @@ export function ProviderConnectPanel({
                 <div className="provider-connect-title">
                   <ProviderBadge provider="gcp" />
                   <strong>{connected ? saved?.accountLabel : "Connect Google Cloud billing"}</strong>
+                  {detected ? <span className="detected-chip">Detected</span> : null}
                 </div>
                 {connected && saved ? (
                   <ConnectedProviderState
@@ -323,6 +342,7 @@ export function ProviderConnectPanel({
                 <div className="provider-connect-title">
                   <ProviderBadge provider="aws" />
                   <strong>{connected ? saved?.accountLabel : "Connect AWS billing"}</strong>
+                  {detected ? <span className="detected-chip">Detected</span> : null}
                 </div>
                 {connected && saved ? (
                   <>
@@ -423,7 +443,7 @@ export function ProviderConnectPanel({
                   </>
                 ) : (
                   <>
-                    <p>Paste a read-only AWS access key. Needs freetier:GetFreeTierUsage (free) and, for spend, ce:GetCostAndUsage.</p>
+                    <p>Connect a read-only IAM role — no access keys stored. Launch the CloudFormation stack, then paste the role ARN and external ID it uses.</p>
                     <label className="aws-cost-optin">
                       <input type="checkbox" checked={awsCostExplorer} onChange={(event) => setAwsCostExplorer(event.target.checked)} />
                       <span>Also pull cost data via Cost Explorer (AWS bills $0.01 per refresh). Leave off for free-tier usage only ($0).</span>
@@ -437,27 +457,57 @@ export function ProviderConnectPanel({
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
-                              accessKeyId: awsAccessKeyId,
-                              secretAccessKey: awsSecretAccessKey,
-                              sessionToken: awsSessionToken || null,
+                              roleArn: awsRoleArn,
+                              externalId: awsExternalId,
                               costExplorer: awsCostExplorer,
                             }),
                           })
-                          setAwsAccessKeyId("")
-                          setAwsSecretAccessKey("")
-                          setAwsSessionToken("")
-                          setMessage("AWS connected. Refreshing live usage.")
+                          setAwsRoleArn("")
+                          setAwsExternalId("")
+                          setMessage("AWS connected via IAM role. Refreshing live usage.")
                         })
                       }}
                     >
-                      <input type="text" value={awsAccessKeyId} onChange={(event) => setAwsAccessKeyId(event.target.value)} placeholder="AWS_ACCESS_KEY_ID" autoComplete="off" spellCheck={false} />
-                      <input type="password" value={awsSecretAccessKey} onChange={(event) => setAwsSecretAccessKey(event.target.value)} placeholder="AWS_SECRET_ACCESS_KEY" autoComplete="off" />
-                      <input type="password" value={awsSessionToken} onChange={(event) => setAwsSessionToken(event.target.value)} placeholder="AWS_SESSION_TOKEN (optional, for temporary credentials)" autoComplete="off" />
-                      <button type="submit" className="command-button" disabled={Boolean(busy) || !awsAccessKeyId.trim() || !awsSecretAccessKey.trim()}>
+                      <input type="text" value={awsRoleArn} onChange={(event) => setAwsRoleArn(event.target.value)} placeholder="arn:aws:iam::<account>:role/infra-cost-analyzer-readonly" autoComplete="off" spellCheck={false} />
+                      <input type="text" value={awsExternalId} onChange={(event) => setAwsExternalId(event.target.value)} placeholder="external id (from the stack)" autoComplete="off" spellCheck={false} />
+                      <button type="submit" className="command-button" disabled={Boolean(busy) || !awsRoleArn.trim() || !awsExternalId.trim()}>
                         {busy === "aws-connect" ? <Loader2 className="spin" aria-hidden /> : <Cloud aria-hidden />}
-                        Verify
+                        Verify role
                       </button>
                     </form>
+                    <details className="provider-advanced">
+                      <summary>Advanced: use access keys instead</summary>
+                      <form
+                        className="provider-token-form stacked"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          run("aws-connect", async () => {
+                            await jsonRequest("/api/aws/connect", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                accessKeyId: awsAccessKeyId,
+                                secretAccessKey: awsSecretAccessKey,
+                                sessionToken: awsSessionToken || null,
+                                costExplorer: awsCostExplorer,
+                              }),
+                            })
+                            setAwsAccessKeyId("")
+                            setAwsSecretAccessKey("")
+                            setAwsSessionToken("")
+                            setMessage("AWS connected. Refreshing live usage.")
+                          })
+                        }}
+                      >
+                        <input type="text" value={awsAccessKeyId} onChange={(event) => setAwsAccessKeyId(event.target.value)} placeholder="AWS_ACCESS_KEY_ID" autoComplete="off" spellCheck={false} />
+                        <input type="password" value={awsSecretAccessKey} onChange={(event) => setAwsSecretAccessKey(event.target.value)} placeholder="AWS_SECRET_ACCESS_KEY" autoComplete="off" />
+                        <input type="password" value={awsSessionToken} onChange={(event) => setAwsSessionToken(event.target.value)} placeholder="AWS_SESSION_TOKEN (optional, for temporary credentials)" autoComplete="off" />
+                        <button type="submit" className="command-button" disabled={Boolean(busy) || !awsAccessKeyId.trim() || !awsSecretAccessKey.trim()}>
+                          {busy === "aws-connect" ? <Loader2 className="spin" aria-hidden /> : <Cloud aria-hidden />}
+                          Verify keys
+                        </button>
+                      </form>
+                    </details>
                   </>
                 )}
               </article>
@@ -465,8 +515,39 @@ export function ProviderConnectPanel({
           }
 
           return null
-        })}
+  }
+
+  return (
+    <section className="provider-connect-panel" aria-label="Live billing connections">
+      <div className="provider-connect-head">
+        <div>
+          <p>Live Billing Connections</p>
+          <h2>Connect providers to show actual costs</h2>
+        </div>
+        <PlugZap aria-hidden />
       </div>
+
+      {suggestedSet.size > 0 ? (
+        <div className="detected-banner" role="status">
+          <Radar aria-hidden />
+          <p>
+            Detected in your synced repos:{" "}
+            <strong>{[...suggestedSet].map((provider) => providerLabel(provider)).join(", ")}</strong>. Connect{" "}
+            {suggestedSet.size === 1 ? "it" : "them"} below to pull live cost.
+          </p>
+        </div>
+      ) : null}
+
+      <div className="provider-connect-grid">
+        {promoted.map((connection) => renderCard(connection))}
+      </div>
+
+      {others.length > 0 ? (
+        <details className="provider-connect-more">
+          <summary>Connect another provider</summary>
+          <div className="provider-connect-grid">{others.map((connection) => renderCard(connection))}</div>
+        </details>
+      ) : null}
 
       <div className="provider-connect-footer">
         <span>Connected providers</span>

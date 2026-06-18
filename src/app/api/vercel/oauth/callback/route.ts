@@ -17,7 +17,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
-  const redirectHome = new URL("/", request.url)
+  const redirectHome = new URL("/dashboard?view=credentials", request.url)
   try {
     const code = request.nextUrl.searchParams.get("code")
     const state = request.nextUrl.searchParams.get("state")

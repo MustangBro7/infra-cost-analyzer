@@ -219,10 +219,30 @@ export interface LocalSession {
   expiresAt: string
 }
 
+/**
+ * A companion-CLI pairing (OAuth Device Authorization Grant, RFC 8628). The CLI
+ * starts a pairing (pending), the signed-in user approves it in the browser by
+ * typing the userCode (authorized + a short-lived cliToken is minted), and the
+ * CLI polls until it receives the cliToken to call the /api/cli/* endpoints.
+ */
+export interface CliPairing {
+  deviceCode: string
+  userCode: string
+  userId: string | null
+  status: "pending" | "authorized" | "denied"
+  createdAt: string
+  // Expiry of the device/user code (the approval window).
+  expiresAt: string
+  cliToken: string | null
+  cliTokenExpiresAt: string | null
+}
+
 export interface AppStore {
   users: Record<string, LocalUser>
   sessions: Record<string, LocalSession>
   workspaces: Record<string, WorkspaceStore>
+  // Companion-CLI pairings, keyed by deviceCode. Pruned on access once expired.
+  cliPairings: Record<string, CliPairing>
 }
 
 export interface ConnectionEvent {

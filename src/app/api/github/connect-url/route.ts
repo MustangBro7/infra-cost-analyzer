@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const user = await requireUserFromRequest(request)
     const origin = request.nextUrl.origin
     const callbackUrl = new URL("/api/github/callback", origin).toString()
-    const appName = "Infra Cost Analyzer"
+    const appName = "Ambrium"
     const githubNewAppUrl = new URL("https://github.com/settings/apps/new")
     githubNewAppUrl.searchParams.set("name", appName)
     githubNewAppUrl.searchParams.set("url", origin)

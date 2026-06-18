@@ -2,7 +2,7 @@ import { readWorkspace, upsertConnection } from "./localStore"
 import { fetchVercelPlan, listVercelProjects, verifyVercelToken } from "./vercelClient"
 import { verifyCloudflareToken } from "./cloudflareClient"
 import { discoverBillingExportTable, normalizeBillingExportTableId, verifyGcpServiceAccount } from "./gcpClient"
-import { verifyAwsCredentials, type AwsCredentials } from "./awsClient"
+import { assumeAwsRole, verifyAwsCredentials, type AwsCredentials } from "./awsClient"
 
 export async function connectVercelToken(
   userId: string,
@@ -135,6 +135,64 @@ export async function connectAwsKeys(
     },
   })
   return { accountLabel: verified.accountId ? `AWS ${verified.accountId}` : "AWS account" }
+}
+
+/**
+ * Connects AWS via a read-only cross-account IAM role (the one-click path). The
+ * customer launches a CloudFormation stack that creates a role trusting our SaaS
+ * principal, gated by `externalId`; we verify by assuming it, then store only the
+ * role ARN + external id — never long-lived keys. Cost is pulled by assuming the
+ * role on demand for short-lived credentials.
+ */
+/**
+ * Assumes the role, tolerating IAM eventual consistency: a role the companion CLI
+ * just created can take a few seconds to become assumable, so a connect fired
+ * immediately after provisioning may see a transient AccessDenied / NoSuchEntity.
+ * Retries briefly before surfacing the error.
+ */
+async function assumeAwsRoleWithRetry(ref: { roleArn: string; externalId: string; region?: string }) {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await assumeAwsRole(ref)
+    } catch (error) {
+      lastError = error
+      const message = error instanceof Error ? error.message : ""
+      const transient = /AccessDenied|not authorized|cannot be found|NoSuchEntity|InvalidClientTokenId/i.test(message)
+      if (!transient || attempt === 3) throw error
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+    }
+  }
+  throw lastError
+}
+
+export async function connectAwsRole(
+  userId: string,
+  ref: { roleArn: string; externalId: string; region?: string },
+  options?: { costExplorer?: boolean }
+) {
+  const assumed = await assumeAwsRoleWithRetry(ref)
+  const accountId = assumed.accountId || ref.roleArn.match(/::(\d+):/)?.[1] || ""
+  const accountLabel = accountId ? `AWS ${accountId}` : "AWS account"
+  await upsertConnection(userId, {
+    provider: "aws",
+    status: "connected",
+    accountLabel,
+    // Stored server-side only; publicStore never exposes accessToken. No keys —
+    // just the role reference, which is useless without the SaaS principal.
+    accessToken: JSON.stringify({ roleArn: ref.roleArn, externalId: ref.externalId, region: ref.region ?? "us-east-1" }),
+    connectedAt: new Date().toISOString(),
+    lastVerifiedAt: new Date().toISOString(),
+    lastError: null,
+    metadata: {
+      accountId,
+      roleArn: ref.roleArn,
+      authMode: "iam_role",
+      // Cost Explorer GetCostAndUsage bills $0.01/request, so it stays opt-in.
+      costExplorer: options?.costExplorer ?? false,
+    },
+  })
+  return { accountLabel }
 }
 
 /**

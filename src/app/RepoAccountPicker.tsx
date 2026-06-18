@@ -109,7 +109,7 @@ export function RepoAccountPicker({
             This repo also uses{" "}
             <strong>{detectedNotConnected.map((provider) => providerName(provider)).join(", ")}</strong>, which{" "}
             {detectedNotConnected.length === 1 ? "isn't" : "aren't"} connected yet.{" "}
-            <a href="/">Connect on the Overview →</a>
+            <a href="/dashboard?view=credentials">Connect on Credentials →</a>
           </span>
         </div>
       ) : null}
