@@ -15,7 +15,7 @@
     "test": "tsx --test tests/*.test.ts",
     "verify": "npm run check && npm run test && npm run build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "deploy": "node --env-file=.env.production node_modules/@opennextjs/cloudflare/dist/cli/index.js build && node --env-file=.env.production node_modules/@opennextjs/cloudflare/dist/cli/index.js deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "dev:parity": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "analytics:migrate": "tsx scripts/analytics.ts migrate",
