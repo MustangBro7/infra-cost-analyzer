@@ -195,6 +195,29 @@ a {
   margin-top: 22px;
   display: flex;
   justify-content: center;
+  min-height: 72px;
+}
+
+.signin-fallback {
+  display: grid;
+  width: 100%;
+  gap: 12px;
+  border: 1px dashed var(--muted);
+  padding: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.signin-fallback a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ink);
+  background: var(--yellow);
+  color: var(--ink);
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .signin-form {

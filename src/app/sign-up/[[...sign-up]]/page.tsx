@@ -15,11 +15,18 @@ export default function SignUpPage() {
         <p>Infrastructure Cost Analyzer</p>
         <h1>Create your workspace</h1>
         <span>
-          Continue with Google to get started. Each account gets isolated repos, provider
+          Sign up with your email to get started. Each account gets isolated repos, provider
           credentials, and cost snapshots.
         </span>
         <div className="signin-clerk">
-          <SignUp />
+          <SignUp
+            fallback={
+              <div className="signin-fallback" role="status">
+                <span>Loading secure sign-up…</span>
+                <a href="https://accounts.ambrium.io/sign-up">Open sign-up directly</a>
+              </div>
+            }
+          />
         </div>
       </section>
     </main>

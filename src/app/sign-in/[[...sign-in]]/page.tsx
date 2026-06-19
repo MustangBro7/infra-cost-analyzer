@@ -15,11 +15,18 @@ export default function SignInPage() {
         <p>Infrastructure Cost Analyzer</p>
         <h1>Sign in to your workspace</h1>
         <span>
-          Continue with Google to map the infrastructure costs behind your repositories. Each
-          account gets isolated repos, provider credentials, and cost snapshots.
+          Use your email to map the infrastructure costs behind your repositories. Each account
+          gets isolated repos, provider credentials, and cost snapshots.
         </span>
         <div className="signin-clerk">
-          <SignIn />
+          <SignIn
+            fallback={
+              <div className="signin-fallback" role="status">
+                <span>Loading secure sign-in…</span>
+                <a href="https://accounts.ambrium.io/sign-in">Open sign-in directly</a>
+              </div>
+            }
+          />
         </div>
       </section>
     </main>
