@@ -1,18 +1,25 @@
 import {
+  Activity,
   ArrowLeft,
   ArrowUpRight,
   Boxes,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   CloudCog,
+  Coins,
   DatabaseZap,
+  Flame,
   FolderGit2,
   Gauge,
   Layers,
+  PieChart,
   RefreshCw,
+  Server,
   ShieldAlert,
   Signal,
   TerminalSquare,
+  TrendingUp,
   Wallet,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -94,6 +101,35 @@ function breakdownByProvider(rows: NormalizedCostRow[]) {
     .map(([provider, total]) => ({ provider, total }))
     .filter((entry) => entry.total > 0.005)
     .sort((a, b) => b.total - a.total)
+}
+
+// Roll cost rows up to one entry per provider+service so the dashboard can rank
+// "where the money goes" without double-counting individual line items.
+function breakdownByService(rows: NormalizedCostRow[]) {
+  const totals = new Map<string, { provider: Provider; serviceName: string; total: number }>()
+  for (const row of rows) {
+    const key = `${row.provider}:${row.serviceName}`
+    const existing = totals.get(key)
+    if (existing) existing.total += row.cost
+    else totals.set(key, { provider: row.provider, serviceName: row.serviceName, total: row.cost })
+  }
+  return [...totals.values()]
+    .filter((entry) => entry.total > 0.005)
+    .sort((a, b) => b.total - a.total)
+}
+
+// Days into the billing period vs. its full length, so we can extrapolate a
+// month-to-date total into a projected month-end spend on the current run rate.
+function periodProgress(period: { from: string; to: string }) {
+  const dayMs = 24 * 60 * 60 * 1000
+  const start = new Date(`${period.from}T00:00:00Z`)
+  const end = new Date(`${period.to}T00:00:00Z`)
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const clamped = today < start ? start : today > end ? end : today
+  const totalDays = Math.round((end.getTime() - start.getTime()) / dayMs) + 1
+  const elapsedDays = Math.round((clamped.getTime() - start.getTime()) / dayMs) + 1
+  return { elapsedDays, totalDays }
 }
 
 function currentRepoFullName(analysis: AnalysisResult) {
@@ -426,6 +462,197 @@ function DashboardWidgets({
   )
 }
 
+// Cost analytics derived from the month-to-date rows: a run-rate projection and
+// the period's headline drivers. Complements the CostOverview total above it.
+function SpendInsights({ analysis }: { analysis: AnalysisResult }) {
+  const rows = analysis.costRows
+  const total = sumCost(rows)
+  const { elapsedDays, totalDays } = periodProgress(analysis.period)
+  const dailyRate = elapsedDays > 0 ? total / elapsedDays : 0
+  const projected = dailyRate * totalDays
+  const services = breakdownByService(rows)
+  const topService = services[0]
+  const topShare = topService && total > 0 ? Math.round((topService.total / total) * 100) : 0
+  const remainingDays = Math.max(totalDays - elapsedDays, 0)
+
+  return (
+    <section className="spend-insights" aria-label="Spend analytics">
+      <article>
+        <Wallet aria-hidden />
+        <span>Month to date</span>
+        <strong>{money(total)}</strong>
+        <small>{elapsedDays} of {totalDays} days billed</small>
+      </article>
+      <article>
+        <TrendingUp aria-hidden />
+        <span>Projected month-end</span>
+        <strong>{money(projected)}</strong>
+        <small>{remainingDays > 0 ? `on current run rate · ${remainingDays} days left` : "period complete"}</small>
+      </article>
+      <article>
+        <Activity aria-hidden />
+        <span>Daily run rate</span>
+        <strong>{money(dailyRate)}</strong>
+        <small>average per day so far</small>
+      </article>
+      <article>
+        <Flame aria-hidden />
+        <span>Top cost driver</span>
+        <strong>{topService ? money(topService.total) : "—"}</strong>
+        <small>{topService ? `${topService.serviceName} · ${topShare}% of spend` : "no billed spend yet"}</small>
+      </article>
+    </section>
+  )
+}
+
+// Horizontal ranking of the period's biggest services across every account, so
+// the user can see where spend concentrates without expanding each provider.
+function CostDriversPanel({ analysis }: { analysis: AnalysisResult }) {
+  const services = breakdownByService(analysis.costRows)
+  const total = sumCost(analysis.costRows)
+  const top = services.slice(0, 6)
+  const max = Math.max(...top.map((entry) => entry.total), 0.01)
+
+  return (
+    <section className="insight-panel cost-drivers" aria-label="Top cost drivers">
+      <div className="insight-panel-head">
+        <div>
+          <p>Cost breakdown</p>
+          <h2>Where your spend goes</h2>
+        </div>
+        <Coins aria-hidden />
+      </div>
+      {top.length ? (
+        <div className="driver-list">
+          {top.map((entry) => {
+            const pct = total > 0 ? Math.round((entry.total / total) * 100) : 0
+            return (
+              <div className="driver-row" key={`${entry.provider}-${entry.serviceName}`}>
+                <div className="driver-label">
+                  <ProviderLogo provider={entry.provider} />
+                  <strong>{entry.serviceName}</strong>
+                  <small>{providerName(entry.provider)}</small>
+                </div>
+                <div className="driver-bar" aria-hidden>
+                  <span
+                    style={{ width: `${Math.max((entry.total / max) * 100, 2)}%`, background: providerColor(entry.provider) }}
+                  />
+                </div>
+                <div className="driver-amount">
+                  <b>{money(entry.total)}</b>
+                  <span>{pct}%</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="insight-panel-empty">
+          <Coins aria-hidden />
+          <span>No billed services this period. Connected accounts on the free tier show under usage below.</span>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// Usage widget: account-wide free-tier consumption with a known allowance,
+// ranked by how close each metric is to its limit so risk is obvious at a glance.
+function UsageHeadroomPanel({ analysis }: { analysis: AnalysisResult }) {
+  const metered = analysis.freeTier
+    .filter((row) => row.source === "measured" && row.percentUsed !== null && row.limit !== null)
+    .sort((a, b) => (b.percentUsed ?? 0) - (a.percentUsed ?? 0))
+    .slice(0, 6)
+  const approaching = metered.filter((row) => (row.percentUsed ?? 0) >= 80).length
+  const tone = (pct: number) => (pct >= 90 ? "crit" : pct >= 80 ? "warn" : "ok")
+
+  return (
+    <section className="insight-panel usage-headroom" aria-label="Free-tier headroom">
+      <div className="insight-panel-head">
+        <div>
+          <p>Usage</p>
+          <h2>Free-tier headroom</h2>
+        </div>
+        <span className={approaching ? "headroom-flag warn" : "headroom-flag ok"}>
+          {approaching ? `${approaching} near limit` : "All healthy"}
+        </span>
+      </div>
+      {metered.length ? (
+        <div className="headroom-list">
+          {metered.map((row) => {
+            const pct = Math.round(row.percentUsed ?? 0)
+            return (
+              <div className="headroom-row" key={`${row.provider}-${row.service}`} title={row.note}>
+                <div className="headroom-label">
+                  <ProviderLogo provider={row.provider} />
+                  <strong>{row.service}</strong>
+                  <small>{quantity(row.used ?? 0)} / {quantity(row.limit ?? 0)} {row.unit}</small>
+                </div>
+                <div className="headroom-bar" aria-hidden>
+                  <span className={`headroom-fill ${tone(pct)}`} style={{ width: `${Math.min(Math.max(pct, 2), 100)}%` }} />
+                </div>
+                <b className={`headroom-pct ${tone(pct)}`}>{pct}%</b>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="insight-panel-empty">
+          <Gauge aria-hidden />
+          <span>No metered free-tier allowances reported yet. Usage appears after a successful provider refresh.</span>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// Usage widget: the live infrastructure footprint — discrete resources grouped
+// by kind plus the count of measured usage metrics across all accounts.
+function UsageFootprintPanel({ analysis }: { analysis: AnalysisResult }) {
+  const byKind = new Map<string, { provider: Provider; kind: string; count: number }>()
+  for (const item of analysis.resourceItems) {
+    const existing = byKind.get(item.kind)
+    if (existing) existing.count += 1
+    else byKind.set(item.kind, { provider: item.provider, kind: item.kind, count: 1 })
+  }
+  const kinds = [...byKind.values()].sort((a, b) => b.count - a.count)
+  const measured = analysis.freeTier.filter((row) => row.source === "measured").length
+
+  return (
+    <section className="insight-panel usage-footprint" aria-label="Usage footprint">
+      <div className="insight-panel-head">
+        <div>
+          <p>Usage</p>
+          <h2>Infrastructure footprint</h2>
+        </div>
+        <PieChart aria-hidden />
+      </div>
+      {kinds.length ? (
+        <div className="footprint-grid">
+          {kinds.map((entry) => (
+            <article className="footprint-tile" key={entry.kind}>
+              <span className="footprint-dot" style={{ background: providerColor(entry.provider) }} aria-hidden />
+              <strong>{entry.count}</strong>
+              <span>{entry.kind}</span>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="insight-panel-empty">
+          <Server aria-hidden />
+          <span>No discrete resources tracked yet. Connect a provider that exposes per-resource usage (e.g. Cloudflare).</span>
+        </div>
+      )}
+      <div className="footprint-meta">
+        <Boxes aria-hidden />
+        <span>
+          <strong>{analysis.resourceItems.length}</strong> resources · <strong>{measured}</strong> live usage metric{measured === 1 ? "" : "s"} measured this period
+        </span>
+      </div>
+    </section>
+  )
+}
+
 function CliConnectionGuide() {
   return (
     <section className="cli-connect-guide" aria-label="Connect accounts with the CLI">
@@ -494,9 +721,18 @@ function RepositoryDashboard({
             emptyNote="No billed spend across your connected accounts this month. Connect accounts under Credentials, or check Repos for per-project usage."
           />
 
+          <SpendInsights analysis={analysis} />
+
+          <CostDriversPanel analysis={analysis} />
+
           <DashboardWidgets analysis={analysis} connectedProviders={connectedProviders} />
 
           <AccountsBoard analysis={analysis} connectedProviders={connectedProviders} state={state} />
+
+          <div className="insight-pair">
+            <UsageHeadroomPanel analysis={analysis} />
+            <UsageFootprintPanel analysis={analysis} />
+          </div>
 
           <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} />
         </>

@@ -4094,6 +4094,370 @@ th {
   }
 }
 
+/* Spend analytics KPI strip — mirrors .dashboard-widgets brutalist cards. */
+.spend-insights {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.spend-insights article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  border: 1px solid var(--ink);
+  background: var(--surface);
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 13px;
+}
+
+.spend-insights svg {
+  grid-row: 1 / 4;
+  width: 22px;
+  height: 22px;
+  color: var(--blue);
+}
+
+.spend-insights span,
+.spend-insights small {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.spend-insights strong {
+  font-size: 24px;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+/* Shared shell for the cost-driver and usage panels. */
+.insight-panel {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  margin-top: 18px;
+  padding: 22px;
+}
+
+.insight-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.insight-panel-head p {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.insight-panel-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.insight-panel-head > svg {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.insight-panel-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  border: 1px dashed var(--line);
+  background: var(--surface-2);
+  padding: 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.insight-panel-empty svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+/* Cost drivers — horizontal ranking bars. */
+.driver-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.driver-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.driver-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.driver-label .provider-logo {
+  width: 22px;
+  height: 22px;
+}
+
+.driver-label .provider-logo svg {
+  width: 13px;
+  height: 13px;
+}
+
+.driver-label strong {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.driver-label small {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  flex: 0 0 auto;
+}
+
+.driver-bar {
+  height: 16px;
+  background: var(--track);
+  border: 1px solid var(--line);
+}
+
+.driver-bar > span {
+  display: block;
+  height: 100%;
+}
+
+.driver-amount {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.driver-amount b {
+  font-size: 14px;
+}
+
+.driver-amount span {
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 30px;
+  text-align: right;
+}
+
+/* Usage panels sit side by side on wide screens. */
+.insight-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.insight-pair .insight-panel {
+  margin-top: 18px;
+}
+
+/* Free-tier headroom — consumption bars with a risk tone. */
+.headroom-flag {
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.headroom-flag.ok {
+  color: var(--green);
+}
+
+.headroom-flag.warn {
+  color: var(--yellow);
+}
+
+.headroom-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.headroom-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.headroom-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.headroom-label .provider-logo {
+  width: 22px;
+  height: 22px;
+}
+
+.headroom-label .provider-logo svg {
+  width: 13px;
+  height: 13px;
+}
+
+.headroom-label strong {
+  flex: 0 0 auto;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.headroom-label small {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headroom-bar {
+  height: 16px;
+  background: var(--track);
+  border: 1px solid var(--line);
+}
+
+.headroom-fill {
+  display: block;
+  height: 100%;
+}
+
+.headroom-fill.ok {
+  background: var(--green);
+}
+
+.headroom-fill.warn {
+  background: var(--yellow);
+}
+
+.headroom-fill.crit {
+  background: var(--red);
+}
+
+.headroom-pct {
+  font-size: 13px;
+  min-width: 38px;
+  text-align: right;
+}
+
+.headroom-pct.ok {
+  color: var(--green);
+}
+
+.headroom-pct.warn {
+  color: var(--yellow);
+}
+
+.headroom-pct.crit {
+  color: var(--red);
+}
+
+/* Infrastructure footprint — tile per resource kind. */
+.footprint-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.footprint-tile {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 11px;
+}
+
+.footprint-dot {
+  grid-row: 1 / 3;
+  width: 10px;
+  height: 10px;
+  align-self: center;
+}
+
+.footprint-tile strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.footprint-tile span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.footprint-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.footprint-meta svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.footprint-meta strong {
+  color: var(--ink);
+}
+
+@media (max-width: 900px) {
+  .spend-insights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .insight-pair {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .spend-insights {
+    grid-template-columns: 1fr;
+  }
+
+  .driver-row,
+  .headroom-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .driver-amount {
+    justify-content: flex-start;
+  }
+}
+
 /* Theme rule: Ambrium is fully squared-off. This enforces no rounded corners
    anywhere — including form controls and third-party (Clerk) widgets. */
 *,
