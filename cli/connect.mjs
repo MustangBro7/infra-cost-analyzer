@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process"
 import { readFileSync, rmSync } from "node:fs"
 import { createInterface } from "node:readline/promises"
 import { stdin, stdout } from "node:process"
+import { connectedProviderMap } from "./provider-state.mjs"
 
 const API_BASE = (process.env.AMBRIUM_API || "http://localhost:3000").replace(/\/+$/, "")
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -229,35 +230,55 @@ async function connectMotherDuck(cliToken) {
 // ---- orchestration ----
 async function main() {
   log(`Ambrium connect → ${API_BASE}`)
+  const cliToken = await pair()
+  log(`   ✓ paired`)
+
+  const state = await api("/api/cli/status", { token: cliToken })
+  const connected = connectedProviderMap(state)
+  const connectedEntries = Object.entries(connected)
+  if (connectedEntries.length > 0) {
+    log(`\n◇ Existing connections`)
+    for (const [provider, connection] of connectedEntries) {
+      const name = {
+        aws: "AWS",
+        gcp: "Google Cloud",
+        cloudflare: "Cloudflare",
+        motherduck: "MotherDuck",
+      }[provider]
+      log(`   ↷ ${name} already connected${connection.accountLabel ? ` (${connection.accountLabel})` : ""} — skipping`)
+    }
+  }
+
   log(`\n◇ Detecting cloud CLIs…`)
   const providers = []
-  if (has("aws")) {
+  if (!connected.aws && has("aws")) {
     try {
       log(`   ✓ aws     account ${awsAccount()}`)
-      providers.push(["AWS", connectAws])
+      providers.push(["aws", "AWS", connectAws])
     } catch {
       log(`   • aws found but not authenticated — skipping`)
     }
   }
-  if (has("gcloud")) {
+  if (!connected.gcp && has("gcloud")) {
     log(`   ✓ gcloud  project ${gcloudProject() || "(unset)"}`)
-    providers.push(["Google Cloud", connectGcp])
+    providers.push(["gcp", "Google Cloud", connectGcp])
   }
   // Cloudflare is always offered (token paste), even without a CLI.
-  providers.push(["Cloudflare", connectCloudflare])
+  if (!connected.cloudflare) providers.push(["cloudflare", "Cloudflare", connectCloudflare])
   // MotherDuck uses the PostgreSQL endpoint generated in account settings.
-  providers.push(["MotherDuck", connectMotherDuck])
+  if (!connected.motherduck) providers.push(["motherduck", "MotherDuck", connectMotherDuck])
 
   if (providers.length === 0) {
+    if (connectedEntries.length > 0) {
+      log(`\nAll available cloud providers are already connected. Dashboard: ${API_BASE}`)
+      return
+    }
     log(`\nNo cloud CLIs detected. Install/authenticate aws or gcloud and re-run.`)
     process.exit(1)
   }
 
-  const cliToken = await pair()
-  log(`   ✓ paired`)
-
   const results = []
-  for (const [name, connect] of providers) {
+  for (const [, name, connect] of providers) {
     try {
       const label = await connect(cliToken)
       log(`   ✓ ${name} connected (${label})`)
@@ -270,8 +291,8 @@ async function main() {
   }
 
   const ok = results.filter(([, success]) => success).length
-  log(`\n${ok}/${results.length} providers connected. Dashboard: ${API_BASE}`)
-  if (results.some(([name]) => name === "Google Cloud")) {
+  log(`\n${ok}/${results.length} new providers connected; ${connectedEntries.length} already connected. Dashboard: ${API_BASE}`)
+  if (providers.some(([provider]) => provider === "gcp")) {
     log(`Note: detailed GCP cost needs the BigQuery billing export enabled once in the console.`)
   }
 }

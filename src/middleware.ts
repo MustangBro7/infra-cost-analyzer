@@ -15,6 +15,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/cron(.*)",
   "/api/cli/pair/start",
   "/api/cli/pair/poll",
+  "/api/cli/status",
   "/api/cli/aws/params",
   "/api/cli/connect/(.*)",
 ]);
