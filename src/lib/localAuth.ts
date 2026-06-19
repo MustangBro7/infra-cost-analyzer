@@ -6,7 +6,7 @@ import { autoConnectFromEnv } from "./connectors"
 import type { LocalUser } from "./types"
 
 /**
- * Authentication is owned by Clerk (Google sign-in + email). This module keeps
+ * Authentication is owned by Clerk (email and configured social providers). This module keeps
  * the original interface the rest of the app already consumes
  * (currentUserFromCookies / currentUserFromRequest / requireUserFromRequest) so
  * the ~25 route handlers and the page didn't have to change — they just receive
