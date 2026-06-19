@@ -12,7 +12,6 @@ export interface MotherDuckUsage {
   username: string
   databases: MotherDuckDatabaseUsage[]
   totalBytes: number
-  detectedPlan: MotherDuckPlan | null
 }
 
 const SIZE_PATTERN = /^([\d.]+)\s*(bytes?|ki?b|mi?b|gi?b|ti?b)$/i
@@ -63,9 +62,6 @@ export async function fetchMotherDuckUsage(connectionString: string): Promise<Mo
   try {
     const identity = await client.query("SELECT current_database() AS database_name, current_user AS username")
     const sizes = await client.query("SELECT database_name, database_size FROM pragma_database_size()")
-    const databaseInfo = await client.query(
-      "SELECT historical_snapshot_retention::VARCHAR AS retention FROM md_information_schema.databases WHERE name = current_database()"
-    ).catch(() => ({ rows: [] }))
     const databases = sizes.rows
       .map((row) => ({
         name: String(row.database_name),
@@ -78,14 +74,6 @@ export async function fetchMotherDuckUsage(connectionString: string): Promise<Mo
       username: String(identity.rows[0]?.username ?? "MotherDuck user"),
       databases,
       totalBytes: databases.reduce((sum, row) => sum + row.bytes, 0),
-      detectedPlan: (() => {
-        const retention = String(databaseInfo.rows[0]?.retention ?? "")
-        const days = Number.parseInt(retention, 10)
-        if (days >= 7) return "business"
-        if (days >= 1) return "lite"
-        if (days === 0) return "free"
-        return null
-      })(),
     }
   } finally {
     await client.end().catch(() => undefined)

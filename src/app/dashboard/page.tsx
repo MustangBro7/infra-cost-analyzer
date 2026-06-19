@@ -449,7 +449,7 @@ function CliConnectionGuide() {
       </div>
       <div className="cli-prereqs">
         <strong>Provider notes</strong>
-        <span>AWS Cost Explorer is opt-in because AWS charges per request. GCP detailed cost still requires Billing Export. Free MotherDuck plans show usage only; paid plans add published-rate cost.</span>
+        <span>AWS Cost Explorer is opt-in because AWS charges per request. GCP detailed cost still requires Billing Export. MotherDuck shows verified storage usage only because its actual invoice is available only in MotherDuck Billing.</span>
       </div>
     </section>
   )

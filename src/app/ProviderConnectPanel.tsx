@@ -355,13 +355,13 @@ export function ProviderConnectPanel({
                     detail={
                       plan === "free"
                         ? "Free plan: database storage usage is shown without cost."
-                        : "Paid plan: live storage usage and published-rate storage cost are shown. Final billing uses average daily storage."
+                        : "Paid plan: live storage usage is shown. Actual cost stays hidden because MotherDuck exposes invoices only in its Billing page."
                     }
                   />
                 ) : (
                   <>
                     <p>
-                      Paste the PostgreSQL endpoint from MotherDuck Settings. Choose your current plan so free accounts show usage only and paid accounts show usage plus cost.
+                      Paste the PostgreSQL endpoint from MotherDuck Settings. Storage usage is read live; actual invoice cost remains in MotherDuck Billing.
                     </p>
                     <a className="ghost-button" href="https://app.motherduck.com/settings/tokens" target="_blank" rel="noreferrer">
                       <ExternalLink aria-hidden />

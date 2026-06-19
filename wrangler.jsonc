@@ -25,7 +25,7 @@
     "NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL": "/dashboard",
     "ANALYTICS_ENABLED": "true",
     "ANALYTICS_READS_ENABLED": "true",
-    "MOTHERDUCK_PROVIDER_PLAN": "business"
+    "MOTHERDUCK_PROVIDER_PLAN": "free"
   },
   "assets": {
     "directory": ".open-next/assets",

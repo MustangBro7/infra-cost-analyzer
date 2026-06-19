@@ -17,7 +17,7 @@ import { getAwsCostAndUsage, getAwsFreeTierUsage, resolveAwsCredentials, type Aw
 import { fetchVercelAccountUsage, listVercelBillingCharges } from "./vercelClient"
 import { getCloudflareAccountResources, getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
-import { fetchMotherDuckUsage, motherDuckStorageRate, type MotherDuckPlan } from "./motherduckClient"
+import { fetchMotherDuckUsage, type MotherDuckPlan } from "./motherduckClient"
 
 function period() {
   const now = new Date()
@@ -512,45 +512,9 @@ async function loadMotherDuckLive(workspace: WorkspaceStore): Promise<LiveResult
   try {
     const metadata = connection.metadata as { plan?: MotherDuckPlan; region?: string }
     const plan = metadata.plan ?? "free"
-    const region = metadata.region ?? "us-east-1"
     const result = await fetchMotherDuckUsage(connection.accessToken)
     const totalGb = result.totalBytes / 1_000_000_000
-    const rate = motherDuckStorageRate(region)
-    const billableGb = plan === "lite" ? Math.max(totalGb - 10, 0) : plan === "business" ? totalGb : 0
     const rows: NormalizedCostRow[] = []
-
-    if (plan === "business") {
-      rows.push({
-        provider: "motherduck",
-        serviceName: "Business platform",
-        resourceId: null,
-        resourceName: result.databaseName,
-        billingPeriodStart: period().from,
-        billingPeriodEnd: period().to,
-        cost: 250,
-        currency: "USD",
-        attribution: "user_confirmed",
-        attributionReason: "MotherDuck Business platform fee from the connected account's selected plan.",
-        signalId: "motherduck-live:platform",
-        source: "live",
-      })
-    }
-    if (plan !== "free" && billableGb > 0) {
-      rows.push({
-        provider: "motherduck",
-        serviceName: "Managed storage",
-        resourceId: null,
-        resourceName: `${result.databases.length} databases`,
-        billingPeriodStart: period().from,
-        billingPeriodEnd: period().to,
-        cost: Number((billableGb * rate).toFixed(4)),
-        currency: "USD",
-        attribution: "user_confirmed",
-        attributionReason: `Estimated from live database size at the published ${region} storage rate; final billing uses average daily storage.`,
-        signalId: "motherduck-live:storage",
-        source: "live",
-      })
-    }
 
     return {
       rows,
@@ -571,7 +535,7 @@ async function loadMotherDuckLive(workspace: WorkspaceStore): Promise<LiveResult
       sync: {
         provider: "motherduck",
         status: "success",
-        message: `Loaded storage usage for ${result.databases.length} MotherDuck database(s) on the ${plan} plan.`,
+        message: `Loaded storage usage for ${result.databases.length} MotherDuck database(s). Actual cost remains hidden because MotherDuck exposes invoices only in its Billing page.`,
         rows: rows.length,
         syncedAt: new Date().toISOString(),
       },

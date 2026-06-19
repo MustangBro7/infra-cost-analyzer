@@ -77,7 +77,6 @@ export async function connectMotherDuck(userId: string, connectionString: string
   if (!["free", "lite", "business"].includes(plan)) throw new Error("Select a valid MotherDuck plan.")
   const safeUrl = sanitizeMotherDuckConnectionString(connectionString)
   const usage = await fetchMotherDuckUsage(safeUrl)
-  const effectivePlan = usage.detectedPlan ?? plan
   const accountLabel = `${usage.databaseName} · ${usage.username}`
   await upsertConnection(userId, {
     provider: "motherduck",
@@ -88,12 +87,12 @@ export async function connectMotherDuck(userId: string, connectionString: string
     lastVerifiedAt: new Date().toISOString(),
     lastError: null,
     metadata: {
-      plan: effectivePlan,
+      plan,
       region: motherDuckRegion(safeUrl),
       databaseCount: usage.databases.length,
     },
   })
-  return { accountLabel, databaseCount: usage.databases.length, plan: effectivePlan }
+  return { accountLabel, databaseCount: usage.databases.length, plan }
 }
 
 /**
