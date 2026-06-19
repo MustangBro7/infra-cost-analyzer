@@ -8,7 +8,6 @@ import {
   DatabaseZap,
   FolderGit2,
   Gauge,
-  Github,
   Layers,
   RefreshCw,
   ShieldAlert,
@@ -28,11 +27,12 @@ import { ProviderLogo } from "../ProviderLogo"
 import { SignOutButton } from "../SignOutButton"
 import { ThemeToggle } from "../ThemeToggle"
 import { HistoricalAnalyticsPanel } from "../HistoricalAnalyticsPanel"
+import { RepoHomeCard } from "../RepoHomeCard"
 import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
-import { publicStore } from "@/lib/localStore"
+import { publicStore, readWorkspace } from "@/lib/localStore"
 import { CONNECTABLE_PROVIDERS, resolveLinkedProviders } from "@/lib/repoLinks"
-import { isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
+import { costItemKey, isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
 import { resourceMetricService, resourceUsageRows } from "@/lib/freeTier"
 import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
@@ -460,17 +460,17 @@ function RepositoryDashboard({
   repos,
   selectedRepo,
   state,
+  repoAnalyses,
   view,
 }: {
   analysis: AnalysisResult
   repos: GitHubRepoSummary[]
   selectedRepo: string | null
   state: Awaited<ReturnType<typeof publicStore>>
+  repoAnalyses: Record<string, AnalysisResult>
   view: ViewKey
 }) {
-  const knownRepo = currentRepoFullName(analysis)
   const connectedProviders = CONNECTABLE_PROVIDERS.filter((provider) => state.connections[provider]?.status === "connected")
-  const detectedProviders = [...new Set(analysis.signals.map((signal) => signal.provider))]
   const measuredUsageCount = analysis.freeTier.filter((row) => row.source === "measured").length
   const totalCost = sumCost(analysis.costRows)
 
@@ -514,35 +514,37 @@ function RepositoryDashboard({
           {repos.length > 0 ? (
             <section className="repo-home-grid" aria-label="Synced repositories">
               {repos.map((repo) => {
-                const scanned = repo.fullName === knownRepo
+                const repoAnalysis = repoAnalyses[repo.fullName]
+                const detectedProviders = [...new Set((repoAnalysis?.signals ?? []).map((signal) => signal.provider))]
                 const linked = resolveLinkedProviders({
                   explicit: state.repoProviderLinks[repo.fullName],
-                  detected: scanned ? detectedProviders : [],
+                  detected: detectedProviders,
                   connected: connectedProviders,
                 })
                 const repoShortName = repo.name.toLowerCase()
+                const candidateRows = [...(repoAnalysis?.costRows ?? []), ...analysis.costRows]
+                const uniqueRows = [...new Map(candidateRows.map((row) => [costItemKey(row), row])).values()]
                 const projectCost = sumCost(
-                  analysis.costRows.filter(
-                    (row) => linked.includes(row.provider) && isAssignedHere(row, state.costAssignments, repo.fullName, repoShortName)
+                  uniqueRows.filter(
+                    (row) => isAssignedHere(row, state.costAssignments, repo.fullName, repoShortName)
                   )
                 )
                 return (
-                  <a key={repo.fullName} href={`/dashboard?repo=${encodeURIComponent(repo.fullName)}`} className={repo.fullName === selectedRepo ? "repo-home-card active" : "repo-home-card"}>
-                    <div className="repo-home-card-head">
-                      <Github aria-hidden />
-                      <span>{repo.private ? "Private" : "Public"}</span>
-                    </div>
-                    <h2>{repo.fullName}</h2>
-                    <p>{repo.defaultBranch}</p>
-                    <div className="repo-card-metrics">
-                      <strong>{linked.length === 0 ? "Pick accounts" : money(projectCost)}</strong>
-                      <span>
-                        {linked.length === 0
-                          ? "No accounts linked yet — open to link"
-                          : `${linked.length} ${linked.length === 1 ? "account" : "accounts"} linked${scanned ? ` · ${analysis.summary.signals} signals` : ""}`}
-                      </span>
-                    </div>
-                  </a>
+                  <RepoHomeCard
+                    key={repo.fullName}
+                    fullName={repo.fullName}
+                    isPrivate={repo.private}
+                    defaultBranch={repo.defaultBranch}
+                    active={repo.fullName === selectedRepo}
+                    headline={linked.length === 0 ? (projectCost > 0.005 ? money(projectCost) : "Pick accounts") : money(projectCost)}
+                    detail={
+                      linked.length === 0
+                        ? projectCost > 0.005
+                          ? "Assigned cost · open to link accounts"
+                          : "No accounts linked yet — open to link"
+                        : `${linked.length} ${linked.length === 1 ? "account" : "accounts"} linked${repoAnalysis ? ` · ${repoAnalysis.summary.signals} signals` : ""}`
+                    }
+                  />
                 )
               })}
             </section>
@@ -627,7 +629,7 @@ function ProviderAccordion({
         : "muted"
 
   return (
-    <details className="provider-accordion" open={connection.detected || hasCost || hasUsage}>
+    <details className="provider-accordion">
       <summary>
         <ProviderLogo provider={connection.provider} />
         <div className="provider-sum-id">
@@ -714,54 +716,79 @@ function ProviderAccordion({
                 </div>
               ) : null}
 
-              {hasCost ? (
+              {projectRows.length ? (
                 <ProviderCostPanel
-                  rows={rows}
+                  rows={projectRows}
                   repoFullName={repoFullName}
                   selectedShort={repoShort}
                   assignments={assignments}
                   repoLabels={repoLabels}
                 />
               ) : null}
-              {!hasCost && !hasUsage && !costDataOff ? (
+              {!projectRows.length && !projectUsageRows.length && !costDataOff ? (
                 <div className="empty-provider-block">
                   <DatabaseZap aria-hidden />
                   <span>
-                    No live billing rows for this account yet. Add the required billing access on the Overview to show
-                    actual costs.
+                    No cost or resource usage is assigned to this project.
                   </span>
                 </div>
               ) : null}
-              {hasResources ? (
-                <>
-                  {projectUsageRows.length ? (
-                    <FreeTierUsage
-                      rows={projectUsageRows}
-                      hasCost={hasCost}
-                      heading="This project’s usage"
-                      subtext="Re-derived from the resources assigned to this repo below."
-                    />
-                  ) : null}
-                  {accountWideUsage.length ? (
-                    <FreeTierUsage
-                      rows={accountWideUsage}
-                      hasCost={hasCost}
-                      heading="Account-wide usage"
-                      subtext="Metrics that aren’t tied to a single resource — shared across the whole account."
-                    />
-                  ) : null}
-                </>
-              ) : hasUsage ? (
-                <FreeTierUsage rows={freeTier} hasCost={hasCost} costDataOff={costDataOff} />
+              {projectUsageRows.length ? (
+                <FreeTierUsage
+                  rows={projectUsageRows}
+                  hasCost={hasCost}
+                  heading="This project’s usage"
+                  subtext="Re-derived from the resources assigned to this repo."
+                />
               ) : null}
-              {resourceItems.length ? (
+              {assignedResources.length ? (
                 <ProviderResourcePanel
-                  items={resourceItems}
+                  items={assignedResources}
                   repoFullName={repoFullName}
                   selectedShort={repoShort}
                   assignments={assignments}
                   repoLabels={repoLabels}
                 />
+              ) : null}
+              {restRows.length || accountWideUsage.length || resourceItems.length > assignedResources.length ? (
+                <details className="account-detail-disclosure">
+                  <summary>
+                    <Layers aria-hidden />
+                    <span>
+                      <strong>Account-wide usage and unassigned resources</strong>
+                      <small>Shared data and items not currently assigned to this project.</small>
+                    </span>
+                    <ChevronDown aria-hidden />
+                  </summary>
+                  <div className="account-detail-content">
+                    {restRows.length ? (
+                      <ProviderCostPanel
+                        rows={restRows}
+                        repoFullName={repoFullName}
+                        selectedShort={repoShort}
+                        assignments={assignments}
+                        repoLabels={repoLabels}
+                      />
+                    ) : null}
+                    {accountWideUsage.length ? (
+                      <FreeTierUsage
+                        rows={accountWideUsage}
+                        hasCost={hasCost}
+                        heading="Account-wide usage"
+                        subtext="Shared across the whole provider account."
+                      />
+                    ) : null}
+                    {resourceItems.length > assignedResources.length ? (
+                      <ProviderResourcePanel
+                        items={resourceItems.filter((item) => !assignedResources.includes(item))}
+                        repoFullName={repoFullName}
+                        selectedShort={repoShort}
+                        assignments={assignments}
+                        repoLabels={repoLabels}
+                      />
+                    ) : null}
+                  </div>
+                </details>
               ) : null}
             </section>
             <section className="provider-tab-panel evidence">
@@ -949,6 +976,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const rawView = Array.isArray(params.view) ? params.view[0] : params.view
   const view: ViewKey = rawView === "repos" || rawView === "credentials" ? rawView : "dashboards"
   const state = { user, ...(await publicStore(user.id)) }
+  const workspace = await readWorkspace(user.id)
+  const repoAnalyses = Object.fromEntries(
+    Object.entries(workspace.analysisSnapshots)
+      .filter(([key]) => key !== "__overview__" && key !== "__local__")
+      .map(([key, value]) => [key, value.analysis])
+  )
   // Renders from the persisted snapshot (DB read). Live provider/GitHub data is
   // refreshed out-of-band by <AnalysisRefresher>, not on every page load.
   const snapshot = await getOrCreateAnalysisSnapshot({
@@ -967,7 +1000,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       {requestedRepo ? (
         <RepoDetail analysis={analysis} repo={selectedRepo} state={state} />
       ) : (
-        <RepositoryDashboard analysis={analysis} repos={repos} selectedRepo={state.selectedRepoFullName} state={state} view={view} />
+        <RepositoryDashboard
+          analysis={analysis}
+          repos={repos}
+          selectedRepo={state.selectedRepoFullName}
+          state={state}
+          repoAnalyses={repoAnalyses}
+          view={view}
+        />
       )}
     </main>
   )

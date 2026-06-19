@@ -376,8 +376,13 @@ export async function syncGitHubRepo(userId: string, fullName: string) {
 export async function unsyncGitHubRepo(userId: string, fullName: string) {
   const workspace = await readWorkspace(userId)
   workspace.syncedRepoFullNames = workspace.syncedRepoFullNames.filter((repo) => repo !== fullName)
+  delete workspace.analysisSnapshots[fullName]
+  delete workspace.repoProviderLinks[fullName]
+  workspace.costAssignments = Object.fromEntries(
+    Object.entries(workspace.costAssignments).filter(([, target]) => target !== fullName)
+  )
   if (workspace.selectedRepoFullName === fullName) {
-    workspace.selectedRepoFullName = workspace.syncedRepoFullNames[0] ?? workspace.githubRepos[0]?.fullName ?? null
+    workspace.selectedRepoFullName = workspace.syncedRepoFullNames[0] ?? null
   }
   workspace.events = withEvent(workspace.events, {
     provider: "github",

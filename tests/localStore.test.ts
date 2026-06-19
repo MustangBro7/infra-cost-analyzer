@@ -51,6 +51,8 @@ test("local store tracks multiple synced GitHub repositories", async () => {
       publicStore,
       saveGitHubRepos,
       selectGitHubRepo,
+      setCostAssignment,
+      setRepoProviderLinks,
       setStorePathForTests,
       syncGitHubRepo,
       unsyncGitHubRepo,
@@ -80,6 +82,8 @@ test("local store tracks multiple synced GitHub repositories", async () => {
     await saveGitHubRepos("usr_multi", repos, "acme/api")
     await syncGitHubRepo("usr_multi", "acme/web")
     await selectGitHubRepo("usr_multi", "acme/web")
+    await setRepoProviderLinks("usr_multi", "acme/web", ["aws"])
+    await setCostAssignment("usr_multi", "aws::service::resource", "acme/web")
 
     let state = await publicStore("usr_multi")
     assert.deepEqual(state.syncedRepoFullNames.sort(), ["acme/api", "acme/web"])
@@ -89,6 +93,8 @@ test("local store tracks multiple synced GitHub repositories", async () => {
     state = await publicStore("usr_multi")
     assert.deepEqual(state.syncedRepoFullNames, ["acme/api"])
     assert.equal(state.selectedRepoFullName, "acme/api")
+    assert.equal(state.repoProviderLinks["acme/web"], undefined)
+    assert.equal(state.costAssignments["aws::service::resource"], undefined)
   } finally {
     const { setStorePathForTests } = await import("../src/lib/localStore")
     setStorePathForTests(null)

@@ -1299,6 +1299,49 @@ th {
   background: var(--ok-soft);
 }
 
+.repo-home-card-link {
+  display: grid;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.repo-card-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: fit-content;
+  border: 1px solid var(--red);
+  background: transparent;
+  color: var(--red);
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.repo-card-remove:hover {
+  background: var(--warn-soft);
+}
+
+.repo-card-remove:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+.repo-card-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.repo-card-error {
+  color: var(--red);
+  font-size: 11px;
+}
+
 .repo-home-card-head,
 .repo-sync-head,
 .repo-sync-actions,
@@ -2248,7 +2291,7 @@ th {
   margin-top: 10px;
 }
 
-.provider-accordion summary {
+.provider-accordion > summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
@@ -2260,11 +2303,11 @@ th {
   transition: background 0.14s ease;
 }
 
-.provider-accordion summary:hover {
+.provider-accordion > summary:hover {
   background: var(--surface);
 }
 
-.provider-accordion summary::-webkit-details-marker {
+.provider-accordion > summary::-webkit-details-marker {
   display: none;
 }
 
@@ -2353,19 +2396,80 @@ th {
   color: var(--muted);
 }
 
-.provider-accordion summary > svg {
+.provider-accordion > summary > svg {
   width: 18px;
   height: 18px;
   transition: transform 0.16s ease;
 }
 
-.provider-accordion[open] summary > svg {
+.provider-accordion[open] > summary > svg {
   transform: rotate(180deg);
 }
 
 .provider-detail-body {
   border-top: 1px solid var(--line);
   padding: 12px;
+}
+
+.account-detail-disclosure {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+}
+
+.account-detail-disclosure > summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.account-detail-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.account-detail-disclosure > summary > svg {
+  width: 17px;
+  height: 17px;
+}
+
+.account-detail-disclosure > summary > svg:last-child {
+  transition: transform 0.16s ease;
+}
+
+.account-detail-disclosure[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.account-detail-disclosure > summary strong,
+.account-detail-disclosure > summary small {
+  display: block;
+}
+
+.account-detail-disclosure > summary strong {
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.account-detail-disclosure > summary small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.account-detail-content {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--line);
+  padding: 12px;
+}
+
+.account-detail-content .provider-resource-panel {
+  margin-top: 0;
 }
 
 .provider-warning {
@@ -2670,7 +2774,7 @@ th {
     grid-column: 1 / -1;
   }
 
-  .provider-accordion summary {
+  .provider-accordion > summary {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
