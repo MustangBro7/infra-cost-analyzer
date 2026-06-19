@@ -61,12 +61,19 @@ export async function fetchMotherDuckUsage(connectionString: string): Promise<Mo
   await client.connect()
   try {
     const identity = await client.query("SELECT current_database() AS database_name, current_user AS username")
+    // pragma_database_size() includes attached shared catalogs such as
+    // MotherDuck's 5.7 GiB sample_data database. Those are visible to the user
+    // but are not owned/billed storage. md_information_schema.databases lists
+    // the organization's own databases, so intersect the two sources.
+    const owned = await client.query("SELECT name FROM md_information_schema.databases")
+    const ownedNames = new Set(owned.rows.map((row) => String(row.name)))
     const sizes = await client.query("SELECT database_name, database_size FROM pragma_database_size()")
     const databases = sizes.rows
       .map((row) => ({
         name: String(row.database_name),
         bytes: parseMotherDuckSize(String(row.database_size ?? "0 bytes")),
       }))
+      .filter((row) => ownedNames.has(row.name))
       .filter((row) => row.bytes > 0)
       .sort((a, b) => b.bytes - a.bytes)
     return {
