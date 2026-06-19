@@ -1,0 +1,69 @@
+name: Deploy to Cloudflare
+
+# Auto-deploys the Worker on every push to main (and on manual dispatch).
+# Replaces the previous manual `npm run deploy` from a developer machine — the
+# repo had no CI deploy, so commits to main never shipped on their own.
+#
+# Required repository secret:
+#   CLOUDFLARE_API_TOKEN — token with Workers Scripts:Edit, Workers Routes:Edit,
+#     D1:Edit, and Hyperdrive:Edit on the account below. Create at
+#     https://dash.cloudflare.com/profile/api-tokens and add it under
+#     Settings → Secrets and variables → Actions.
+#
+# Runtime Worker secrets (CLERK_SECRET_KEY, AWS_SAAS_*, etc.) are NOT needed
+# here — they already live as Worker secrets and a deploy does not touch them.
+# The NEXT_PUBLIC_* values below are public (they match wrangler.jsonc) and are
+# inlined into the client bundle at build time.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two deploys race; queue them instead of cancelling a publish midway.
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: c064bc22afe7d6511334c0c5cdd43bc1
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_bG95YWwtZGFzc2llLTY0LmNsZXJrLmFjY291bnRzLmRldiQ
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+      NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /dashboard
+      NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      # Skips (instead of failing) until CLOUDFLARE_API_TOKEN is added, so the
+      # pipeline goes green immediately and starts deploying once the secret
+      # exists. Trigger a deploy of the current main via "Run workflow" after
+      # adding it.
+      - name: Warn if deploy token is missing
+        if: ${{ env.CLOUDFLARE_API_TOKEN == '' }}
+        run: |
+          echo "::warning::CLOUDFLARE_API_TOKEN is not set — skipping deploy."
+          echo "Add it under Settings → Secrets and variables → Actions, then re-run."
+
+      - name: Build & deploy to Cloudflare Workers
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        run: npm run deploy
