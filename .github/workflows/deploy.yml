@@ -37,6 +37,11 @@ jobs:
       NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
       NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /dashboard
       NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /dashboard
+      # opennextjs-cloudflare deploy builds a local binding proxy and refuses to
+      # run unless every Hyperdrive binding has a local connection string. This
+      # placeholder only satisfies that deploy-time check — production Hyperdrive
+      # uses the configured `id` in wrangler.jsonc, not this value.
+      CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_ANALYTICS_DB: postgresql://placeholder:placeholder@localhost:5432/placeholder
     steps:
       - uses: actions/checkout@v4
 
