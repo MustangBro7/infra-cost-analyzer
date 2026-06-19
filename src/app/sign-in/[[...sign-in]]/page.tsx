@@ -1,6 +1,7 @@
 import { SignIn } from "@clerk/nextjs"
 import { CloudCog } from "lucide-react"
 import { ThemeToggle } from "@/app/ThemeToggle"
+import { authAppearance } from "@/app/authAppearance"
 
 export default function SignInPage() {
   return (
@@ -9,17 +10,23 @@ export default function SignInPage() {
         <ThemeToggle />
       </div>
       <section className="signin-panel">
-        <div className="signin-mark">
-          <CloudCog aria-hidden />
+        <div className="signin-intro">
+          <div className="signin-mark">
+            <CloudCog aria-hidden />
+          </div>
+          <p>Infrastructure Cost Analyzer</p>
+          <h1>Sign in to your workspace</h1>
+          <span>
+            Connect repositories and cloud accounts to see where every infrastructure dollar goes.
+          </span>
+          <div className="signin-status">
+            <i aria-hidden />
+            Production workspace
+          </div>
         </div>
-        <p>Infrastructure Cost Analyzer</p>
-        <h1>Sign in to your workspace</h1>
-        <span>
-          Use your email to map the infrastructure costs behind your repositories. Each account
-          gets isolated repos, provider credentials, and cost snapshots.
-        </span>
         <div className="signin-clerk">
           <SignIn
+            appearance={authAppearance}
             fallback={
               <div className="signin-fallback" role="status">
                 <span>Loading secure sign-in…</span>
