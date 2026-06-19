@@ -201,6 +201,31 @@ async function connectCloudflare(cliToken) {
   return result.accountLabel
 }
 
+// ---- MotherDuck ----
+async function connectMotherDuck(cliToken) {
+  log(`\n◇ MotherDuck`)
+  let connectionString = process.env.MOTHERDUCK_DATABASE_URL
+  const rl = createInterface({ input: stdin, output: stdout })
+  if (!connectionString) {
+    connectionString = (await rl.question("   Paste the MotherDuck PostgreSQL endpoint (or leave blank to skip): ")).trim()
+  } else {
+    log(`   using MOTHERDUCK_DATABASE_URL from env`)
+  }
+  if (!connectionString) {
+    rl.close()
+    throw new Error("skipped (no PostgreSQL endpoint provided)")
+  }
+  const selected = (process.env.MOTHERDUCK_PLAN || await rl.question("   Plan [free/lite/business] (free): ")).trim().toLowerCase()
+  rl.close()
+  const plan = ["free", "lite", "business"].includes(selected) ? selected : "free"
+  const result = await api("/api/cli/connect/motherduck", {
+    method: "POST",
+    token: cliToken,
+    body: { connectionString, plan },
+  })
+  return result.accountLabel
+}
+
 // ---- orchestration ----
 async function main() {
   log(`Ambrium connect → ${API_BASE}`)
@@ -220,6 +245,8 @@ async function main() {
   }
   // Cloudflare is always offered (token paste), even without a CLI.
   providers.push(["Cloudflare", connectCloudflare])
+  // MotherDuck uses the PostgreSQL endpoint generated in account settings.
+  providers.push(["MotherDuck", connectMotherDuck])
 
   if (providers.length === 0) {
     log(`\nNo cloud CLIs detected. Install/authenticate aws or gcloud and re-run.`)

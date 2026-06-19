@@ -5,6 +5,7 @@ export type Provider =
   | "gcp"
   | "azure"
   | "cloudflare"
+  | "motherduck"
   | "digitalocean"
   | "docker"
   | "unknown"

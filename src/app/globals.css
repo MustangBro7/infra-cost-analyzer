@@ -2027,7 +2027,8 @@ th {
 }
 
 .provider-token-form input,
-.provider-token-form textarea {
+.provider-token-form textarea,
+.provider-token-form select {
   width: 100%;
   border: 1px solid var(--ink);
   background: var(--panel);
@@ -2043,6 +2044,161 @@ th {
 
 .provider-token-form textarea {
   resize: vertical;
+}
+
+.dashboard-widgets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.dashboard-widgets article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  border: 1px solid var(--ink);
+  background: var(--surface);
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 13px;
+}
+
+.dashboard-widgets svg {
+  grid-row: 1 / 4;
+  width: 22px;
+  height: 22px;
+  color: var(--red);
+}
+
+.dashboard-widgets span,
+.dashboard-widgets small {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.dashboard-widgets strong {
+  font-size: 25px;
+  line-height: 1;
+}
+
+.cli-connect-guide {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+  border: 1px solid var(--ink);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.cli-guide-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.cli-guide-head p,
+.cli-guide-head h2,
+.cli-guide-head span {
+  margin: 0;
+}
+
+.cli-guide-head p {
+  margin-bottom: 6px;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.cli-guide-head h2 {
+  font-size: 24px;
+}
+
+.cli-guide-head span {
+  display: block;
+  max-width: 780px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cli-guide-head > svg {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+
+.cli-command {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--panel);
+  padding: 12px;
+}
+
+.cli-command span {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.cli-command code {
+  overflow-x: auto;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.cli-step-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.cli-step-grid article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 11px;
+}
+
+.cli-step-grid b {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ink);
+  background: var(--yellow);
+}
+
+.cli-step-grid strong,
+.cli-step-grid span {
+  display: block;
+}
+
+.cli-step-grid span,
+.cli-prereqs span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cli-prereqs {
+  border-left: 4px solid var(--yellow);
+  background: var(--warn-soft);
+  padding: 10px 12px;
+}
+
+.cli-prereqs strong,
+.cli-prereqs span {
+  display: block;
 }
 
 .mini-setup-box {
@@ -2394,6 +2550,11 @@ th {
 }
 
 @media (max-width: 1100px) {
+  .dashboard-widgets,
+  .cli-step-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .hero-band,
   .main-grid,
   .main-grid.lower,
@@ -2430,6 +2591,11 @@ th {
 }
 
 @media (max-width: 680px) {
+  .dashboard-widgets,
+  .cli-step-grid {
+    grid-template-columns: 1fr;
+  }
+
   .app-shell {
     padding: 10px;
   }

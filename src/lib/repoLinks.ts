@@ -2,7 +2,7 @@ import type { Provider } from "./types"
 
 // The providers we can connect a billing account for (others can't be "accounts"
 // a repo links to).
-export const CONNECTABLE_PROVIDERS: Provider[] = ["aws", "vercel", "cloudflare", "gcp"]
+export const CONNECTABLE_PROVIDERS: Provider[] = ["aws", "vercel", "cloudflare", "gcp", "motherduck"]
 
 /**
  * Resolves which connected provider accounts a repo uses for cost. An explicit

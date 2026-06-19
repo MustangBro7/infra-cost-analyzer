@@ -24,7 +24,13 @@ async function resolveCurrentUser(): Promise<LocalUser | null> {
   if (!userId) return null
 
   const existing = await getUserById(userId)
-  if (existing) return existing
+  if (existing) {
+    // Environment-backed provider credentials may be added after a user first
+    // signed in. Re-run the idempotent connector so existing production users
+    // receive newly configured accounts without recreating their workspace.
+    await autoConnectFromEnv(existing.id)
+    return existing
+  }
 
   const profile = await currentUser()
   const email =

@@ -108,6 +108,8 @@ export function ProviderConnectPanel({
     const metadata = initialState.connections.gcp?.metadata as { billingExportTable?: string | null } | undefined
     return metadata?.billingExportTable ?? ""
   })
+  const [motherDuckUrl, setMotherDuckUrl] = React.useState("")
+  const [motherDuckPlan, setMotherDuckPlan] = React.useState<"free" | "lite" | "business">("free")
   const [awsRoleArn, setAwsRoleArn] = React.useState("")
   const [awsExternalId, setAwsExternalId] = React.useState("")
   const [awsAccessKeyId, setAwsAccessKeyId] = React.useState("")
@@ -149,7 +151,7 @@ export function ProviderConnectPanel({
   }
 
   const relevant = providerConnections.filter((connection) => {
-    return connection.detected || ["vercel", "cloudflare", "gcp", "aws"].includes(connection.provider)
+    return connection.detected || ["vercel", "cloudflare", "gcp", "aws", "motherduck"].includes(connection.provider)
   })
 
   const suggestedSet = new Set<Provider>(state.suggestedProviders ?? [])
@@ -327,6 +329,74 @@ export function ProviderConnectPanel({
                       <input type="text" value={gcpExportTable} onChange={(event) => setGcpExportTable(event.target.value)} placeholder="billing export table, optional: project.dataset.gcp_billing_export_resource_v1_..." />
                       <button type="submit" className="command-button" disabled={Boolean(busy) || !gcpKeyJson.trim()}>
                         {busy === "gcp-connect" ? <Loader2 className="spin" aria-hidden /> : <Cloud aria-hidden />}
+                        Verify
+                      </button>
+                    </form>
+                  </>
+                )}
+              </article>
+            )
+          }
+
+          if (connection.provider === "motherduck") {
+            const plan = (saved?.metadata as { plan?: string } | undefined)?.plan ?? "free"
+            const planLabel = `${plan.charAt(0).toUpperCase()}${plan.slice(1)} plan`
+            return (
+              <article key={connection.provider} className={connected ? "provider-connect-card connected" : "provider-connect-card"}>
+                <div className="provider-connect-title">
+                  <ProviderBadge provider="motherduck" />
+                  <strong>{connected ? saved?.accountLabel : "Connect MotherDuck"}</strong>
+                  {connected ? <span className="plan-badge">{planLabel}</span> : null}
+                </div>
+                {connected && saved ? (
+                  <ConnectedProviderState
+                    provider="motherduck"
+                    connection={saved}
+                    detail={
+                      plan === "free"
+                        ? "Free plan: database storage usage is shown without cost."
+                        : "Paid plan: live storage usage and published-rate storage cost are shown. Final billing uses average daily storage."
+                    }
+                  />
+                ) : (
+                  <>
+                    <p>
+                      Paste the PostgreSQL endpoint from MotherDuck Settings. Choose your current plan so free accounts show usage only and paid accounts show usage plus cost.
+                    </p>
+                    <a className="ghost-button" href="https://app.motherduck.com/settings/tokens" target="_blank" rel="noreferrer">
+                      <ExternalLink aria-hidden />
+                      Open MotherDuck settings
+                    </a>
+                    <form
+                      className="provider-token-form stacked"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        run("motherduck-connect", async () => {
+                          await jsonRequest("/api/motherduck/connect", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ connectionString: motherDuckUrl, plan: motherDuckPlan }),
+                          })
+                          setMotherDuckUrl("")
+                          setMessage("MotherDuck connected. Refreshing database usage.")
+                        })
+                      }}
+                    >
+                      <input
+                        type="password"
+                        value={motherDuckUrl}
+                        onChange={(event) => setMotherDuckUrl(event.target.value)}
+                        placeholder="postgresql://postgres:<token>@pg.<region>.motherduck.com:5432/<database>?sslmode=require"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <select value={motherDuckPlan} onChange={(event) => setMotherDuckPlan(event.target.value as typeof motherDuckPlan)}>
+                        <option value="free">Free / Lite free tier — usage only</option>
+                        <option value="lite">Lite paid — usage + storage cost</option>
+                        <option value="business">Business — usage + platform/storage cost</option>
+                      </select>
+                      <button type="submit" className="command-button" disabled={Boolean(busy) || !motherDuckUrl.trim()}>
+                        {busy === "motherduck-connect" ? <Loader2 className="spin" aria-hidden /> : <KeyRound aria-hidden />}
                         Verify
                       </button>
                     </form>

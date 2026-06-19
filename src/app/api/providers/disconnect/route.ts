@@ -6,7 +6,7 @@ import type { Provider } from "@/lib/types"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const ALLOWED = new Set<Provider>(["github", "vercel", "aws", "gcp", "azure", "cloudflare", "digitalocean", "docker"])
+const ALLOWED = new Set<Provider>(["github", "vercel", "aws", "gcp", "azure", "cloudflare", "motherduck", "digitalocean", "docker"])
 
 export async function POST(request: NextRequest) {
   try {

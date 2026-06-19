@@ -45,6 +45,13 @@ export const PROVIDERS: Record<Exclude<Provider, "unknown">, ProviderConfig> = {
     requiredSecrets: ["CLOUDFLARE_PROVIDER_API_TOKEN"],
     setupNotes: "Provide a scoped account token for Workers/Pages/D1/R2 inventory and billing usage where enabled.",
   },
+  motherduck: {
+    provider: "motherduck",
+    label: "MotherDuck",
+    authMode: "api_token",
+    requiredSecrets: ["MOTHERDUCK_DATABASE_URL"],
+    setupNotes: "Connect a PostgreSQL endpoint to track database storage usage and paid-plan storage cost.",
+  },
   digitalocean: {
     provider: "digitalocean",
     label: "DigitalOcean",

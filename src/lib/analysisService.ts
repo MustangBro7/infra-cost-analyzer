@@ -9,6 +9,7 @@ import { drainAnalyticsOutbox, enqueueAnalyticsPayload } from "./analytics/outbo
 import { analyticsPayloadFromSnapshot } from "./analytics/payload"
 import type { AnalyticsWriteResult } from "./analytics/types"
 import { writeAnalyticsPayload } from "./analytics/writer"
+import { autoConnectFromEnv } from "./connectors"
 
 export const OVERVIEW_SNAPSHOT_KEY = "__overview__"
 export type RefreshedAnalysisSnapshot = AnalysisSnapshot & { analytics: AnalyticsWriteResult }
@@ -113,11 +114,39 @@ export async function refreshAllSnapshotsLiveData(): Promise<{
   const store = await readStore()
   let users = 0
   let snapshots = 0
-  for (const [userId, workspace] of Object.entries(store.workspaces)) {
+  for (const [userId] of Object.entries(store.workspaces)) {
+    await autoConnectFromEnv(userId)
+    const workspace = await readWorkspace(userId)
     const snaps = Object.values(workspace.analysisSnapshots ?? {})
-    if (snaps.length === 0) continue
+    // A newly migrated or newly created production user may have connected
+    // accounts but no snapshot yet. Seed the overview during the scheduled sweep
+    // so data starts flowing without requiring an interactive dashboard visit.
+    if (snaps.length === 0) {
+      try {
+        const seeded = {
+          key: OVERVIEW_SNAPSHOT_KEY,
+          analysis: await buildAnalysisWithLiveData(emptyRepoScan(), process.env, userId, { skipCostExplorer: true }),
+          computedAt: new Date().toISOString(),
+        }
+        await writeAnalysisSnapshot(userId, seeded)
+        await persistAnalyticsSnapshot(userId, seeded)
+        users += 1
+        snapshots += 1
+      } catch {
+        // Continue with other users if one account's initial sync fails.
+      }
+      continue
+    }
     users += 1
-    for (const snap of snaps.slice(0, 10)) {
+    // A free-plan Worker is capped at 50 subrequests per invocation. Each
+    // snapshot fans out to several provider APIs, so prioritize the two surfaces
+    // the user actually lands on: account overview and the selected repository.
+    const prioritized = [...snaps].sort((a, b) => {
+      const rank = (key: string) =>
+        key === OVERVIEW_SNAPSHOT_KEY ? 0 : key === workspace.selectedRepoFullName ? 1 : 2
+      return rank(a.key) - rank(b.key) || b.computedAt.localeCompare(a.computedAt)
+    }).slice(0, 2)
+    for (const snap of prioritized) {
       try {
         const repoScan = { repo: snap.analysis.repo, signals: snap.analysis.signals }
         const analysis = await buildAnalysisWithLiveData(repoScan, process.env, userId, { skipCostExplorer: true })

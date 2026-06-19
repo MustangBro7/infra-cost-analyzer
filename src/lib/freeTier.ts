@@ -63,6 +63,12 @@ const FREE_TIER_PLANS: Partial<Record<Provider, FreeTierPlan>> = {
       { service: "Cloud Storage", limit: 5, unit: "GB", match: /storage/i },
     ],
   },
+  motherduck: {
+    planName: "MotherDuck Free",
+    allowances: [
+      { service: "Managed storage", limit: 10, unit: "GB", match: /free plan storage/i },
+    ],
+  },
 }
 
 function roundTo(value: number, digits = 2) {
@@ -73,6 +79,7 @@ function roundTo(value: number, digits = 2) {
 function providerDisplay(provider: Provider): string {
   if (provider === "gcp") return "Google Cloud"
   if (provider === "aws") return "AWS"
+  if (provider === "motherduck") return "MotherDuck"
   return provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 

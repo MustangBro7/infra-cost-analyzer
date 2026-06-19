@@ -7,6 +7,7 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   gcp: "Google Cloud",
   azure: "Azure",
   cloudflare: "Cloudflare",
+  motherduck: "MotherDuck",
   digitalocean: "DigitalOcean",
   docker: "Docker",
   unknown: "Unknown",

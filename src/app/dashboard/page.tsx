@@ -1,6 +1,8 @@
 import {
   ArrowLeft,
   ArrowUpRight,
+  Boxes,
+  CheckCircle2,
   ChevronDown,
   CloudCog,
   DatabaseZap,
@@ -11,6 +13,7 @@ import {
   RefreshCw,
   ShieldAlert,
   Signal,
+  TerminalSquare,
   Wallet,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -72,6 +75,7 @@ const PROVIDER_COLOR: Partial<Record<Provider, string>> = {
   cloudflare: "#b54035",
   gcp: "#285f9f",
   vercel: "#151515",
+  motherduck: "#46a37b",
   azure: "#7152a5",
 }
 
@@ -377,6 +381,80 @@ function AccountsBoard({
   )
 }
 
+function DashboardWidgets({
+  analysis,
+  connectedProviders,
+}: {
+  analysis: AnalysisResult
+  connectedProviders: Provider[]
+}) {
+  const successful = analysis.liveSync.filter((entry) => entry.status === "success").length
+  const errors = analysis.liveSync.filter((entry) => entry.status === "error").length
+  const measured = analysis.freeTier.filter((row) => row.source === "measured").length
+  const latest = analysis.liveSync
+    .map((entry) => entry.syncedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1)
+  return (
+    <section className="dashboard-widgets" aria-label="Account health">
+      <article>
+        <CheckCircle2 aria-hidden />
+        <span>Live sources</span>
+        <strong>{successful}/{connectedProviders.length}</strong>
+        <small>{errors ? `${errors} need attention` : "All responding"}</small>
+      </article>
+      <article>
+        <Gauge aria-hidden />
+        <span>Usage metrics</span>
+        <strong>{measured}</strong>
+        <small>Measured this period</small>
+      </article>
+      <article>
+        <Boxes aria-hidden />
+        <span>Resources</span>
+        <strong>{analysis.resourceItems.length}</strong>
+        <small>Available for repo assignment</small>
+      </article>
+      <article>
+        <RefreshCw aria-hidden />
+        <span>Last refresh</span>
+        <strong>{latest ? new Date(latest).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"}</strong>
+        <small>{latest ? new Date(latest).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Waiting for first sync"}</small>
+      </article>
+    </section>
+  )
+}
+
+function CliConnectionGuide() {
+  return (
+    <section className="cli-connect-guide" aria-label="Connect accounts with the CLI">
+      <div className="cli-guide-head">
+        <div>
+          <p>Recommended setup</p>
+          <h2>Connect every local cloud account from one command</h2>
+          <span>The CLI pairs to this signed-in workspace, provisions read-only access, verifies each account, and starts the first data refresh.</span>
+        </div>
+        <TerminalSquare aria-hidden />
+      </div>
+      <div className="cli-command">
+        <span>Run from your terminal</span>
+        <code>AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer</code>
+      </div>
+      <div className="cli-step-grid">
+        <article><b>1</b><div><strong>Sign in to local CLIs</strong><span>Use <code>aws login</code>, <code>gcloud auth login</code>, and keep your Cloudflare/MotherDuck tokens ready.</span></div></article>
+        <article><b>2</b><div><strong>Approve pairing</strong><span>The command opens Ambrium. Confirm the displayed device code while signed in.</span></div></article>
+        <article><b>3</b><div><strong>Review read-only access</strong><span>AWS gets a scoped IAM role; GCP gets a billing-reader service account; Cloudflare and MotherDuck use tokens you provide.</span></div></article>
+        <article><b>4</b><div><strong>Verify data</strong><span>Return here after the command finishes. Connected cards turn green and the dashboard refreshes cost and usage.</span></div></article>
+      </div>
+      <div className="cli-prereqs">
+        <strong>Provider notes</strong>
+        <span>AWS Cost Explorer is opt-in because AWS charges per request. GCP detailed cost still requires Billing Export. Free MotherDuck plans show usage only; paid plans add published-rate cost.</span>
+      </div>
+    </section>
+  )
+}
+
 function RepositoryDashboard({
   analysis,
   repos,
@@ -415,6 +493,8 @@ function RepositoryDashboard({
             measuredUsageCount={measuredUsageCount}
             emptyNote="No billed spend across your connected accounts this month. Connect accounts under Credentials, or check Repos for per-project usage."
           />
+
+          <DashboardWidgets analysis={analysis} connectedProviders={connectedProviders} />
 
           <AccountsBoard analysis={analysis} connectedProviders={connectedProviders} state={state} />
 
@@ -480,6 +560,8 @@ function RepositoryDashboard({
               {connectedProviders.length} {connectedProviders.length === 1 ? "account" : "accounts"} <span className="hero-sub">connected</span>
             </h1>
           </section>
+
+          <CliConnectionGuide />
 
           <AccountsBoard analysis={analysis} connectedProviders={connectedProviders} state={state} />
 

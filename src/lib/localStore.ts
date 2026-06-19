@@ -552,5 +552,7 @@ function labelProvider(provider: Provider | "system") {
     ? "GitHub"
     : provider === "gcp"
       ? "Google Cloud"
+      : provider === "motherduck"
+        ? "MotherDuck"
       : provider.charAt(0).toUpperCase() + provider.slice(1)
 }

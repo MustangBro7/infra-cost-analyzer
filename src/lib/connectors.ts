@@ -3,6 +3,12 @@ import { fetchVercelPlan, listVercelProjects, verifyVercelToken } from "./vercel
 import { verifyCloudflareToken } from "./cloudflareClient"
 import { discoverBillingExportTable, normalizeBillingExportTableId, verifyGcpServiceAccount } from "./gcpClient"
 import { assumeAwsRole, verifyAwsCredentials, type AwsCredentials } from "./awsClient"
+import {
+  fetchMotherDuckUsage,
+  motherDuckRegion,
+  sanitizeMotherDuckConnectionString,
+  type MotherDuckPlan,
+} from "./motherduckClient"
 
 export async function connectVercelToken(
   userId: string,
@@ -65,6 +71,29 @@ export async function connectCloudflareToken(userId: string, token: string) {
     accountLabel: verified.accountLabel,
     accountCount: verified.accounts.length,
   }
+}
+
+export async function connectMotherDuck(userId: string, connectionString: string, plan: MotherDuckPlan) {
+  if (!["free", "lite", "business"].includes(plan)) throw new Error("Select a valid MotherDuck plan.")
+  const safeUrl = sanitizeMotherDuckConnectionString(connectionString)
+  const usage = await fetchMotherDuckUsage(safeUrl)
+  const effectivePlan = usage.detectedPlan ?? plan
+  const accountLabel = `${usage.databaseName} · ${usage.username}`
+  await upsertConnection(userId, {
+    provider: "motherduck",
+    status: "connected",
+    accountLabel,
+    accessToken: safeUrl,
+    connectedAt: new Date().toISOString(),
+    lastVerifiedAt: new Date().toISOString(),
+    lastError: null,
+    metadata: {
+      plan: effectivePlan,
+      region: motherDuckRegion(safeUrl),
+      databaseCount: usage.databases.length,
+    },
+  })
+  return { accountLabel, databaseCount: usage.databases.length, plan: effectivePlan }
 }
 
 /**
@@ -258,6 +287,7 @@ function decodeMaybeBase64(value: string) {
  *   VERCEL_TOKEN (+ VERCEL_TEAM_ID / VERCEL_TEAM_SLUG)
  *   CLOUDFLARE_PROVIDER_API_TOKEN
  *   GCP_SERVICE_ACCOUNT_KEY (raw or base64 JSON) + optional GCP_BILLING_EXPORT_TABLE
+ *   MOTHERDUCK_PROVIDER_DATABASE_URL + optional MOTHERDUCK_PROVIDER_PLAN
  *
  * AWS is deliberately excluded — it is per-user (connected from the UI) so each
  * user's Cost Explorer charges and data stay on their own account.
@@ -293,6 +323,26 @@ export async function autoConnectFromEnv(userId: string): Promise<Array<{ provid
       provider: "cloudflare",
       run: async () => {
         const result = await connectCloudflareToken(userId, cloudflareProviderToken)
+        return result.accountLabel
+      },
+    })
+  }
+  if (
+    workspace.connections.motherduck?.status !== "connected" &&
+    process.env.MOTHERDUCK_PROVIDER_DATABASE_URL
+  ) {
+    tasks.push({
+      provider: "motherduck",
+      run: async () => {
+        const rawPlan = process.env.MOTHERDUCK_PROVIDER_PLAN ?? "free"
+        const plan: MotherDuckPlan = ["free", "lite", "business"].includes(rawPlan)
+          ? rawPlan as MotherDuckPlan
+          : "free"
+        const result = await connectMotherDuck(
+          userId,
+          process.env.MOTHERDUCK_PROVIDER_DATABASE_URL as string,
+          plan
+        )
         return result.accountLabel
       },
     })

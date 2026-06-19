@@ -17,6 +17,7 @@ import { getAwsCostAndUsage, getAwsFreeTierUsage, resolveAwsCredentials, type Aw
 import { fetchVercelAccountUsage, listVercelBillingCharges } from "./vercelClient"
 import { getCloudflareAccountResources, getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
+import { fetchMotherDuckUsage, motherDuckStorageRate, type MotherDuckPlan } from "./motherduckClient"
 
 function period() {
   const now = new Date()
@@ -78,17 +79,18 @@ export async function buildAnalysisWithLiveData(
   options?: { skipCostExplorer?: boolean; forceCostExplorer?: boolean }
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
-  const [vercel, cloudflare, gcp, aws] = await Promise.all([
+  const [vercel, cloudflare, gcp, motherduck, aws] = await Promise.all([
     loadVercelLive(workspace, repoScan),
     loadCloudflareLive(workspace),
     loadGcpLive(workspace),
+    loadMotherDuckLive(workspace),
     loadAwsLive(workspace, userId, options),
   ])
-  const standard = [vercel, cloudflare, gcp]
+  const standard = [vercel, cloudflare, gcp, motherduck]
   const costRows = [...standard.flatMap((result) => result.rows), ...aws.rows]
   const usage = [...standard.flatMap((result) => result.usage), ...aws.usage]
   const liveSync = [...standard.map((result) => result.sync), aws.sync]
-  const resourceItems = [vercel, cloudflare, gcp, aws].flatMap((result) => result.resources ?? [])
+  const resourceItems = [vercel, cloudflare, gcp, motherduck, aws].flatMap((result) => result.resources ?? [])
   return finalizeAnalysis(repoScan, env, workspace, costRows, usage, liveSync, aws.freeTier, resourceItems)
 }
 
@@ -494,6 +496,95 @@ async function loadGcpLive(workspace: WorkspaceStore): Promise<LiveResult> {
         provider: "gcp",
         status: "error",
         message: error instanceof Error ? error.message : "Failed to query the GCP billing export.",
+        rows: 0,
+        syncedAt: new Date().toISOString(),
+      },
+    }
+  }
+}
+
+async function loadMotherDuckLive(workspace: WorkspaceStore): Promise<LiveResult> {
+  const connection = workspace.connections.motherduck
+  if (!connection?.accessToken || connection.status !== "connected") {
+    return notConnected("motherduck", "Connect MotherDuck to track database storage usage.")
+  }
+
+  try {
+    const metadata = connection.metadata as { plan?: MotherDuckPlan; region?: string }
+    const plan = metadata.plan ?? "free"
+    const region = metadata.region ?? "us-east-1"
+    const result = await fetchMotherDuckUsage(connection.accessToken)
+    const totalGb = result.totalBytes / 1_000_000_000
+    const rate = motherDuckStorageRate(region)
+    const billableGb = plan === "lite" ? Math.max(totalGb - 10, 0) : plan === "business" ? totalGb : 0
+    const rows: NormalizedCostRow[] = []
+
+    if (plan === "business") {
+      rows.push({
+        provider: "motherduck",
+        serviceName: "Business platform",
+        resourceId: null,
+        resourceName: result.databaseName,
+        billingPeriodStart: period().from,
+        billingPeriodEnd: period().to,
+        cost: 250,
+        currency: "USD",
+        attribution: "user_confirmed",
+        attributionReason: "MotherDuck Business platform fee from the connected account's selected plan.",
+        signalId: "motherduck-live:platform",
+        source: "live",
+      })
+    }
+    if (plan !== "free" && billableGb > 0) {
+      rows.push({
+        provider: "motherduck",
+        serviceName: "Managed storage",
+        resourceId: null,
+        resourceName: `${result.databases.length} databases`,
+        billingPeriodStart: period().from,
+        billingPeriodEnd: period().to,
+        cost: Number((billableGb * rate).toFixed(4)),
+        currency: "USD",
+        attribution: "user_confirmed",
+        attributionReason: `Estimated from live database size at the published ${region} storage rate; final billing uses average daily storage.`,
+        signalId: "motherduck-live:storage",
+        source: "live",
+      })
+    }
+
+    return {
+      rows,
+      usage: [{
+        provider: "motherduck",
+        service: `${plan === "free" ? "Free" : plan === "lite" ? "Lite" : "Business"} plan storage`,
+        quantity: Number(totalGb.toFixed(3)),
+        unit: "GB",
+      }],
+      resources: result.databases.map((database) => ({
+        provider: "motherduck",
+        itemKey: `motherduck::database::${database.name}`.toLowerCase(),
+        kind: "Database",
+        name: database.name,
+        quantity: Number((database.bytes / 1_000_000_000).toFixed(3)),
+        unit: "GB",
+      })),
+      sync: {
+        provider: "motherduck",
+        status: "success",
+        message: `Loaded storage usage for ${result.databases.length} MotherDuck database(s) on the ${plan} plan.`,
+        rows: rows.length,
+        syncedAt: new Date().toISOString(),
+      },
+    }
+  } catch (error) {
+    return {
+      rows: [],
+      usage: [],
+      resources: [],
+      sync: {
+        provider: "motherduck",
+        status: "error",
+        message: error instanceof Error ? error.message : "Failed to sync MotherDuck usage.",
         rows: 0,
         syncedAt: new Date().toISOString(),
       },
