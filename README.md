@@ -190,7 +190,7 @@ For production, use the deployed URL shown in the app's setup guide for both
 Callback URL and Setup URL:
 
 ```text
-https://your-worker-domain/api/github/callback
+https://ambrium.io/api/github/callback
 ```
 
 In the GitHub App's Post installation section, check `Redirect on update`.

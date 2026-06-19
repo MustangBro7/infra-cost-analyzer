@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createInstallationToken, listInstallationRepos } from "@/lib/githubClient"
 import { currentUserFromRequest } from "@/lib/localAuth"
 import { appendEvent, saveGitHubRepos, syncGitHubRepo, upsertConnection } from "@/lib/localStore"
+import { appUrl } from "@/lib/appUrl"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -13,8 +14,15 @@ export async function GET(request: NextRequest) {
       throw new Error("Missing installation_id from GitHub callback.")
     }
     const signedInUser = await currentUserFromRequest(request)
-    const userId = request.nextUrl.searchParams.get("state") || signedInUser?.id
-    if (!userId) throw new Error("Missing GitHub callback state. Return to the app and click Choose GitHub repos again.")
+    if (!signedInUser) throw new Error("Sign in required.")
+    const stateUserId = request.nextUrl.searchParams.get("state")
+    if (!stateUserId) {
+      throw new Error("Missing GitHub callback state. Return to the app and click Choose GitHub repos again.")
+    }
+    if (stateUserId !== signedInUser.id) {
+      throw new Error("GitHub callback state does not match the signed-in user.")
+    }
+    const userId = signedInUser.id
     const token = await createInstallationToken(installationId)
     const repos = await listInstallationRepos(token.token)
     const selected = repos[0]?.fullName ?? null
@@ -37,7 +45,7 @@ export async function GET(request: NextRequest) {
         tokenExpiresAt: token.expires_at,
       },
     })
-    return NextResponse.redirect(new URL("/dashboard?view=repos", request.url))
+    return NextResponse.redirect(appUrl("/dashboard?view=repos", request.nextUrl.origin))
   } catch (error) {
     const userId = request.nextUrl.searchParams.get("state")
     if (userId) await appendEvent(userId, {

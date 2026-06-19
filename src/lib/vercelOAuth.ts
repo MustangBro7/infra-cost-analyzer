@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto"
 import type { NextRequest } from "next/server"
+import { appOrigin } from "./appUrl"
 
 const OAUTH_COOKIE_PREFIX = "ica_vercel_oauth"
 
@@ -24,23 +25,11 @@ export function vercelClientSecret() {
 }
 
 export function vercelRedirectUri(origin: string) {
-  return process.env.VERCEL_OAUTH_REDIRECT_URI || `${browserSafeLocalOrigin(origin)}/api/vercel/oauth/callback`
+  return process.env.VERCEL_OAUTH_REDIRECT_URI || `${appOrigin(origin)}/api/vercel/oauth/callback`
 }
 
 export function vercelOAuthConfigured() {
   return Boolean(vercelClientId())
-}
-
-function browserSafeLocalOrigin(origin: string) {
-  try {
-    const url = new URL(origin)
-    if (url.hostname === "0.0.0.0") {
-      url.hostname = "localhost"
-    }
-    return url.origin
-  } catch {
-    return origin
-  }
 }
 
 export function oauthCookieOptions(request: NextRequest) {

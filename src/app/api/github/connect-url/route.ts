@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { githubInstallUrl, hasGitHubAppConfig } from "@/lib/githubClient"
 import { AuthRequiredError, requireUserFromRequest } from "@/lib/localAuth"
 import { appendEvent } from "@/lib/localStore"
+import { appOrigin } from "@/lib/appUrl"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic"
 export async function GET(request: NextRequest) {
   try {
     const user = await requireUserFromRequest(request)
-    const origin = request.nextUrl.origin
+    const origin = appOrigin(request.nextUrl.origin)
     const callbackUrl = new URL("/api/github/callback", origin).toString()
     const appName = "Ambrium"
     const githubNewAppUrl = new URL("https://github.com/settings/apps/new")

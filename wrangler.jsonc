@@ -18,6 +18,7 @@
   // safe to ship to the browser). The matching CLERK_SECRET_KEY is set as a
   // Worker secret: `npx wrangler secret put CLERK_SECRET_KEY`.
   "vars": {
+    "APP_URL": "https://ambrium.io",
     "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuYW1icml1bS5pbyQ",
     "NEXT_PUBLIC_CLERK_SIGN_IN_URL": "/sign-in",
     "NEXT_PUBLIC_CLERK_SIGN_UP_URL": "/sign-up",

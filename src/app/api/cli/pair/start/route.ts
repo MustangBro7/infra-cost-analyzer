@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createCliPairing } from "@/lib/cliPairing"
+import { appUrl } from "@/lib/appUrl"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -8,6 +9,6 @@ export const dynamic = "force-dynamic"
 // resulting codes are useless until a signed-in user approves the userCode.
 export async function POST(request: NextRequest) {
   const pairing = await createCliPairing()
-  const verificationUrl = new URL("/pair", request.nextUrl.origin).toString()
+  const verificationUrl = appUrl("/pair", request.nextUrl.origin).toString()
   return NextResponse.json({ ...pairing, verificationUrl })
 }

@@ -1,5 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { appUrl } from "@/lib/appUrl";
 
 // /api/cron is called server-to-server by the separate cron Worker and
 // authenticates with its own CRON_SECRET header, not a Clerk session, so it must
@@ -19,6 +20,12 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
+  // The workers.dev route exists only as an infrastructure fallback. Browser
+  // traffic must stay on ambrium.io so Clerk session cookies and third-party
+  // callbacks always share one origin.
+  if (request.nextUrl.hostname.endsWith(".workers.dev")) {
+    return NextResponse.redirect(appUrl(`${request.nextUrl.pathname}${request.nextUrl.search}`, request.nextUrl.origin), 308);
+  }
   if (isPublicRoute(request)) return;
   const { userId, redirectToSignIn } = await auth();
   if (userId) return;
