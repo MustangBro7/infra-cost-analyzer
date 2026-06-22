@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { AlertTriangle, BarChart3, Loader2 } from "lucide-react"
-import type { AnalyticsServicesResult, AnalyticsTrendsResult } from "@/lib/analytics/types"
+import type { AnalyticsDashboardResult, AnalyticsServicesResult, AnalyticsTrendsResult } from "@/lib/analytics/types"
 
 function monthOffset(month: string, offset: number): string {
   const [year, monthNumber] = month.split("-").map(Number)
@@ -36,32 +36,58 @@ export function HistoricalAnalyticsPanel({
   repo: string | null
   currentMonth: string
 }) {
+  const rootRef = React.useRef<HTMLElement | null>(null)
+  const [enabled, setEnabled] = React.useState(false)
   const [trends, setTrends] = React.useState<AnalyticsTrendsResult | null>(null)
   const [services, setServices] = React.useState<AnalyticsServicesResult | null>(null)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
+    const root = rootRef.current
+    if (!root || enabled) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        setEnabled(true)
+        observer.disconnect()
+      },
+      { rootMargin: "400px" }
+    )
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [enabled])
+
+  React.useEffect(() => {
+    if (!enabled) return
     const controller = new AbortController()
     const query = repo ? `&repo=${encodeURIComponent(repo)}` : ""
-    Promise.all([
-      fetch(`/api/analytics/trends?from=${monthOffset(currentMonth, -11)}&to=${currentMonth}${query}`, {
-        signal: controller.signal,
-      }),
-      fetch(`/api/analytics/services?month=${currentMonth}${query}`, { signal: controller.signal }),
-    ])
-      .then(async ([trendResponse, serviceResponse]) => {
-        const trendBody = await trendResponse.json() as AnalyticsTrendsResult & { error?: string }
-        const serviceBody = await serviceResponse.json() as AnalyticsServicesResult & { error?: string }
-        if (!trendResponse.ok) throw new Error(trendBody.error ?? "Historical trends are unavailable.")
-        if (!serviceResponse.ok) throw new Error(serviceBody.error ?? "Service analytics are unavailable.")
-        setTrends(trendBody as AnalyticsTrendsResult)
-        setServices(serviceBody as AnalyticsServicesResult)
+    fetch(
+      `/api/analytics/dashboard?from=${monthOffset(currentMonth, -11)}&to=${currentMonth}&month=${currentMonth}${query}`,
+      { signal: controller.signal }
+    )
+      .then(async (response) => {
+        const body = await response.json() as AnalyticsDashboardResult & { error?: string }
+        if (!response.ok) throw new Error(body.error ?? "Historical analytics are unavailable.")
+        setTrends(body.trends)
+        setServices(body.services)
       })
       .catch((reason) => {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Analytics are unavailable.")
       })
     return () => controller.abort()
-  }, [currentMonth, repo])
+  }, [currentMonth, enabled, repo])
+
+  if (!enabled) {
+    return (
+      <section ref={rootRef} className="analytics-state" aria-label="Historical cost analytics">
+        <BarChart3 aria-hidden />
+        <div>
+          <strong>Cost history</strong>
+          <span>Loads as this section approaches the viewport.</span>
+        </div>
+      </section>
+    )
+  }
 
   if (error) {
     return (

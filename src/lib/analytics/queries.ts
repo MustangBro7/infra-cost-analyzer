@@ -1,5 +1,5 @@
 import { analyticsRuntimeFlags, withAnalyticsClient } from "./connection"
-import type { AnalyticsServicesResult, AnalyticsTrendsResult } from "./types"
+import type { AnalyticsDashboardResult, AnalyticsServicesResult, AnalyticsTrendsResult } from "./types"
 
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/
 
@@ -112,6 +112,95 @@ export async function getAnalyticsServices(input: {
       repo: input.repo,
       services,
       lastObservedAt: services.map((row) => row.lastObservedAt).sort().at(-1) ?? null,
+    }
+  })
+}
+
+/**
+ * Loads all dashboard analytics over one authenticated request and one database
+ * connection. The client previously opened two API requests, each of which
+ * repeated authentication and established its own MotherDuck connection.
+ */
+export async function getAnalyticsDashboard(input: {
+  userId: string
+  from: string
+  to: string
+  month: string
+  repo: string | null
+}): Promise<AnalyticsDashboardResult> {
+  validateMonthRange(input.from, input.to)
+  validateMonth(input.month)
+  const flags = await analyticsRuntimeFlags()
+  if (!flags.reads) throw new Error("Historical analytics are disabled.")
+
+  const trendScope = scopeClause(input.repo, 4)
+  const serviceScope = scopeClause(input.repo, 3)
+  return withAnalyticsClient(async (client) => {
+    const trendValues = [input.userId, `${input.from}-01`, `${input.to}-01`, ...trendScope.values]
+    const serviceValues = [input.userId, `${input.month}-01`, ...serviceScope.values]
+    const [trends, providers, services] = await Promise.all([
+      client.query(
+        `SELECT strftime(month, '%Y-%m') AS month, currency, total::DOUBLE AS total,
+                last_observed_at::VARCHAR AS last_observed_at
+         FROM monthly_cost_summary
+         WHERE user_id = $1 AND month >= $2::DATE AND month <= $3::DATE AND ${trendScope.sql}
+         ORDER BY month, currency`,
+        trendValues
+      ),
+      client.query(
+        `SELECT strftime(month, '%Y-%m') AS month, provider, currency, total::DOUBLE AS total,
+                last_observed_at::VARCHAR AS last_observed_at
+         FROM provider_monthly_summary
+         WHERE user_id = $1 AND month >= $2::DATE AND month <= $3::DATE AND ${trendScope.sql}
+         ORDER BY month, total DESC`,
+        trendValues
+      ),
+      client.query(
+        `SELECT provider, service_name, currency, total::DOUBLE AS total,
+                last_observed_at::VARCHAR AS last_observed_at
+         FROM service_monthly_summary
+         WHERE user_id = $1 AND month = $2::DATE AND ${serviceScope.sql}
+         ORDER BY total DESC`,
+        serviceValues
+      ),
+    ])
+
+    const trendRows = trends.rows.map((row) => ({
+      month: String(row.month),
+      currency: String(row.currency),
+      total: Number(row.total),
+      lastObservedAt: String(row.last_observed_at),
+    }))
+    const providerRows = providers.rows.map((row) => ({
+      month: String(row.month),
+      provider: String(row.provider),
+      currency: String(row.currency),
+      total: Number(row.total),
+      lastObservedAt: String(row.last_observed_at),
+    }))
+    const serviceRows = services.rows.map((row) => ({
+      provider: String(row.provider),
+      serviceName: String(row.service_name),
+      currency: String(row.currency),
+      total: Number(row.total),
+      lastObservedAt: String(row.last_observed_at),
+    }))
+
+    return {
+      trends: {
+        from: input.from,
+        to: input.to,
+        repo: input.repo,
+        trends: trendRows,
+        providers: providerRows,
+        lastObservedAt: [...trendRows, ...providerRows].map((row) => row.lastObservedAt).sort().at(-1) ?? null,
+      },
+      services: {
+        month: input.month,
+        repo: input.repo,
+        services: serviceRows,
+        lastObservedAt: serviceRows.map((row) => row.lastObservedAt).sort().at(-1) ?? null,
+      },
     }
   })
 }

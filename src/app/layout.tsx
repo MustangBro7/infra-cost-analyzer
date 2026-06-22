@@ -1,4 +1,3 @@
-import {ClerkProvider} from "@clerk/nextjs";
 import type { Metadata } from "next"
 import "./globals.css"
 
@@ -18,11 +17,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body>
-        <ClerkProvider>
-          {children}
-        </ClerkProvider>
-      </body>
+      <body>{children}</body>
     </html>
   )
 }

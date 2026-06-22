@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { Check, Loader2, PlugZap, Plus } from "lucide-react"
 import type { Provider } from "@/lib/types"
 import { ProviderLogo } from "./ProviderLogo"
@@ -109,7 +110,7 @@ export function RepoAccountPicker({
             This repo also uses{" "}
             <strong>{detectedNotConnected.map((provider) => providerName(provider)).join(", ")}</strong>, which{" "}
             {detectedNotConnected.length === 1 ? "isn't" : "aren't"} connected yet.{" "}
-            <a href="/dashboard?view=credentials">Connect on Credentials →</a>
+            <Link href="/dashboard?view=credentials" prefetch={false}>Connect on Credentials →</Link>
           </span>
         </div>
       ) : null}

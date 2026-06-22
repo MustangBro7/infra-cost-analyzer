@@ -98,3 +98,8 @@ export interface AnalyticsServicesResult {
   services: BreakdownPoint[]
   lastObservedAt: string | null
 }
+
+export interface AnalyticsDashboardResult {
+  trends: AnalyticsTrendsResult
+  services: AnalyticsServicesResult
+}

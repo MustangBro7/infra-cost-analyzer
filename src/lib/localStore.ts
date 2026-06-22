@@ -44,14 +44,15 @@ export function setStorePathForTests(filePath: string | null) {
 // reached through the DB binding, since Workers have no writable filesystem.
 
 function storePath() {
-  return testStorePath || path.join(dataRoot(), ".data", "tenant-store.json")
-}
-
-function dataRoot() {
-  if (process.env.DATA_DIR) return process.env.DATA_DIR
-  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) return "/tmp/infra-cost-analyzer"
+  if (testStorePath) return testStorePath
+  if (process.env.DATA_DIR) return path.join(process.env.DATA_DIR, ".data", "tenant-store.json")
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return "/tmp/infra-cost-analyzer/.data/tenant-store.json"
+  }
   const cwd = process.cwd().replaceAll(path.sep, "/")
-  return cwd.endsWith(".next/standalone") ? path.resolve(process.cwd(), "../..") : process.cwd()
+  return cwd.endsWith(".next/standalone")
+    ? path.join(/* turbopackIgnore: true */ process.cwd(), "..", "..", ".data", "tenant-store.json")
+    : path.join(/* turbopackIgnore: true */ process.cwd(), ".data", "tenant-store.json")
 }
 
 const STORE_KEY = "infra-cost-analyzer:app-store"
@@ -71,7 +72,7 @@ let d1TableReady = false
 async function d1Binding(): Promise<D1DatabaseLike | null> {
   if (testStorePath) return null
   try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare")
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare/cloudflare-context")
     const context = getCloudflareContext()
     const db = (context.env as { DB?: D1DatabaseLike }).DB ?? null
     if (db && !d1TableReady) {
@@ -100,9 +101,9 @@ async function loadRaw(): Promise<unknown> {
     }
   }
   const filePath = storePath()
-  if (!existsSync(filePath)) return null
+  if (!existsSync(/* turbopackIgnore: true */ filePath)) return null
   try {
-    return JSON.parse(readFileSync(filePath, "utf8"))
+    return JSON.parse(readFileSync(/* turbopackIgnore: true */ filePath, "utf8"))
   } catch {
     return null
   }
@@ -437,6 +438,24 @@ export async function appendEvent(userId: string, event: Omit<ConnectionEvent, "
 
 export async function publicStore(userId: string) {
   const workspace = await readWorkspace(userId)
+  return publicStoreFromWorkspace(workspace)
+}
+
+/**
+ * Loads the dashboard's private and public workspace views from one backend
+ * read. The dashboard used to call publicStore(), readWorkspace(), and then
+ * readAnalysisSnapshot(), which fetched and parsed the same D1 JSON document
+ * three times on every navigation.
+ */
+export async function readDashboardStore(userId: string) {
+  const workspace = await readWorkspace(userId)
+  return {
+    workspace,
+    publicState: publicStoreFromWorkspace(workspace),
+  }
+}
+
+function publicStoreFromWorkspace(workspace: WorkspaceStore) {
   const events =
     workspace.events.length > 0
       ? workspace.events

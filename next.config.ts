@@ -1,5 +1,5 @@
 import type { NextConfig } from "next"
-import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare"
+import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare/cloudflare-context"
 
 // Gives `next dev` access to the Cloudflare bindings (D1) from wrangler.jsonc.
 initOpenNextCloudflareForDev()

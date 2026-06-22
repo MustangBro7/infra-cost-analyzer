@@ -23,6 +23,7 @@ import {
   Wallet,
 } from "lucide-react"
 import type { ReactNode } from "react"
+import Link from "next/link"
 import { redirect } from "next/navigation"
 import { RepoSyncPanel } from "../RepoSyncPanel"
 import { ProviderConnectPanel } from "../ProviderConnectPanel"
@@ -35,9 +36,9 @@ import { SignOutButton } from "../SignOutButton"
 import { ThemeToggle } from "../ThemeToggle"
 import { HistoricalAnalyticsPanel } from "../HistoricalAnalyticsPanel"
 import { RepoHomeCard } from "../RepoHomeCard"
-import { getOrCreateAnalysisSnapshot } from "@/lib/analysisService"
+import { getOrCreateAnalysisSnapshot, snapshotKeyForRepo } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
-import { publicStore, readWorkspace } from "@/lib/localStore"
+import { publicStore, readDashboardStore } from "@/lib/localStore"
 import { CONNECTABLE_PROVIDERS, resolveLinkedProviders } from "@/lib/repoLinks"
 import { costItemKey, isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
 import { resourceMetricService, resourceUsageRows } from "@/lib/freeTier"
@@ -354,15 +355,16 @@ function ViewTabs({ view }: { view: ViewKey }) {
   return (
     <nav className="view-tabs" aria-label="Sections">
       {tabs.map(({ key, label, icon: Icon, href }) => (
-        <a
+        <Link
           key={key}
           href={href}
+          prefetch={false}
           className={view === key ? "view-tab active" : "view-tab"}
           aria-current={view === key ? "page" : undefined}
         >
           <Icon aria-hidden />
           {label}
-        </a>
+        </Link>
       ))}
     </nav>
   )
@@ -1093,10 +1095,10 @@ function RepoDetail({
 
   return (
     <>
-      <a href="/dashboard" className="back-link">
+      <Link href="/dashboard" prefetch={false} className="back-link">
         <ArrowLeft aria-hidden />
         Overview
-      </a>
+      </Link>
 
       <section className="repo-detail-hero" aria-label="Repository detail">
         <div>
@@ -1211,8 +1213,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const requestedRepo = Array.isArray(rawRepo) ? rawRepo[0] : rawRepo ?? null
   const rawView = Array.isArray(params.view) ? params.view[0] : params.view
   const view: ViewKey = rawView === "repos" || rawView === "credentials" ? rawView : "dashboards"
-  const state = { user, ...(await publicStore(user.id)) }
-  const workspace = await readWorkspace(user.id)
+  const dashboardStore = await readDashboardStore(user.id)
+  const state = { user, ...dashboardStore.publicState }
+  const workspace = dashboardStore.workspace
   const repoAnalyses = Object.fromEntries(
     Object.entries(workspace.analysisSnapshots)
       .filter(([key]) => key !== "__overview__" && key !== "__local__")
@@ -1220,11 +1223,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   )
   // Renders from the persisted snapshot (DB read). Live provider/GitHub data is
   // refreshed out-of-band by <AnalysisRefresher>, not on every page load.
-  const snapshot = await getOrCreateAnalysisSnapshot({
-    userId: user.id,
-    requestedRepo,
-    githubRepos: state.githubRepos,
-  })
+  const snapshot =
+    workspace.analysisSnapshots[snapshotKeyForRepo(requestedRepo)] ??
+    await getOrCreateAnalysisSnapshot({
+      userId: user.id,
+      requestedRepo,
+      githubRepos: state.githubRepos,
+    })
   const analysis = snapshot.analysis
   const repos = repoList(state)
   const selectedRepo = requestedRepo ? repos.find((repo) => repo.fullName === requestedRepo) ?? null : null

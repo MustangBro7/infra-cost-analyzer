@@ -42,7 +42,7 @@ async function deliver(payload: AnalyticsPayload) {
 async function database(): Promise<D1DatabaseLike | null> {
   if (testDatabase !== undefined) return testDatabase
   try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare")
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare/cloudflare-context")
     return ((getCloudflareContext().env as { DB?: D1DatabaseLike }).DB ?? null)
   } catch {
     return null

@@ -30,7 +30,7 @@ export function analyticsReadsEnabled(
 
 async function cloudflareEnv(): Promise<AnalyticsConnectionEnv | null> {
   try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare")
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare/cloudflare-context")
     return getCloudflareContext().env as unknown as AnalyticsConnectionEnv
   } catch {
     return null

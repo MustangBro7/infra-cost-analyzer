@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { Github, Loader2, Trash2 } from "lucide-react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 export function RepoHomeCard({
@@ -43,7 +44,11 @@ export function RepoHomeCard({
 
   return (
     <article className={active ? "repo-home-card active" : "repo-home-card"}>
-      <a href={`/dashboard?repo=${encodeURIComponent(fullName)}`} className="repo-home-card-link">
+      <Link
+        href={`/dashboard?repo=${encodeURIComponent(fullName)}`}
+        prefetch={false}
+        className="repo-home-card-link"
+      >
         <div className="repo-home-card-head">
           <Github aria-hidden />
           <span>{isPrivate ? "Private" : "Public"}</span>
@@ -54,7 +59,7 @@ export function RepoHomeCard({
           <strong>{headline}</strong>
           <span>{detail}</span>
         </div>
-      </a>
+      </Link>
       <button type="button" className="repo-card-remove" disabled={removing} onClick={remove}>
         {removing ? <Loader2 className="spin" aria-hidden /> : <Trash2 aria-hidden />}
         Remove repo

@@ -25,10 +25,10 @@ async function resolveCurrentUser(): Promise<LocalUser | null> {
 
   const existing = await getUserById(userId)
   if (existing) {
-    // Environment-backed provider credentials may be added after a user first
-    // signed in. Re-run the idempotent connector so existing production users
-    // receive newly configured accounts without recreating their workspace.
-    await autoConnectFromEnv(existing.id)
+    // Keep the authenticated-request fast path local. Environment-backed
+    // credentials are connected on first sign-in and by the scheduled refresh
+    // job; checking them here added a second full store read to every page and
+    // API request.
     return existing
   }
 

@@ -4,8 +4,11 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { AlertTriangle, Check, Loader2, RefreshCw } from "lucide-react"
 
-// Snapshots older than this trigger an automatic background refresh on load.
-const STALE_AFTER_MS = 60_000
+// The cron job refreshes snapshots independently. Avoid launching several slow
+// provider APIs on virtually every visit; an interactive background refresh is
+// only a fallback for data that has genuinely gone stale.
+const STALE_AFTER_MS = 15 * 60_000
+const IDLE_FALLBACK_MS = 2_000
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "never"
@@ -52,11 +55,15 @@ export function AnalysisRefresher({
 
   React.useEffect(() => {
     if (startedRef.current) return
-    startedRef.current = true
     const age = computedAt ? Date.now() - new Date(computedAt).getTime() : Infinity
-    if (age >= STALE_AFTER_MS) {
-      void runRefresh()
+    if (age < STALE_AFTER_MS) return
+
+    startedRef.current = true
+    const start = () => {
+      if (document.visibilityState === "visible") void runRefresh()
     }
+    const timeoutId = window.setTimeout(start, IDLE_FALLBACK_MS)
+    return () => window.clearTimeout(timeoutId)
   }, [computedAt, runRefresh])
 
   return (
