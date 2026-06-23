@@ -236,37 +236,26 @@ export async function getCloudflareAccountUsage(
     }
   })()
 
-  // Durable Objects (Workers Paid only) — requests and peak stored bytes. No
-  // Free-plan allowance, so these surface as measured-only lines.
+  // Durable Objects (Workers Paid only) — request count. No Free-plan allowance,
+  // so it surfaces as a measured-only line. (Stored-bytes lives on a different
+  // dataset whose field names need introspection to confirm; left out for now.)
   const durableObjects = (async () => {
     const query = `query($accountTag: string, $start: string, $end: string) {
       viewer { accounts(filter: { accountTag: $accountTag }) {
         durableObjectsInvocationsAdaptiveGroups(limit: 10000, filter: { datetime_geq: $start, datetime_leq: $end }) {
           sum { requests }
         }
-        durableObjectsPeriodicGroups(limit: 10000, filter: { datetime_geq: $start, datetime_leq: $end }) {
-          max { storedBytes }
-        }
       } }
     }`
     try {
       const data = await cloudflareGraphQL<{
-        viewer?: { accounts?: Array<{
-          durableObjectsInvocationsAdaptiveGroups?: Array<{ sum?: { requests?: number } }>
-          durableObjectsPeriodicGroups?: Array<{ max?: { storedBytes?: number } }>
-        }> }
+        viewer?: { accounts?: Array<{ durableObjectsInvocationsAdaptiveGroups?: Array<{ sum?: { requests?: number } }> }> }
       }>(token, query, variables)
-      const account = data.viewer?.accounts?.[0]
-      const requests = (account?.durableObjectsInvocationsAdaptiveGroups ?? []).reduce(
+      const requests = (data.viewer?.accounts?.[0]?.durableObjectsInvocationsAdaptiveGroups ?? []).reduce(
         (sum, node) => sum + (node.sum?.requests ?? 0),
         0
       )
       if (requests > 0) usage.push({ service: "Durable Objects Requests", quantity: requests, unit: "requests" })
-      const storedBytes = (account?.durableObjectsPeriodicGroups ?? []).reduce(
-        (max, node) => Math.max(max, node.max?.storedBytes ?? 0),
-        0
-      )
-      if (storedBytes > 0) usage.push({ service: "Durable Objects Storage", quantity: storedBytes / 1e9, unit: "GB" })
     } catch (error) {
       errors.push(error instanceof Error ? error.message : "Durable Objects usage query failed.")
     }
