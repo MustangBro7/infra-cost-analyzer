@@ -4467,6 +4467,239 @@ th {
   color: var(--red);
 }
 
+/* The whole headroom panel is a button that opens the full-usage modal. */
+.usage-headroom-trigger {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.usage-headroom-trigger:disabled {
+  cursor: default;
+}
+
+.usage-headroom-trigger:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 4px;
+}
+
+.usage-headroom-more {
+  display: inline-block;
+  margin-top: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--green);
+}
+
+.usage-headroom-trigger:hover .usage-headroom-more {
+  text-decoration: underline;
+}
+
+/* All-usage modal opened from the headroom panel. */
+.usage-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow-y: auto;
+}
+
+.usage-modal {
+  width: 100%;
+  max-width: 640px;
+  background: var(--surface, var(--bg));
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.usage-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.usage-modal-head p {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.usage-modal-head h2 {
+  margin: 4px 0 6px;
+  font-size: 18px;
+}
+
+.usage-modal-head span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 46ch;
+}
+
+.usage-modal-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.usage-modal-close:hover {
+  color: var(--fg, inherit);
+}
+
+.usage-modal-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.usage-modal-body {
+  padding: 8px 22px 22px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.usage-detail-group {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.usage-detail-group:last-child {
+  border-bottom: 0;
+}
+
+.usage-detail-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.usage-detail-group-head .provider-logo {
+  width: 26px;
+  height: 26px;
+}
+
+.usage-detail-group-head strong {
+  display: block;
+  font-size: 14px;
+}
+
+.usage-detail-group-head span {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.usage-detail-list {
+  display: grid;
+  gap: 14px;
+}
+
+.usage-detail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.usage-detail-head strong {
+  font-size: 13px;
+}
+
+.usage-detail-pct {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.usage-detail-pct.ok {
+  color: var(--green);
+}
+
+.usage-detail-pct.warn {
+  color: var(--yellow);
+}
+
+.usage-detail-pct.crit {
+  color: var(--red);
+}
+
+.usage-detail-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.usage-detail-tag.measured {
+  color: var(--green);
+}
+
+.usage-detail-bar {
+  height: 12px;
+  margin: 6px 0;
+  background: var(--track);
+  border: 1px solid var(--line);
+}
+
+.usage-detail-fill {
+  display: block;
+  height: 100%;
+}
+
+.usage-detail-fill.ok {
+  background: var(--green);
+}
+
+.usage-detail-fill.warn {
+  background: var(--yellow);
+}
+
+.usage-detail-fill.crit {
+  background: var(--red);
+}
+
+.usage-detail-fill.unknown {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--muted) 0,
+    var(--muted) 2px,
+    transparent 2px,
+    transparent 6px
+  );
+  opacity: 0.5;
+}
+
+.usage-detail-row small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* Infrastructure footprint — tile per resource kind. */
 .footprint-grid {
   display: grid;

@@ -82,11 +82,13 @@ async function cloudflareGraphQL<T>(
 /**
  * Pulls real consumption for an account from the Cloudflare GraphQL Analytics
  * API so usage can show actual-vs-limit across every product we can read:
- * Workers requests, R2 storage + operations, and D1 rows read/written. Each
- * metric is queried independently, so a product that isn't enabled (or a single
- * permission gap) never hides the others. Returns an error string (not a throw)
- * when nothing could be read — the most common cause is a token missing the
- * Account Analytics: Read permission — so the dashboard degrades gracefully.
+ * Workers requests, R2 storage + operations, D1 rows read/written, Workers KV
+ * (per-op + storage), Durable Objects (requests + storage), and Queues message
+ * operations. Each metric is queried independently, so a product that isn't
+ * enabled (or a single permission gap) never hides the others. Returns an error
+ * string (not a throw) when nothing could be read — the most common cause is a
+ * token missing the Account Analytics: Read permission — so the dashboard
+ * degrades gracefully.
  */
 export async function getCloudflareAccountUsage(
   token: string,
@@ -187,7 +189,113 @@ export async function getCloudflareAccountUsage(
     }
   })()
 
-  await Promise.all([workers, r2Storage, r2Ops, d1])
+  // Workers KV is a daily-aggregated dataset, so it filters on `date` (not
+  // `datetime`) and buckets operations by actionType (read/write/delete/list),
+  // each of which has its own Free-plan allowance.
+  const kv = (async () => {
+    const kvVariables = { accountTag: accountId, dateStart: period.from, dateEnd: period.to }
+    const query = `query($accountTag: string, $dateStart: string, $dateEnd: string) {
+      viewer { accounts(filter: { accountTag: $accountTag }) {
+        kvOperationsAdaptiveGroups(limit: 10000, filter: { date_geq: $dateStart, date_leq: $dateEnd }) {
+          sum { requests }
+          dimensions { actionType }
+        }
+        kvStorageAdaptiveGroups(limit: 1000, filter: { date_geq: $dateStart, date_leq: $dateEnd }) {
+          max { byteCount }
+        }
+      } }
+    }`
+    try {
+      const data = await cloudflareGraphQL<{
+        viewer?: { accounts?: Array<{
+          kvOperationsAdaptiveGroups?: Array<{ sum?: { requests?: number }; dimensions?: { actionType?: string } }>
+          kvStorageAdaptiveGroups?: Array<{ max?: { byteCount?: number } }>
+        }> }
+      }>(token, query, kvVariables)
+      const account = data.viewer?.accounts?.[0]
+      const byAction = new Map<string, number>()
+      for (const node of account?.kvOperationsAdaptiveGroups ?? []) {
+        const action = node.dimensions?.actionType
+        if (!action) continue
+        byAction.set(action, (byAction.get(action) ?? 0) + (node.sum?.requests ?? 0))
+      }
+      // Title-case each op type so it maps to its allowance: "read" -> "KV Reads".
+      const labels: Record<string, string> = { read: "KV Reads", write: "KV Writes", delete: "KV Deletes", list: "KV Lists" }
+      for (const [action, count] of byAction) {
+        if (count <= 0) continue
+        const service = labels[action] ?? `KV ${action.charAt(0).toUpperCase()}${action.slice(1)}s`
+        usage.push({ service, quantity: count, unit: "operations" })
+      }
+      const peakBytes = (account?.kvStorageAdaptiveGroups ?? []).reduce(
+        (max, node) => Math.max(max, node.max?.byteCount ?? 0),
+        0
+      )
+      if (peakBytes > 0) usage.push({ service: "KV Storage", quantity: peakBytes / 1e9, unit: "GB" })
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : "KV usage query failed.")
+    }
+  })()
+
+  // Durable Objects (Workers Paid only) — requests and peak stored bytes. No
+  // Free-plan allowance, so these surface as measured-only lines.
+  const durableObjects = (async () => {
+    const query = `query($accountTag: string, $start: string, $end: string) {
+      viewer { accounts(filter: { accountTag: $accountTag }) {
+        durableObjectsInvocationsAdaptiveGroups(limit: 10000, filter: { datetime_geq: $start, datetime_leq: $end }) {
+          sum { requests }
+        }
+        durableObjectsPeriodicGroups(limit: 10000, filter: { datetime_geq: $start, datetime_leq: $end }) {
+          max { storedBytes }
+        }
+      } }
+    }`
+    try {
+      const data = await cloudflareGraphQL<{
+        viewer?: { accounts?: Array<{
+          durableObjectsInvocationsAdaptiveGroups?: Array<{ sum?: { requests?: number } }>
+          durableObjectsPeriodicGroups?: Array<{ max?: { storedBytes?: number } }>
+        }> }
+      }>(token, query, variables)
+      const account = data.viewer?.accounts?.[0]
+      const requests = (account?.durableObjectsInvocationsAdaptiveGroups ?? []).reduce(
+        (sum, node) => sum + (node.sum?.requests ?? 0),
+        0
+      )
+      if (requests > 0) usage.push({ service: "Durable Objects Requests", quantity: requests, unit: "requests" })
+      const storedBytes = (account?.durableObjectsPeriodicGroups ?? []).reduce(
+        (max, node) => Math.max(max, node.max?.storedBytes ?? 0),
+        0
+      )
+      if (storedBytes > 0) usage.push({ service: "Durable Objects Storage", quantity: storedBytes / 1e9, unit: "GB" })
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : "Durable Objects usage query failed.")
+    }
+  })()
+
+  // Queues (Workers Paid only) — billable message operations. No Free allowance.
+  const queues = (async () => {
+    const query = `query($accountTag: string, $start: string, $end: string) {
+      viewer { accounts(filter: { accountTag: $accountTag }) {
+        queueMessageOperationsAdaptiveGroups(limit: 10000, filter: { datetime_geq: $start, datetime_leq: $end }) {
+          sum { billableOperations }
+        }
+      } }
+    }`
+    try {
+      const data = await cloudflareGraphQL<{
+        viewer?: { accounts?: Array<{ queueMessageOperationsAdaptiveGroups?: Array<{ sum?: { billableOperations?: number } }> }> }
+      }>(token, query, variables)
+      const ops = (data.viewer?.accounts?.[0]?.queueMessageOperationsAdaptiveGroups ?? []).reduce(
+        (sum, node) => sum + (node.sum?.billableOperations ?? 0),
+        0
+      )
+      if (ops > 0) usage.push({ service: "Queue Operations", quantity: ops, unit: "operations" })
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : "Queues usage query failed.")
+    }
+  })()
+
+  await Promise.all([workers, r2Storage, r2Ops, d1, kv, durableObjects, queues])
 
   // Only surface an error when we got nothing at all — a partial failure (e.g.
   // R2 not enabled) shouldn't nag the user. The Workers query is the canary for

@@ -53,6 +53,13 @@ const FREE_TIER_PLANS: Partial<Record<Provider, FreeTierPlan>> = {
       { service: "R2 Storage", limit: 10, unit: "GB", match: /r2 storage/i },
       { service: "D1 Rows Read", limit: 150_000_000, unit: "rows/mo", match: /d1 rows read|rows read/i },
       { service: "D1 Rows Written", limit: 3_000_000, unit: "rows/mo", match: /d1 rows written|rows written/i },
+      // Workers KV Free plan: 100k reads/day and 1k each writes/deletes/lists per
+      // day, plus 1 GB stored — expressed monthly (~30 days) to match totals.
+      { service: "KV Reads", limit: 3_000_000, unit: "reads/mo", match: /kv reads/i },
+      { service: "KV Writes", limit: 30_000, unit: "writes/mo", match: /kv writes/i },
+      { service: "KV Deletes", limit: 30_000, unit: "deletes/mo", match: /kv deletes/i },
+      { service: "KV Lists", limit: 30_000, unit: "lists/mo", match: /kv lists/i },
+      { service: "KV Storage", limit: 1, unit: "GB", match: /kv storage/i },
     ],
   },
   gcp: {

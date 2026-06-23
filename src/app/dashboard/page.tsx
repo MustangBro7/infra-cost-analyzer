@@ -32,6 +32,7 @@ import { ProviderCostPanel } from "../ProviderCostPanel"
 import { ProviderResourcePanel } from "../ProviderResourcePanel"
 import { AnalysisRefresher } from "../AnalysisRefresher"
 import { ProviderLogo } from "../ProviderLogo"
+import { UsageHeadroomPanel } from "../UsageHeadroomPanel"
 import { SignOutButton } from "../SignOutButton"
 import { ThemeToggle } from "../ThemeToggle"
 import { HistoricalAnalyticsPanel } from "../HistoricalAnalyticsPanel"
@@ -558,56 +559,6 @@ function CostDriversPanel({ analysis }: { analysis: AnalysisResult }) {
   )
 }
 
-// Usage widget: account-wide free-tier consumption with a known allowance,
-// ranked by how close each metric is to its limit so risk is obvious at a glance.
-function UsageHeadroomPanel({ analysis }: { analysis: AnalysisResult }) {
-  const metered = analysis.freeTier
-    .filter((row) => row.source === "measured" && row.percentUsed !== null && row.limit !== null)
-    .sort((a, b) => (b.percentUsed ?? 0) - (a.percentUsed ?? 0))
-    .slice(0, 6)
-  const approaching = metered.filter((row) => (row.percentUsed ?? 0) >= 80).length
-  const tone = (pct: number) => (pct >= 90 ? "crit" : pct >= 80 ? "warn" : "ok")
-
-  return (
-    <section className="insight-panel usage-headroom" aria-label="Free-tier headroom">
-      <div className="insight-panel-head">
-        <div>
-          <p>Usage</p>
-          <h2>Free-tier headroom</h2>
-        </div>
-        <span className={approaching ? "headroom-flag warn" : "headroom-flag ok"}>
-          {approaching ? `${approaching} near limit` : "All healthy"}
-        </span>
-      </div>
-      {metered.length ? (
-        <div className="headroom-list">
-          {metered.map((row) => {
-            const pct = Math.round(row.percentUsed ?? 0)
-            return (
-              <div className="headroom-row" key={`${row.provider}-${row.service}`} title={row.note}>
-                <div className="headroom-label">
-                  <ProviderLogo provider={row.provider} />
-                  <strong>{row.service}</strong>
-                  <small>{quantity(row.used ?? 0)} / {quantity(row.limit ?? 0)} {row.unit}</small>
-                </div>
-                <div className="headroom-bar" aria-hidden>
-                  <span className={`headroom-fill ${tone(pct)}`} style={{ width: `${Math.min(Math.max(pct, 2), 100)}%` }} />
-                </div>
-                <b className={`headroom-pct ${tone(pct)}`}>{pct}%</b>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        <div className="insight-panel-empty">
-          <Gauge aria-hidden />
-          <span>No metered free-tier allowances reported yet. Usage appears after a successful provider refresh.</span>
-        </div>
-      )}
-    </section>
-  )
-}
-
 // Usage widget: the live infrastructure footprint — discrete resources grouped
 // by kind plus the count of measured usage metrics across all accounts.
 function UsageFootprintPanel({ analysis }: { analysis: AnalysisResult }) {
@@ -732,7 +683,7 @@ function RepositoryDashboard({
           <AccountsBoard analysis={analysis} connectedProviders={connectedProviders} state={state} />
 
           <div className="insight-pair">
-            <UsageHeadroomPanel analysis={analysis} />
+            <UsageHeadroomPanel rows={analysis.freeTier} />
             <UsageFootprintPanel analysis={analysis} />
           </div>
 
