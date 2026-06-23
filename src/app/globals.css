@@ -4520,16 +4520,18 @@ th {
   inset: 0;
   z-index: 100;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 48px 16px;
+  padding: 24px 16px;
   background: rgba(0, 0, 0, 0.55);
-  overflow-y: auto;
 }
 
 .usage-modal {
   width: 100%;
   max-width: 640px;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
   background: var(--surface, var(--bg));
   border: 1px solid var(--line);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
@@ -4542,6 +4544,7 @@ th {
   gap: 16px;
   padding: 20px 22px;
   border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 .usage-modal-head p {
@@ -4588,7 +4591,8 @@ th {
 
 .usage-modal-body {
   padding: 8px 22px 22px;
-  max-height: 70vh;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
 import { Gauge, X } from "lucide-react"
 import { ProviderLogo, PROVIDER_LABELS } from "./ProviderLogo"
 import type { FreeTierUsageRow, Provider } from "@/lib/types"
@@ -78,10 +79,17 @@ function UsageDetailModal({ rows, onClose }: { rows: FreeTierUsageRow[]; onClose
       if (e.key === "Escape") onClose()
     }
     document.addEventListener("keydown", onKey)
+    // Lock background scroll, and reserve the scrollbar's width so removing it
+    // doesn't shift the (viewport-centered) overlay sideways.
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    const prevOverflow = document.body.style.overflow
+    const prevPaddingRight = document.body.style.paddingRight
     document.body.style.overflow = "hidden"
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`
     return () => {
       document.removeEventListener("keydown", onKey)
-      document.body.style.overflow = ""
+      document.body.style.overflow = prevOverflow
+      document.body.style.paddingRight = prevPaddingRight
     }
   }, [onClose])
 
@@ -200,7 +208,7 @@ export function UsageHeadroomPanel({ rows }: { rows: FreeTierUsageRow[] }) {
           ) : null}
         </button>
       </section>
-      {open ? <UsageDetailModal rows={rows} onClose={() => setOpen(false)} /> : null}
+      {open ? createPortal(<UsageDetailModal rows={rows} onClose={() => setOpen(false)} />, document.body) : null}
     </>
   )
 }
