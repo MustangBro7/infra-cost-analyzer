@@ -4615,6 +4615,14 @@ th {
 .usage-detail-group-head .provider-logo {
   width: 26px;
   height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.usage-detail-group-head .provider-logo svg {
+  width: 16px;
+  height: 16px;
 }
 
 .usage-detail-group-head strong {
