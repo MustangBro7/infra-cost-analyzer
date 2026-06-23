@@ -3600,6 +3600,18 @@ th {
   color: var(--ink);
 }
 
+/* The full-colour Google Cloud mark needs a light backdrop to read; scope this
+   to the logo square only so the GCP cost-bar colour (.fill-gcp) is untouched. */
+.provider-logo.provider-gcp {
+  background: #fff;
+}
+
+/* MotherDuck has no base brand colour elsewhere; give its logo the brand
+   yellow so the dark duck silhouette stands out. */
+.provider-logo.provider-motherduck {
+  background: #ffd23f;
+}
+
 /* AWS cost-data opt-in */
 .aws-cost-optin {
   display: flex;

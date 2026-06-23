@@ -72,25 +72,81 @@ export async function buildAnalysis(
   return finalizeAnalysis(repoScan, env, workspace, [], [], [], [])
 }
 
+/**
+ * When a connected provider's live pull ERRORS and returns nothing, don't let
+ * the empty result overwrite the usage we already showed. Reconstruct that
+ * provider's last-known-good rows/usage from the previous snapshot so a
+ * transient provider-API failure can't blank the dashboard until the next good
+ * refresh. Measured free-tier rows round-trip back into usage samples (the
+ * analysis doesn't persist raw samples), which finalizeAnalysis re-derives into
+ * the same free-tier lines.
+ */
+export function carryForwardOnError(result: LiveResult, previous: AnalysisResult | undefined): LiveResult {
+  if (!previous) return result
+  const provider = result.sync.provider
+  const failedEmpty = result.sync.status === "error" && result.rows.length === 0 && result.usage.length === 0
+  if (!failedEmpty) return result
+
+  const prevRows = previous.costRows.filter((row) => row.provider === provider)
+  const prevUsage: ProviderUsageSample[] = previous.freeTier
+    .filter((row) => row.provider === provider && row.source === "measured" && row.used != null)
+    .map((row) => ({ provider, service: row.service, quantity: row.used as number, unit: row.unit }))
+  const prevResources = (previous.resourceItems ?? []).filter((item) => item.provider === provider)
+  if (prevRows.length === 0 && prevUsage.length === 0) return result
+
+  return {
+    rows: prevRows,
+    usage: prevUsage,
+    resources: prevResources,
+    sync: {
+      ...result.sync,
+      status: "success",
+      message: `${result.sync.message} Showing last-known-good usage from the previous refresh.`,
+    },
+  }
+}
+
 export async function buildAnalysisWithLiveData(
   repoScan: ReturnType<typeof import("./repoScanner").scanRepositoryFiles>,
   env: NodeJS.ProcessEnv,
   userId: string,
-  options?: { skipCostExplorer?: boolean; forceCostExplorer?: boolean }
+  options?: { skipCostExplorer?: boolean; forceCostExplorer?: boolean; previousAnalysis?: AnalysisResult }
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
-  const [vercel, cloudflare, gcp, motherduck, aws] = await Promise.all([
+  const previous = options?.previousAnalysis
+  const [vercel, cloudflare, gcp, motherduck, awsRaw] = await Promise.all([
     loadVercelLive(workspace, repoScan),
     loadCloudflareLive(workspace),
     loadGcpLive(workspace),
     loadMotherDuckLive(workspace),
     loadAwsLive(workspace, userId, options),
   ])
-  const standard = [vercel, cloudflare, gcp, motherduck]
+  const standard = [vercel, cloudflare, gcp, motherduck].map((result) => carryForwardOnError(result, previous))
+
+  // AWS carries its own free-tier rows, so guard it separately against the same
+  // failed-and-empty case rather than through the shared usage path above.
+  let aws = awsRaw
+  if (previous && awsRaw.sync.status === "error" && awsRaw.rows.length === 0 && awsRaw.freeTier.length === 0) {
+    const prevRows = previous.costRows.filter((row) => row.provider === "aws")
+    const prevFree = previous.freeTier.filter((row) => row.provider === "aws")
+    if (prevRows.length > 0 || prevFree.length > 0) {
+      aws = {
+        ...awsRaw,
+        rows: prevRows,
+        freeTier: prevFree,
+        sync: {
+          ...awsRaw.sync,
+          status: "success",
+          message: `${awsRaw.sync.message} Showing last-known-good usage from the previous refresh.`,
+        },
+      }
+    }
+  }
+
   const costRows = [...standard.flatMap((result) => result.rows), ...aws.rows]
   const usage = [...standard.flatMap((result) => result.usage), ...aws.usage]
   const liveSync = [...standard.map((result) => result.sync), aws.sync]
-  const resourceItems = [vercel, cloudflare, gcp, motherduck, aws].flatMap((result) => result.resources ?? [])
+  const resourceItems = [...standard, aws].flatMap((result) => result.resources ?? [])
   return finalizeAnalysis(repoScan, env, workspace, costRows, usage, liveSync, aws.freeTier, resourceItems)
 }
 

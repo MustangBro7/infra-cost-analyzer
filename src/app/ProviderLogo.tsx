@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import type { Provider } from "@/lib/types"
 
 export const PROVIDER_LABELS: Record<Provider, string> = {
@@ -34,13 +35,57 @@ const PROVIDER_PATHS: Partial<Record<Provider, string>> = {
 const GENERIC_CLOUD =
   "M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"
 
+// Full multi-color glyphs for brands whose mark is not a single silhouette. Each
+// carries its own viewBox and hard-coded fills (so it ignores `currentColor`),
+// and is paired with a light logo background in CSS so the colors read.
+const PROVIDER_GLYPHS: Partial<Record<Provider, { viewBox: string; node: ReactNode }>> = {
+  // Official Google Cloud mark (4-colour), from gilbarbara/logos (MIT).
+  gcp: {
+    viewBox: "0 0 256 206",
+    node: (
+      <>
+        <path
+          d="M170.2517 56.8186 192.5047 34.5656 193.9877 25.1956C153.4367-11.6774 88.9757-7.4964 52.4207 33.9196 42.2667 45.4226 34.7337 59.7636 30.7167 74.5726L38.6867 73.4496 83.1917 66.1106 86.6277 62.5966C106.4247 40.8546 139.8977 37.9296 162.7557 56.4286L170.2517 56.8186Z"
+          fill="#EA4335"
+        />
+        <path
+          d="M224.2048 73.9182C219.0898 55.0822 208.5888 38.1492 193.9878 25.1962L162.7558 56.4282C175.9438 67.2042 183.4568 83.4382 183.1348 100.4652L183.1348 106.0092C198.4858 106.0092 210.9318 118.4542 210.9318 133.8052 210.9318 149.1572 198.4858 161.2902 183.1348 161.2902L127.4638 161.2902 121.9978 167.2242 121.9978 200.5642 127.4638 205.7952 183.1348 205.7952C223.0648 206.1062 255.6868 174.3012 255.9978 134.3712 256.1858 110.1682 244.2528 87.4782 224.2048 73.9182"
+          fill="#4285F4"
+        />
+        <path
+          d="M71.8704 205.7957 127.4634 205.7957 127.4634 161.2897 71.8704 161.2897C67.9094 161.2887 64.0734 160.4377 60.4714 158.7917L52.5844 161.2117 30.1754 183.4647 28.2234 191.0387C40.7904 200.5277 56.1234 205.8637 71.8704 205.7957"
+          fill="#34A853"
+        />
+        <path
+          d="M71.8704 61.4255C31.9394 61.6635-0.2366 94.2275 0.0014 134.1575 0.1344 156.4555 10.5484 177.4455 28.2234 191.0385L60.4714 158.7915C46.4804 152.4705 40.2634 136.0055 46.5844 122.0155 52.9044 108.0255 69.3704 101.8085 83.3594 108.1285 89.5244 110.9135 94.4614 115.8515 97.2464 122.0155L129.4944 89.7685C115.7734 71.8315 94.4534 61.3445 71.8704 61.4255"
+          fill="#FBBC05"
+        />
+      </>
+    ),
+  },
+  // MotherDuck duck mark — a simple original silhouette (no third-party asset),
+  // dark on the brand-yellow logo background set in CSS.
+  motherduck: {
+    viewBox: "0 0 24 24",
+    node: (
+      <>
+        <ellipse cx="10.3" cy="15.4" rx="7.7" ry="5.1" fill="#15151f" />
+        <circle cx="15.7" cy="9" r="4" fill="#15151f" />
+        <path d="M19 7.9 23.2 8.7 19 11Z" fill="#f7791f" />
+        <circle cx="16.1" cy="8.1" r="0.95" fill="#fff" />
+      </>
+    ),
+  },
+}
+
 export function ProviderLogo({ provider, className }: { provider: Provider; className?: string }) {
   const label = PROVIDER_LABELS[provider]
+  const glyph = PROVIDER_GLYPHS[provider]
   const path = PROVIDER_PATHS[provider] ?? GENERIC_CLOUD
   return (
     <span className={`provider-logo provider-${provider}${className ? ` ${className}` : ""}`} role="img" aria-label={label} title={label}>
-      <svg viewBox="0 0 24 24" aria-hidden focusable="false">
-        <path d={path} fill="currentColor" />
+      <svg viewBox={glyph?.viewBox ?? "0 0 24 24"} aria-hidden focusable="false">
+        {glyph ? glyph.node : <path d={path} fill="currentColor" />}
       </svg>
     </span>
   )

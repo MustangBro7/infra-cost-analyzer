@@ -72,8 +72,12 @@ export async function refreshAnalysisSnapshot(input: {
   forceCostExplorer?: boolean
 }): Promise<RefreshedAnalysisSnapshot> {
   const scan = await scanForRepo(input)
+  // Pass the existing snapshot so a provider whose live pull fails this time
+  // keeps its last-known-good usage instead of being blanked.
+  const previous = await readAnalysisSnapshot(input.userId, snapshotKeyForRepo(input.requestedRepo))
   const analysis = await buildAnalysisWithLiveData(scan, process.env, input.userId, {
     forceCostExplorer: input.forceCostExplorer === true,
+    previousAnalysis: previous?.analysis,
   })
   const snapshot: AnalysisSnapshot = {
     key: snapshotKeyForRepo(input.requestedRepo),
@@ -149,7 +153,10 @@ export async function refreshAllSnapshotsLiveData(): Promise<{
     for (const snap of prioritized) {
       try {
         const repoScan = { repo: snap.analysis.repo, signals: snap.analysis.signals }
-        const analysis = await buildAnalysisWithLiveData(repoScan, process.env, userId, { skipCostExplorer: true })
+        const analysis = await buildAnalysisWithLiveData(repoScan, process.env, userId, {
+          skipCostExplorer: true,
+          previousAnalysis: snap.analysis,
+        })
         const refreshed = { key: snap.key, analysis, computedAt: new Date().toISOString() }
         await writeAnalysisSnapshot(userId, refreshed)
         await persistAnalyticsSnapshot(userId, refreshed)
