@@ -630,6 +630,31 @@ export function ProviderConnectPanel({
             const value = connection.provider === "anthropic" ? anthropicKey : connection.provider === "openai" ? openaiKey : cursorKey
             const setValue =
               connection.provider === "anthropic" ? setAnthropicKey : connection.provider === "openai" ? setOpenaiKey : setCursorKey
+            const metadata = (saved?.metadata ?? {}) as { source?: string }
+            const hasApi = metadata.source === "api" || metadata.source === "both"
+            const keyForm = (
+              <form
+                className="provider-token-form single"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  run(`${connection.provider}-connect`, async () => {
+                    await jsonRequest(card.endpoint, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ key: value }),
+                    })
+                    setValue("")
+                    setMessage(`${providerLabel(connection.provider)} API data connected. Refreshing cost and usage.`)
+                  })
+                }}
+              >
+                <input type="password" value={value} onChange={(event) => setValue(event.target.value)} placeholder={card.placeholder} autoComplete="off" spellCheck={false} />
+                <button type="submit" className="command-button" disabled={Boolean(busy) || !value.trim()}>
+                  {busy === `${connection.provider}-connect` ? <Loader2 className="spin" aria-hidden /> : <KeyRound aria-hidden />}
+                  {hasApi ? "Replace key" : "Add API data"}
+                </button>
+              </form>
+            )
             return (
               <article key={connection.provider} className={connected ? "provider-connect-card connected" : "provider-connect-card"}>
                 <div className="provider-connect-title">
@@ -638,11 +663,28 @@ export function ProviderConnectPanel({
                   {detected ? <span className="detected-chip">Detected</span> : null}
                 </div>
                 {connected && saved ? (
-                  <ConnectedProviderState
-                    provider={connection.provider}
-                    connection={saved}
-                    detail="Live cost and token usage are pulled from the organization usage & cost API."
-                  />
+                  <>
+                    <ConnectedProviderState
+                      provider={connection.provider}
+                      connection={saved}
+                      detail={
+                        hasApi
+                          ? metadata.source === "both"
+                            ? "Local subscription usage and live organization API cost are both connected."
+                            : "Live cost and token usage are pulled from the organization usage & cost API."
+                          : "Local subscription usage is connected. Add an Admin/Team key below to include organization API spend."
+                      }
+                    />
+                    <details className="provider-advanced ai-api-upgrade" open={!hasApi}>
+                      <summary>{hasApi ? "Replace API key" : "Add organization API cost & usage"}</summary>
+                      <p>{card.blurb}</p>
+                      <a className="ghost-button" href={card.docUrl} target="_blank" rel="noreferrer">
+                        <ExternalLink aria-hidden />
+                        {card.docLabel}
+                      </a>
+                      {keyForm}
+                    </details>
+                  </>
                 ) : (
                   <>
                     <p>{card.blurb}</p>
@@ -650,27 +692,7 @@ export function ProviderConnectPanel({
                       <ExternalLink aria-hidden />
                       {card.docLabel}
                     </a>
-                    <form
-                      className="provider-token-form single"
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        run(`${connection.provider}-connect`, async () => {
-                          await jsonRequest(card.endpoint, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ key: value }),
-                          })
-                          setValue("")
-                          setMessage(`${providerLabel(connection.provider)} connected. Refreshing cost and usage.`)
-                        })
-                      }}
-                    >
-                      <input type="password" value={value} onChange={(event) => setValue(event.target.value)} placeholder={card.placeholder} autoComplete="off" spellCheck={false} />
-                      <button type="submit" className="command-button" disabled={Boolean(busy) || !value.trim()}>
-                        {busy === `${connection.provider}-connect` ? <Loader2 className="spin" aria-hidden /> : <KeyRound aria-hidden />}
-                        Verify
-                      </button>
-                    </form>
+                    {keyForm}
                   </>
                 )}
               </article>

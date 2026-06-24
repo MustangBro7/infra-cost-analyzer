@@ -47,6 +47,7 @@ import { publicStore, readDashboardStore } from "@/lib/localStore"
 import { CONNECTABLE_PROVIDERS, resolveLinkedProviders } from "@/lib/repoLinks"
 import { costItemKey, isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
 import { resourceMetricService, resourceUsageRows } from "@/lib/freeTier"
+import { buildCloudProviderReports, type CloudProviderReport } from "@/lib/cloudReporting"
 import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
 export const runtime = "nodejs"
@@ -448,7 +449,7 @@ function statusText(connection: ProviderConnection) {
 }
 
 // Bumped every deploy — a visible marker so it's obvious which build is live.
-const BUILD_TAG = "build jun24·2318"
+const BUILD_TAG = "build jun24·cloud-reporting"
 
 function Header({ subtitle }: { subtitle: string }) {
   return (
@@ -718,6 +719,152 @@ function UsageFootprintPanel({ analysis }: { analysis: AnalysisResult }) {
           <strong>{analysis.resourceItems.length}</strong> resources · <strong>{measured}</strong> live usage metric{measured === 1 ? "" : "s"} measured this period
         </span>
       </div>
+    </section>
+  )
+}
+
+function shortAge(value: string | null) {
+  if (!value) return "not synced"
+  const age = Math.max(Date.now() - new Date(value).getTime(), 0)
+  if (!Number.isFinite(age)) return "not synced"
+  if (age < 3_600_000) return `${Math.max(Math.round(age / 60_000), 1)}m ago`
+  if (age < 86_400_000) return `${Math.round(age / 3_600_000)}h ago`
+  return `${Math.round(age / 86_400_000)}d ago`
+}
+
+// Provider-level operating view for regular cloud accounts. Each card combines
+// actual spend, run-rate projection, the biggest billed service, measured usage,
+// resource inventory, and source freshness so cost and usage are read together.
+function CloudProviderReportPanel({ reports }: { reports: CloudProviderReport[] }) {
+  if (!reports.length) return null
+  const complete = reports.filter((report) => report.coverageTone === "complete").length
+  const measured = reports.reduce((sum, report) => sum + report.measuredMetrics, 0)
+  const resources = reports.reduce((sum, report) => sum + report.resourceCount, 0)
+
+  return (
+    <section className="cloud-report-panel" aria-label="Cloud provider cost and usage reports">
+      <div className="insight-panel-head cloud-report-head">
+        <div>
+          <p>Cloud operations</p>
+          <h2>Provider cost &amp; usage reports</h2>
+          <span>Actual month-to-date billing paired with the usage and resources each provider exposes.</span>
+        </div>
+        <div className="cloud-report-summary">
+          <strong>{complete}/{reports.length}</strong>
+          <span>full cost coverage</span>
+          <small>{measured} metrics · {resources} resources</small>
+        </div>
+      </div>
+
+      <div className="cloud-report-grid">
+        {reports.map((report) => {
+          const usageTone =
+            report.highestUsagePercent != null && report.highestUsagePercent >= 90
+              ? "crit"
+              : report.highestUsagePercent != null && report.highestUsagePercent >= 80
+                ? "warn"
+                : "ok"
+          return (
+            <article className={`cloud-report-card coverage-${report.coverageTone}`} key={report.provider}>
+              <header>
+                <ProviderLogo provider={report.provider} />
+                <div>
+                  <strong>{providerName(report.provider)}</strong>
+                  <span>{report.coverageLabel}</span>
+                </div>
+                <small className={`cloud-coverage-tag ${report.coverageTone}`}>{report.syncStatus === "error" ? "error" : "live"}</small>
+              </header>
+
+              <div className="cloud-report-money">
+                <div>
+                  <span>Month to date</span>
+                  <strong>{money(report.cost)}</strong>
+                  <small>{Math.round(report.share)}% of cloud spend</small>
+                </div>
+                <div>
+                  <span>Projected</span>
+                  <strong>{money(report.projected)}</strong>
+                  <small>at current run rate</small>
+                </div>
+              </div>
+
+              <div className="cloud-report-driver">
+                <span>Top billed service</span>
+                <strong>{report.topService ?? "No billed service"}</strong>
+                <b>{report.topService ? money(report.topServiceCost) : "—"}</b>
+              </div>
+
+              <div className="cloud-report-signals">
+                <div>
+                  <Gauge aria-hidden />
+                  <span>Usage</span>
+                  <strong>
+                    {report.measuredMetrics}
+                    <small> metrics</small>
+                  </strong>
+                  <em className={usageTone}>
+                    {report.highestUsagePercent == null ? "no limit data" : `${Math.round(report.highestUsagePercent)}% highest`}
+                  </em>
+                </div>
+                <div>
+                  <Boxes aria-hidden />
+                  <span>Resources</span>
+                  <strong>{report.resourceCount}</strong>
+                  <em>{report.resourceCount ? "inventory live" : "not exposed"}</em>
+                </div>
+                <div>
+                  <RefreshCw aria-hidden />
+                  <span>Freshness</span>
+                  <strong>{shortAge(report.syncedAt)}</strong>
+                  <em>{report.syncStatus === "success" ? "responding" : report.syncStatus.replace("_", " ")}</em>
+                </div>
+              </div>
+
+              <footer>
+                <DatabaseZap aria-hidden />
+                <span>{report.coverageDetail}</span>
+              </footer>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+// A compact truthfulness layer: users can immediately see which connected
+// accounts have full billing visibility and which are usage-only or incomplete.
+function CloudCoveragePanel({ reports }: { reports: CloudProviderReport[] }) {
+  if (!reports.length) return null
+  const incomplete = reports.filter((report) => report.coverageTone !== "complete")
+  return (
+    <section className="insight-panel cloud-coverage-panel" aria-label="Cloud data coverage">
+      <div className="insight-panel-head">
+        <div>
+          <p>Reporting coverage</p>
+          <h2>{incomplete.length ? `${incomplete.length} source${incomplete.length === 1 ? "" : "s"} can report more` : "Full cloud cost coverage"}</h2>
+        </div>
+        <span className={incomplete.length ? "headroom-flag warn" : "headroom-flag ok"}>
+          {reports.length - incomplete.length}/{reports.length} complete
+        </span>
+      </div>
+      <div className="cloud-coverage-list">
+        {reports.map((report) => (
+          <article key={report.provider}>
+            <ProviderLogo provider={report.provider} />
+            <div>
+              <strong>{providerName(report.provider)}</strong>
+              <span>{report.coverageDetail}</span>
+            </div>
+            <b className={`cloud-coverage-status ${report.coverageTone}`}>{report.coverageLabel}</b>
+          </article>
+        ))}
+      </div>
+      {incomplete.length ? (
+        <Link className="cloud-coverage-action" href="/dashboard?view=credentials" prefetch={false}>
+          Improve reporting coverage <ArrowUpRight aria-hidden />
+        </Link>
+      ) : null}
     </section>
   )
 }
@@ -1056,6 +1203,12 @@ function RepositoryDashboard({
     budget: state.monthlyBudgetUsd ?? null,
     latestMs,
   })
+  const cloudReports = buildCloudProviderReports({
+    analysis,
+    connections: state.connections,
+    elapsedDays: forecast.elapsedDays,
+    totalDays: forecast.totalDays,
+  })
 
   return (
     <>
@@ -1084,6 +1237,10 @@ function RepositoryDashboard({
           />
 
           <AttentionPanel alerts={alerts} />
+
+          <CloudProviderReportPanel reports={cloudReports} />
+
+          <CloudCoveragePanel reports={cloudReports} />
 
           <CostOverview
             eyebrow={`All Accounts · ${monthLabel(analysis.period)}`}

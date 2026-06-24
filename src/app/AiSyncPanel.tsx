@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { ArrowUpRight, Clock, ClipboardCopy, Loader2, RefreshCw, TerminalSquare } from "lucide-react"
+import { ArrowUpRight, Clock, ClipboardCopy, Loader2, Play, RefreshCw, TerminalSquare } from "lucide-react"
 import type { Provider } from "@/lib/types"
 import { ProviderLogo } from "./ProviderLogo"
 
@@ -215,11 +215,35 @@ launchctl unload "$P" 2>/dev/null; launchctl load "$P" && echo "Ambrium auto-syn
 
       <p className="ai-sync-intro">
         Personal Claude/ChatGPT/Cursor plans expose no cost API, so Ambrium reads usage from your local Claude Code &amp;
-        Codex logs. Set the monthly plan price above (e.g. $200 for Max/Pro). If you also have an API org, paste an Admin
-        key on the cards above and tick &quot;show live API usage&quot; to add your real pay-per-use spend too. The
+        Codex logs. Set the monthly plan price above (e.g. $200 for Max/Pro). If you also have an API org, use the
+        <strong> Add organization API cost &amp; usage</strong> form on its provider card and enable live API usage to add
+        your real pay-per-use spend too. The
         dashboard re-renders your last push every ~6h; picking up <strong>new</strong> usage needs a quick job on your
         machine — set it up once, it runs browser-free after the first pairing.
       </p>
+
+      <div className="ai-manual-sync">
+        <div className="ai-manual-sync-copy">
+          <span>Manual machine sync</span>
+          <strong>Upload fresh Claude Code &amp; Codex usage now</strong>
+          <small>
+            Your browser cannot read local logs. This copies the one-shot command; paste it into a terminal on the
+            machine that has the usage. A saved pairing makes later runs immediate.
+          </small>
+        </div>
+        <button
+          type="button"
+          className="command-button ai-sync-now"
+          onClick={() => {
+            copy("sync-now", connectCmd)
+            setMessage("Sync command copied. Run it in your terminal to upload fresh local AI usage.")
+          }}
+        >
+          {copied === "sync-now" ? <ClipboardCopy aria-hidden /> : <Play aria-hidden />}
+          {copied === "sync-now" ? "Command copied" : "Sync from this machine"}
+        </button>
+        <code>{connectCmd}</code>
+      </div>
 
       {localConnected.length > 0 ? (
         <div className="ai-sync-status">

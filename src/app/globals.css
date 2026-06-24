@@ -6338,6 +6338,423 @@ th {
   color: var(--muted);
 }
 
+/* Regular cloud-provider operating reports. */
+.cloud-report-panel {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 18px;
+}
+
+.cloud-report-head > div:first-child > span {
+  display: block;
+  max-width: 720px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cloud-report-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  column-gap: 8px;
+  border-left: 3px solid var(--green);
+  background: var(--ok-soft);
+  padding: 9px 12px;
+}
+
+.cloud-report-summary strong {
+  grid-row: span 2;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-report-summary span {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.cloud-report-summary small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.cloud-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.cloud-report-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--green);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.cloud-report-card.coverage-partial,
+.cloud-report-card.coverage-usage {
+  border-top-color: var(--yellow);
+}
+
+.cloud-report-card.coverage-error {
+  border-top-color: var(--red);
+}
+
+.cloud-report-card > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 14px;
+}
+
+.cloud-report-card > header > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-report-card > header strong,
+.cloud-report-card > header span {
+  display: block;
+}
+
+.cloud-report-card > header span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cloud-coverage-tag {
+  border: 1px solid var(--line);
+  padding: 3px 6px;
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cloud-coverage-tag.error {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.cloud-report-money {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--line);
+}
+
+.cloud-report-money > div {
+  padding: 12px 14px;
+}
+
+.cloud-report-money > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.cloud-report-money span,
+.cloud-report-money small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.cloud-report-money strong {
+  display: block;
+  margin: 3px 0;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-report-driver {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 11px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.cloud-report-driver span {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.cloud-report-driver strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.cloud-report-driver b {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-report-signals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-bottom: 1px solid var(--line);
+}
+
+.cloud-report-signals > div {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 3px 6px;
+  padding: 10px;
+  min-width: 0;
+}
+
+.cloud-report-signals > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.cloud-report-signals svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+.cloud-report-signals span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.cloud-report-signals strong {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-report-signals strong small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.cloud-report-signals em {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-report-signals em.warn {
+  color: var(--warn-ink);
+}
+
+.cloud-report-signals em.crit {
+  color: var(--red);
+}
+
+.cloud-report-card > footer {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: auto;
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.cloud-report-card > footer svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.cloud-coverage-panel {
+  margin-top: 16px;
+}
+
+.cloud-coverage-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.cloud-coverage-list article {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 10px 12px;
+}
+
+.cloud-coverage-list article > div {
+  min-width: 0;
+}
+
+.cloud-coverage-list strong,
+.cloud-coverage-list span {
+  display: block;
+}
+
+.cloud-coverage-list span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.cloud-coverage-status {
+  color: var(--green);
+  font-size: 11px;
+  text-align: right;
+}
+
+.cloud-coverage-status.partial,
+.cloud-coverage-status.usage {
+  color: var(--warn-ink);
+}
+
+.cloud-coverage-status.error {
+  color: var(--red);
+}
+
+.cloud-coverage-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 12px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.cloud-coverage-action svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* AI API upgrade and truthful local-machine sync controls. */
+.ai-api-upgrade {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 10px;
+}
+
+.ai-api-upgrade summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ai-api-upgrade p {
+  margin: 9px 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ai-api-upgrade .provider-token-form {
+  margin-top: 9px;
+}
+
+.ai-manual-sync {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px 16px;
+  align-items: center;
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--yellow);
+  background: var(--surface-2);
+  padding: 14px;
+}
+
+.ai-manual-sync-copy span,
+.ai-manual-sync-copy strong,
+.ai-manual-sync-copy small {
+  display: block;
+}
+
+.ai-manual-sync-copy span {
+  color: var(--warn-ink);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-manual-sync-copy strong {
+  margin-top: 3px;
+  font-size: 14px;
+}
+
+.ai-manual-sync-copy small {
+  margin-top: 4px;
+  max-width: 760px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ai-manual-sync > code {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+@media (max-width: 720px) {
+  .cloud-report-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-report-summary {
+    width: 100%;
+  }
+
+  .cloud-report-signals {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-report-signals > div + div {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .cloud-coverage-list article {
+    grid-template-columns: auto 1fr;
+  }
+
+  .cloud-coverage-status {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .ai-manual-sync {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-sync-now {
+    justify-content: center;
+  }
+}
+
 /* Theme rule: Ambrium is fully squared-off. This enforces no rounded corners
    anywhere — including form controls and third-party (Clerk) widgets. */
 *,
