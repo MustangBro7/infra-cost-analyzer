@@ -151,8 +151,11 @@ export function AiInsights({ tools }: { tools: AiToolData[] }) {
               <header className="ai-card-head">
                 <ProviderLogo provider={tool.provider} />
                 <div className="ai-card-id">
-                  <strong>{tool.label}</strong>
-                  <small>{tool.planLabel ? `${tool.planLabel} · ` : ""}{tool.accountLabel ?? "Connected"}</small>
+                  <span className="ai-card-title">
+                    <strong>{tool.label}</strong>
+                    {tool.planLabel ? <span className="plan-badge">{tool.planLabel}</span> : null}
+                  </span>
+                  <small>{tool.accountLabel ?? "Connected"}</small>
                 </div>
                 {tool.source ? <span className={`ai-source-tag ${tool.source}`}>{tool.source === "both" ? "sub + API" : tool.source === "api" ? "API" : "local"}</span> : null}
               </header>
@@ -160,9 +163,13 @@ export function AiInsights({ tools }: { tools: AiToolData[] }) {
               <div className="ai-card-amount">
                 <b>{money(tool.totalCost)}</b>
                 <span className="ai-card-sub">
-                  {tool.subscriptionCost > 0 ? `${money(tool.subscriptionCost)} plan` : ""}
-                  {tool.subscriptionCost > 0 && tool.apiCost > 0.005 ? " · " : ""}
-                  {tool.apiCost > 0.005 ? `${money(tool.apiCost)} API` : ""}
+                  {tool.subscriptionCost > 0 && tool.apiCost > 0.005
+                    ? `${money(tool.subscriptionCost)} plan · ${money(tool.apiCost)} API`
+                    : tool.apiCost > 0.005
+                      ? "live API usage"
+                      : tool.subscriptionCost > 0
+                        ? "flat subscription"
+                        : ""}
                 </span>
                 {valueMult ? (
                   <span className="ai-card-value">≈ {money(tool.apiValue)} value · {valueMult.toFixed(1)}×</span>

@@ -5163,8 +5163,13 @@ th {
   min-width: 0;
 }
 
+.ai-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .ai-card-id strong {
-  display: block;
   font-size: 0.95rem;
 }
 
