@@ -36,6 +36,9 @@ export function AnalysisRefresher({
   const runRefresh = React.useCallback(async () => {
     setStatus("refreshing")
     setError(null)
+    // Signal a refresh is in flight so empty data widgets can render skeletons
+    // (instead of a misleading 0) until the fresh snapshot lands.
+    document.documentElement.dataset.refreshing = "1"
     try {
       const response = await fetch("/api/analyze/refresh", {
         method: "POST",
@@ -50,6 +53,8 @@ export function AnalysisRefresher({
     } catch (err) {
       setStatus("error")
       setError(err instanceof Error ? err.message : "Refresh failed")
+    } finally {
+      delete document.documentElement.dataset.refreshing
     }
   }, [repo, router])
 
@@ -59,11 +64,24 @@ export function AnalysisRefresher({
     if (age < STALE_AFTER_MS) return
 
     startedRef.current = true
+    // Refresh once the tab is actually visible. The dashboard is often opened in
+    // a background tab, so checking visibility only once (and giving up) left
+    // stale data on screen until a manual refresh — wait for the tab instead.
     const start = () => {
-      if (document.visibilityState === "visible") void runRefresh()
+      if (document.visibilityState !== "visible") return false
+      void runRefresh()
+      return true
     }
-    const timeoutId = window.setTimeout(start, IDLE_FALLBACK_MS)
-    return () => window.clearTimeout(timeoutId)
+    const onVisible = () => {
+      if (start()) document.removeEventListener("visibilitychange", onVisible)
+    }
+    const timeoutId = window.setTimeout(() => {
+      if (!start()) document.addEventListener("visibilitychange", onVisible)
+    }, IDLE_FALLBACK_MS)
+    return () => {
+      window.clearTimeout(timeoutId)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [computedAt, runRefresh])
 
   return (
