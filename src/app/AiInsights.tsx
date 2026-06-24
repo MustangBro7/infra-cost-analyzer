@@ -144,26 +144,35 @@ export function AiInsights({ tools }: { tools: AiToolData[] }) {
         <article><Layers aria-hidden /><span>Tokens this month</span><strong>{compact(totalTokens)}</strong><small>across {tools.length} {tools.length === 1 ? "tool" : "tools"}</small></article>
       </div>
 
-      {tools.length > 1 ? (
-        <div className="ai-filter" role="tablist" aria-label="Filter AI tools">
-          <button type="button" className={filter === "all" ? "ai-filter-chip active" : "ai-filter-chip"} onClick={() => setFilter("all")}>
-            All
-          </button>
-          {tools.map((tool) => (
-            <button
-              key={tool.provider}
-              type="button"
-              className={filter === tool.provider ? "ai-filter-chip active" : "ai-filter-chip"}
-              onClick={() => setFilter(tool.provider)}
-            >
-              <ProviderLogo provider={tool.provider} /> {tool.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <details className="widget-drilldown ai-drilldown">
+        <summary>
+          <span>
+            <strong>Explore tool and model detail</strong>
+            <small>Token mix, per-model usage, API-rate value, and official usage links.</small>
+          </span>
+          <ArrowUpRight aria-hidden />
+        </summary>
+        <div className="widget-drilldown-body">
+          {tools.length > 1 ? (
+            <div className="ai-filter" role="tablist" aria-label="Filter AI tools">
+              <button type="button" className={filter === "all" ? "ai-filter-chip active" : "ai-filter-chip"} onClick={() => setFilter("all")}>
+                All
+              </button>
+              {tools.map((tool) => (
+                <button
+                  key={tool.provider}
+                  type="button"
+                  className={filter === tool.provider ? "ai-filter-chip active" : "ai-filter-chip"}
+                  onClick={() => setFilter(tool.provider)}
+                >
+                  <ProviderLogo provider={tool.provider} /> {tool.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
-      <div className="ai-card-grid">
-        {shown.map((tool) => {
+          <div className="ai-card-grid">
+            {shown.map((tool) => {
           const valueMult = tool.subscriptionCost > 0 && tool.apiValue > 0 ? tool.apiValue / tool.subscriptionCost : null
           const topModels = [...tool.models].sort((a, b) => b.totalTokens - a.totalTokens)
           const tokenMax = Math.max(...topModels.map((m) => m.totalTokens), 1)
@@ -225,30 +234,32 @@ export function AiInsights({ tools }: { tools: AiToolData[] }) {
                 ) : null}
               </footer>
             </article>
-          )
-        })}
-      </div>
+              )
+            })}
+          </div>
 
-      {modelRows.length > 0 ? (
-        <div className="ai-topmodels">
-          <div className="ai-topmodels-head">Top models by API-rate value</div>
-          {modelRows.map((model) => (
-            <div className="ai-topmodel-row" key={`${model.provider}-${model.model}`}>
-              <span className="ai-topmodel-label">
-                <ProviderLogo provider={model.provider} />
-                <span title={model.model}>{model.model}</span>
-              </span>
-              <span className="ai-topmodel-bar" aria-hidden>
-                <i style={{ width: `${Math.max((model.estimatedApiUsd / modelMax) * 100, 2)}%`, background: color(model.provider) }} />
-              </span>
-              <span className="ai-topmodel-meta">
-                <b>{money(model.estimatedApiUsd)}</b>
-                <small>{compact(model.totalTokens)} tok</small>
-              </span>
+          {modelRows.length > 0 ? (
+            <div className="ai-topmodels">
+              <div className="ai-topmodels-head">Top models by API-rate value</div>
+              {modelRows.map((model) => (
+                <div className="ai-topmodel-row" key={`${model.provider}-${model.model}`}>
+                  <span className="ai-topmodel-label">
+                    <ProviderLogo provider={model.provider} />
+                    <span title={model.model}>{model.model}</span>
+                  </span>
+                  <span className="ai-topmodel-bar" aria-hidden>
+                    <i style={{ width: `${Math.max((model.estimatedApiUsd / modelMax) * 100, 2)}%`, background: color(model.provider) }} />
+                  </span>
+                  <span className="ai-topmodel-meta">
+                    <b>{money(model.estimatedApiUsd)}</b>
+                    <small>{compact(model.totalTokens)} tok</small>
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : null}
         </div>
-      ) : null}
+      </details>
     </section>
   )
 }

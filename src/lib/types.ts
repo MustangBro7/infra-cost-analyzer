@@ -280,6 +280,11 @@ export interface WorkspaceStore {
   // Optional monthly spend budget (USD) the dashboard tracks actual + projected
   // spend against. null/undefined = no budget set.
   monthlyBudgetUsd?: number | null
+  // User-controlled dashboard widget order and widths.
+  dashboardLayout?: Array<{
+    id: "attention" | "cloud" | "usage" | "spend" | "ai" | "history"
+    size: "compact" | "medium" | "wide" | "full"
+  }>
   // User-defined provider connectors registered via the extension API, keyed by
   // CustomProviderDef.id.
   customProviders: Record<string, CustomProviderDef>

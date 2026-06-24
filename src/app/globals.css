@@ -6429,28 +6429,84 @@ th {
   border-top-color: var(--red);
 }
 
-.cloud-report-card > header {
+.cloud-report-card > summary {
   display: flex;
   align-items: center;
   gap: 10px;
   border-bottom: 1px solid var(--line);
   padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
 }
 
-.cloud-report-card > header > div {
+.cloud-report-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.cloud-report-card > summary > svg:last-child {
+  width: 15px;
+  height: 15px;
+  transition: transform 0.18s ease;
+}
+
+.cloud-report-card[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.cloud-report-summary-id {
   flex: 1;
   min-width: 0;
 }
 
-.cloud-report-card > header strong,
-.cloud-report-card > header span {
+.cloud-report-summary-id strong,
+.cloud-report-summary-id small {
   display: block;
 }
 
-.cloud-report-card > header span {
+.cloud-report-summary-id small {
   margin-top: 2px;
   color: var(--muted);
   font-size: 11px;
+}
+
+.cloud-report-summary-cost {
+  text-align: right;
+}
+
+.cloud-report-summary-cost strong,
+.cloud-report-summary-cost small {
+  display: block;
+}
+
+.cloud-report-summary-cost strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-report-summary-cost small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.cloud-report-usage-pulse {
+  border: 1px solid var(--line);
+  padding: 3px 6px;
+  color: var(--green);
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.cloud-report-usage-pulse.warn {
+  color: var(--warn-ink);
+}
+
+.cloud-report-usage-pulse.crit {
+  color: var(--red);
+}
+
+.cloud-report-detail {
+  border-top: 0;
 }
 
 .cloud-coverage-tag {
@@ -6658,27 +6714,53 @@ th {
   background: var(--surface);
 }
 
-.account-usage-provider > header {
+.account-usage-provider > summary {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-bottom: 1px solid var(--line);
   padding: 11px 13px;
+  cursor: pointer;
+  list-style: none;
 }
 
-.account-usage-provider > header > div {
+.account-usage-provider > summary::-webkit-details-marker {
+  display: none;
+}
+
+.account-usage-provider > summary > div {
+  flex: 1;
   min-width: 0;
 }
 
-.account-usage-provider > header strong,
-.account-usage-provider > header span {
+.account-usage-provider > summary strong,
+.account-usage-provider > summary span {
   display: block;
 }
 
-.account-usage-provider > header span {
+.account-usage-provider > summary span {
   margin-top: 2px;
   color: var(--muted);
   font-size: 10.5px;
+}
+
+.account-usage-provider > summary > b {
+  color: var(--blue);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.account-usage-provider > summary > svg:last-child {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.18s ease;
+}
+
+.account-usage-provider[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.account-usage-detail {
+  border-top: 1px solid var(--line);
 }
 
 .account-usage-provider .free-tier-block {
@@ -6840,6 +6922,229 @@ th {
   font-size: 10px;
 }
 
+/* Customizable dashboard grid. Widget content owns its internal visuals while
+   this shell owns order, width, and persistence controls. */
+.dashboard-layout {
+  margin-top: 16px;
+}
+
+.dashboard-layout-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  padding: 9px 11px;
+}
+
+.dashboard-layout-toolbar > div:first-child strong,
+.dashboard-layout-toolbar > div:first-child span {
+  display: block;
+}
+
+.dashboard-layout-toolbar > div:first-child strong {
+  font-size: 12px;
+}
+
+.dashboard-layout-toolbar > div:first-child span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.dashboard-layout-toolbar > div:last-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dashboard-layout-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 76px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.dashboard-layout-status svg {
+  width: 12px;
+  height: 12px;
+}
+
+.dashboard-widget-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  align-items: start;
+}
+
+.dashboard-widget {
+  grid-column: span 12;
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+  container-type: inline-size;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.dashboard-widget.size-compact {
+  grid-column: span 3;
+}
+
+.dashboard-widget.size-medium {
+  grid-column: span 6;
+}
+
+.dashboard-widget.size-wide {
+  grid-column: span 8;
+}
+
+.dashboard-widget.size-full {
+  grid-column: span 12;
+}
+
+.dashboard-widget.dragging {
+  opacity: 0.5;
+  transform: scale(0.99);
+}
+
+.dashboard-widget-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  border-bottom: 1px solid var(--line);
+  background: var(--neutral);
+  padding: 4px 6px 4px 9px;
+}
+
+.dashboard-widget-drag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  cursor: grab;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.dashboard-widget-drag svg {
+  width: 13px;
+  height: 13px;
+}
+
+.dashboard-widget-controls > div {
+  display: flex;
+  gap: 3px;
+}
+
+.dashboard-widget-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 26px;
+  height: 24px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.dashboard-widget-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.dashboard-widget-controls button svg {
+  width: 11px;
+  height: 11px;
+}
+
+.dashboard-widget-content {
+  min-width: 0;
+}
+
+.dashboard-widget-content > section,
+.dashboard-widget-content > .spend-widget-stack {
+  margin: 0;
+  border: 0;
+}
+
+.dashboard-widget-content .insight-panel,
+.dashboard-widget-content .budget-card,
+.dashboard-widget-content .cost-overview,
+.dashboard-widget-content .analytics-dashboard,
+.dashboard-widget-content .analytics-state {
+  margin-top: 0;
+  margin-bottom: 0;
+  box-shadow: none;
+}
+
+.spend-widget-stack > * + * {
+  border-top: 1px solid var(--line);
+}
+
+.widget-drilldown {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.widget-drilldown > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.widget-drilldown > summary::-webkit-details-marker {
+  display: none;
+}
+
+.widget-drilldown > summary strong,
+.widget-drilldown > summary small {
+  display: block;
+}
+
+.widget-drilldown > summary strong {
+  font-size: 12px;
+}
+
+.widget-drilldown > summary small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.widget-drilldown > summary > svg {
+  width: 15px;
+  height: 15px;
+  transition: transform 0.18s ease;
+}
+
+.widget-drilldown[open] > summary > svg {
+  transform: rotate(90deg);
+}
+
+.widget-drilldown-body {
+  border-top: 1px solid var(--line);
+  padding: 12px;
+}
+
 @media (max-width: 720px) {
   .cloud-report-grid {
     grid-template-columns: 1fr;
@@ -6881,6 +7186,99 @@ th {
 
   .ai-sync-now {
     justify-content: center;
+  }
+
+  .dashboard-layout-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-widget.size-compact,
+  .dashboard-widget.size-medium,
+  .dashboard-widget.size-wide,
+  .dashboard-widget.size-full {
+    grid-column: span 12;
+  }
+
+  .dashboard-widget-controls button span {
+    display: none;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1050px) {
+  .dashboard-widget.size-compact {
+    grid-column: span 6;
+  }
+
+  .dashboard-widget.size-medium,
+  .dashboard-widget.size-wide {
+    grid-column: span 12;
+  }
+}
+
+@container (max-width: 520px) {
+  .cloud-report-grid,
+  .account-usage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-report-summary,
+  .account-usage-summary {
+    width: 100%;
+  }
+
+  .cloud-report-card > summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .cloud-report-summary-id {
+    flex: 1 1 140px;
+  }
+
+  .cloud-report-summary-cost {
+    order: 4;
+    flex: 1 1 100%;
+    text-align: left;
+    border-top: 1px solid var(--line);
+    padding-top: 7px;
+  }
+
+  .cloud-report-signals,
+  .ai-kpis,
+  .budget-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-report-signals > div + div {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .cost-split {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cost-donut {
+    align-self: center;
+  }
+
+  .cost-legend-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .cost-legend-bar,
+  .cost-legend-pct {
+    display: none;
+  }
+
+  .account-usage-provider > summary {
+    flex-wrap: wrap;
+  }
+
+  .account-usage-provider > summary > b {
+    margin-left: 40px;
   }
 }
 

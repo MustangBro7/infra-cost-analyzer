@@ -12,12 +12,9 @@ import {
   FolderGit2,
   Gauge,
   Layers,
-  PieChart,
   RefreshCw,
-  Server,
   ShieldAlert,
   Signal,
-  Target,
   TerminalSquare,
   TrendingUp,
   Wallet,
@@ -36,11 +33,11 @@ import { ProviderCostPanel } from "../ProviderCostPanel"
 import { ProviderResourcePanel } from "../ProviderResourcePanel"
 import { AnalysisRefresher } from "../AnalysisRefresher"
 import { ProviderLogo } from "../ProviderLogo"
-import { UsageHeadroomPanel } from "../UsageHeadroomPanel"
 import { SignOutButton } from "../SignOutButton"
 import { ThemeToggle } from "../ThemeToggle"
 import { HistoricalAnalyticsPanel } from "../HistoricalAnalyticsPanel"
 import { RepoHomeCard } from "../RepoHomeCard"
+import { DashboardGrid, type DashboardWidgetDefinition } from "../DashboardGrid"
 import { getOrCreateAnalysisSnapshot, snapshotKeyForRepo } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore, readDashboardStore } from "@/lib/localStore"
@@ -449,7 +446,7 @@ function statusText(connection: ProviderConnection) {
 }
 
 // Bumped every deploy — a visible marker so it's obvious which build is live.
-const BUILD_TAG = "build jun24·cloud-reporting"
+const BUILD_TAG = "build jun24·custom-layout"
 
 function Header({ subtitle }: { subtitle: string }) {
   return (
@@ -537,192 +534,6 @@ function AccountsBoard({ accounts }: { accounts: AccountEntry[] }) {
   )
 }
 
-function DashboardWidgets({
-  analysis,
-  accountCount,
-}: {
-  analysis: AnalysisResult
-  accountCount: number
-}) {
-  const successful = analysis.liveSync.filter((entry) => entry.status === "success").length
-  const errors = analysis.liveSync.filter((entry) => entry.status === "error").length
-  const measured = analysis.freeTier.filter((row) => row.source === "measured").length
-  const latest = analysis.liveSync
-    .map((entry) => entry.syncedAt)
-    .filter((value): value is string => Boolean(value))
-    .sort()
-    .at(-1)
-  const healthPct = accountCount > 0 ? Math.round((successful / accountCount) * 100) : 0
-  const healthTone = errors > 0 ? "warn" : healthPct >= 100 ? "ok" : "neutral"
-  const latestMs = latest ? Date.now() - new Date(latest).getTime() : Number.POSITIVE_INFINITY
-  const freshTone = latestMs > 26 * 3_600_000 ? "warn" : "ok"
-  const latestText = latest
-    ? latestMs < 3_600_000
-      ? `${Math.max(Math.round(latestMs / 60000), 1)}m ago`
-      : latestMs < 24 * 3_600_000
-        ? `${Math.round(latestMs / 3_600_000)}h ago`
-        : `${Math.round(latestMs / (24 * 3_600_000))}d ago`
-    : "—"
-
-  return (
-    <section className="health-panel" aria-label="Account health">
-      <div className="insight-panel-head">
-        <div>
-          <p>Account health</p>
-          <h2>{successful}/{accountCount} <span className="hero-sub">live sources responding</span></h2>
-        </div>
-        <span className={`health-pill ${healthTone}`}>
-          <CheckCircle2 aria-hidden /> {errors > 0 ? `${errors} need attention` : "All healthy"}
-        </span>
-      </div>
-      <div className="health-tiles">
-        <article className={`health-tile ${healthTone}`}>
-          <CheckCircle2 aria-hidden />
-          <span>Live sources</span>
-          <strong>{successful}/{accountCount}</strong>
-          <span className="health-bar" aria-hidden><i className={healthTone} style={{ width: `${Math.max(healthPct, 2)}%` }} /></span>
-          <small>{errors ? `${errors} need attention` : "All responding"}</small>
-        </article>
-        <article className="health-tile">
-          <Gauge aria-hidden />
-          <span>Usage metrics</span>
-          <strong>{measured}</strong>
-          <small>measured this period</small>
-        </article>
-        <article className="health-tile">
-          <Boxes aria-hidden />
-          <span>Resources</span>
-          <strong>{analysis.resourceItems.length}</strong>
-          <small>available for repo assignment</small>
-        </article>
-        <article className={`health-tile ${freshTone}`}>
-          <RefreshCw aria-hidden />
-          <span>Last refresh</span>
-          <strong>{latestText}</strong>
-          <small>{latest ? new Date(latest).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "waiting for first sync"}</small>
-        </article>
-      </div>
-    </section>
-  )
-}
-
-// Horizontal ranking of the period's biggest services across every account, so
-// the user can see where spend concentrates without expanding each provider.
-function CostDriversPanel({ analysis }: { analysis: AnalysisResult }) {
-  const services = breakdownByService(analysis.costRows)
-  const total = sumCost(analysis.costRows)
-  const top = services.slice(0, 6)
-  const max = Math.max(...top.map((entry) => entry.total), 0.01)
-  // Spend concentration: how many of the top services it takes to reach ~80% of
-  // total cost — a quick read on whether spend is diffuse or dominated by a few.
-  let running = 0
-  let concentrationCount = 0
-  for (const entry of services) {
-    running += entry.total
-    concentrationCount += 1
-    if (total > 0 && running / total >= 0.8) break
-  }
-  const topShare = total > 0 && services[0] ? Math.round((services[0].total / total) * 100) : 0
-
-  return (
-    <section className="insight-panel cost-drivers" aria-label="Top cost drivers">
-      <div className="insight-panel-head">
-        <div>
-          <p>Cost breakdown</p>
-          <h2>Where your spend goes</h2>
-        </div>
-        <Coins aria-hidden />
-      </div>
-      {services.length > 1 ? (
-        <p className="cost-concentration">
-          <Target aria-hidden />
-          <span>
-            Top {concentrationCount} of {services.length} services drive <strong>~80%</strong> of spend
-            {services[0] ? <> · <strong>{services[0].serviceName}</strong> alone is {topShare}%</> : null}
-          </span>
-        </p>
-      ) : null}
-      {top.length ? (
-        <div className="driver-list">
-          {top.map((entry) => {
-            const pct = total > 0 ? Math.round((entry.total / total) * 100) : 0
-            return (
-              <div className="driver-row" key={`${entry.provider}-${entry.serviceName}`}>
-                <div className="driver-label">
-                  <ProviderLogo provider={entry.provider} />
-                  <strong>{entry.serviceName}</strong>
-                  <small>{providerName(entry.provider)}</small>
-                </div>
-                <div className="driver-bar" aria-hidden>
-                  <span
-                    style={{ width: `${Math.max((entry.total / max) * 100, 2)}%`, background: providerColor(entry.provider) }}
-                  />
-                </div>
-                <div className="driver-amount">
-                  <b>{money(entry.total)}</b>
-                  <span>{pct}%</span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        <div className="insight-panel-empty">
-          <Coins aria-hidden />
-          <span>No billed services this period. Connected accounts on the free tier show under usage below.</span>
-        </div>
-      )}
-    </section>
-  )
-}
-
-// Usage widget: the live infrastructure footprint — discrete resources grouped
-// by kind plus the count of measured usage metrics across all accounts.
-function UsageFootprintPanel({ analysis }: { analysis: AnalysisResult }) {
-  const byKind = new Map<string, { provider: Provider; kind: string; count: number }>()
-  for (const item of analysis.resourceItems) {
-    const existing = byKind.get(item.kind)
-    if (existing) existing.count += 1
-    else byKind.set(item.kind, { provider: item.provider, kind: item.kind, count: 1 })
-  }
-  const kinds = [...byKind.values()].sort((a, b) => b.count - a.count)
-  const measured = analysis.freeTier.filter((row) => row.source === "measured").length
-
-  return (
-    <section className="insight-panel usage-footprint" aria-label="Usage footprint">
-      <div className="insight-panel-head">
-        <div>
-          <p>Usage</p>
-          <h2>Infrastructure footprint</h2>
-        </div>
-        <PieChart aria-hidden />
-      </div>
-      {kinds.length ? (
-        <div className="footprint-grid">
-          {kinds.map((entry) => (
-            <article className="footprint-tile" key={entry.kind}>
-              <span className="footprint-dot" style={{ background: providerColor(entry.provider) }} aria-hidden />
-              <strong>{entry.count}</strong>
-              <span>{entry.kind}</span>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className="insight-panel-empty">
-          <Server aria-hidden />
-          <span>No discrete resources tracked yet. Connect a provider that exposes per-resource usage (e.g. Cloudflare).</span>
-        </div>
-      )}
-      <div className="footprint-meta">
-        <Boxes aria-hidden />
-        <span>
-          <strong>{analysis.resourceItems.length}</strong> resources · <strong>{measured}</strong> live usage metric{measured === 1 ? "" : "s"} measured this period
-        </span>
-      </div>
-    </section>
-  )
-}
-
 function shortAge(value: string | null) {
   if (!value) return "not synced"
   const age = Math.max(Date.now() - new Date(value).getTime(), 0)
@@ -765,66 +576,51 @@ function CloudProviderReportPanel({ reports }: { reports: CloudProviderReport[] 
                 ? "warn"
                 : "ok"
           return (
-            <article className={`cloud-report-card coverage-${report.coverageTone}`} key={report.provider}>
-              <header>
+            <details className={`cloud-report-card coverage-${report.coverageTone}`} key={report.provider}>
+              <summary>
                 <ProviderLogo provider={report.provider} />
-                <div>
+                <span className="cloud-report-summary-id">
                   <strong>{providerName(report.provider)}</strong>
-                  <span>{report.coverageLabel}</span>
-                </div>
-                <small className={`cloud-coverage-tag ${report.coverageTone}`}>{report.syncStatus === "error" ? "error" : "live"}</small>
-              </header>
-
-              <div className="cloud-report-money">
-                <div>
-                  <span>Month to date</span>
+                  <small>{report.coverageLabel}</small>
+                </span>
+                <span className="cloud-report-summary-cost">
                   <strong>{money(report.cost)}</strong>
                   <small>{Math.round(report.share)}% of cloud spend</small>
+                </span>
+                <span className={`cloud-report-usage-pulse ${usageTone}`}>
+                  {report.highestUsagePercent == null ? `${report.measuredMetrics} metrics` : `${Math.round(report.highestUsagePercent)}% peak`}
+                </span>
+                <ChevronDown aria-hidden />
+              </summary>
+              <div className="cloud-report-detail">
+                <div className="cloud-report-money">
+                  <div>
+                    <span>Month to date</span>
+                    <strong>{money(report.cost)}</strong>
+                    <small>{Math.round(report.share)}% of cloud spend</small>
+                  </div>
+                  <div>
+                    <span>Projected</span>
+                    <strong>{money(report.projected)}</strong>
+                    <small>at current run rate</small>
+                  </div>
                 </div>
-                <div>
-                  <span>Projected</span>
-                  <strong>{money(report.projected)}</strong>
-                  <small>at current run rate</small>
-                </div>
-              </div>
 
-              <div className="cloud-report-driver">
-                <span>Top billed service</span>
-                <strong>{report.topService ?? "No billed service"}</strong>
-                <b>{report.topService ? money(report.topServiceCost) : "—"}</b>
-              </div>
+                <div className="cloud-report-driver">
+                  <span>Top billed service</span>
+                  <strong>{report.topService ?? "No billed service"}</strong>
+                  <b>{report.topService ? money(report.topServiceCost) : "—"}</b>
+                </div>
 
-              <div className="cloud-report-signals">
-                <div>
-                  <Gauge aria-hidden />
-                  <span>Usage</span>
-                  <strong>
-                    {report.measuredMetrics}
-                    <small> metrics</small>
-                  </strong>
-                  <em className={usageTone}>
-                    {report.highestUsagePercent == null ? "no limit data" : `${Math.round(report.highestUsagePercent)}% highest`}
-                  </em>
+                <div className="cloud-report-signals">
+                  <div><Gauge aria-hidden /><span>Usage</span><strong>{report.measuredMetrics}<small> metrics</small></strong><em className={usageTone}>{report.highestUsagePercent == null ? "no limit data" : `${Math.round(report.highestUsagePercent)}% highest`}</em></div>
+                  <div><Boxes aria-hidden /><span>Resources</span><strong>{report.resourceCount}</strong><em>{report.resourceCount ? "inventory live" : "not exposed"}</em></div>
+                  <div><RefreshCw aria-hidden /><span>Freshness</span><strong>{shortAge(report.syncedAt)}</strong><em>{report.syncStatus === "success" ? "responding" : report.syncStatus.replace("_", " ")}</em></div>
                 </div>
-                <div>
-                  <Boxes aria-hidden />
-                  <span>Resources</span>
-                  <strong>{report.resourceCount}</strong>
-                  <em>{report.resourceCount ? "inventory live" : "not exposed"}</em>
-                </div>
-                <div>
-                  <RefreshCw aria-hidden />
-                  <span>Freshness</span>
-                  <strong>{shortAge(report.syncedAt)}</strong>
-                  <em>{report.syncStatus === "success" ? "responding" : report.syncStatus.replace("_", " ")}</em>
-                </div>
-              </div>
 
-              <footer>
-                <DatabaseZap aria-hidden />
-                <span>{report.coverageDetail}</span>
-              </footer>
-            </article>
+                <footer><DatabaseZap aria-hidden /><span>{report.coverageDetail}</span></footer>
+              </div>
+            </details>
           )
         })}
       </div>
@@ -888,61 +684,31 @@ function AccountWideUsagePanel({ rows }: { rows: FreeTierUsageRow[] }) {
         </div>
       </div>
       <div className="account-usage-grid">
-        {groups.map((group) => (
-          <article className="account-usage-provider" key={group.key}>
-            <header>
+        {groups.map((group) => {
+          const measuredRows = group.rows.filter((row) => row.source === "measured")
+          const highest = Math.max(...measuredRows.map((row) => row.percentUsed ?? 0), 0)
+          return (
+          <details className="account-usage-provider" key={group.key}>
+            <summary>
               <ProviderLogo provider={group.provider} />
               <div>
                 <strong>{group.label}</strong>
                 <span>{group.planName} · {group.rows.length} metric{group.rows.length === 1 ? "" : "s"}</span>
               </div>
-            </header>
-            <FreeTierUsage
-              rows={group.rows}
-              hasCost={false}
-              heading="Account-wide usage"
-              subtext="Usage for the whole connected provider account."
-            />
-          </article>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-// A compact truthfulness layer: users can immediately see which connected
-// accounts have full billing visibility and which are usage-only or incomplete.
-function CloudCoveragePanel({ reports }: { reports: CloudProviderReport[] }) {
-  if (!reports.length) return null
-  const incomplete = reports.filter((report) => report.coverageTone !== "complete")
-  return (
-    <section className="insight-panel cloud-coverage-panel" aria-label="Cloud data coverage">
-      <div className="insight-panel-head">
-        <div>
-          <p>Reporting coverage</p>
-          <h2>{incomplete.length ? `${incomplete.length} source${incomplete.length === 1 ? "" : "s"} can report more` : "Full cloud cost coverage"}</h2>
-        </div>
-        <span className={incomplete.length ? "headroom-flag warn" : "headroom-flag ok"}>
-          {reports.length - incomplete.length}/{reports.length} complete
-        </span>
-      </div>
-      <div className="cloud-coverage-list">
-        {reports.map((report) => (
-          <article key={report.provider}>
-            <ProviderLogo provider={report.provider} />
-            <div>
-              <strong>{providerName(report.provider)}</strong>
-              <span>{report.coverageDetail}</span>
+              <b>{highest > 0 ? `${Math.round(highest)}% peak` : `${measuredRows.length} measured`}</b>
+              <ChevronDown aria-hidden />
+            </summary>
+            <div className="account-usage-detail">
+              <FreeTierUsage
+                rows={group.rows}
+                hasCost={false}
+                heading="Account-wide usage"
+                subtext="Usage for the whole connected provider account."
+              />
             </div>
-            <b className={`cloud-coverage-status ${report.coverageTone}`}>{report.coverageLabel}</b>
-          </article>
-        ))}
+          </details>
+        )})}
       </div>
-      {incomplete.length ? (
-        <Link className="cloud-coverage-action" href="/dashboard?view=credentials" prefetch={false}>
-          Improve reporting coverage <ArrowUpRight aria-hidden />
-        </Link>
-      ) : null}
     </section>
   )
 }
@@ -1288,6 +1054,37 @@ function RepositoryDashboard({
     totalDays: forecast.totalDays,
   })
   const accountUsageRows = analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider))
+  const aiTools = buildAiTools(analysis, state)
+  const dashboardWidgets: DashboardWidgetDefinition[] = [
+    { id: "attention", title: "Needs attention", content: <AttentionPanel alerts={alerts} /> },
+    { id: "cloud", title: "Cloud cost", content: <CloudProviderReportPanel reports={cloudReports} /> },
+    { id: "usage", title: "Account usage", content: <AccountWideUsagePanel rows={accountUsageRows} /> },
+    {
+      id: "spend",
+      title: "Spend & budget",
+      content: (
+        <div className="spend-widget-stack">
+          <CostOverview
+            eyebrow={`All Accounts · ${monthLabel(analysis.period)}`}
+            rows={analysis.costRows}
+            measuredUsageCount={measuredUsageCount}
+            emptyNote="No billed spend across your connected accounts this month."
+          />
+          <BudgetForecast
+            spent={totalCost}
+            projected={forecast.projected}
+            dailyRate={forecast.dailyRate}
+            elapsedDays={forecast.elapsedDays}
+            totalDays={forecast.totalDays}
+            budget={state.monthlyBudgetUsd ?? null}
+            monthLabel={monthLabel(analysis.period)}
+          />
+        </div>
+      ),
+    },
+    { id: "ai", title: "AI usage", content: <AiInsights tools={aiTools} /> },
+    { id: "history", title: "Cost history", content: <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} /> },
+  ]
 
   return (
     <>
@@ -1315,45 +1112,7 @@ function RepositoryDashboard({
             alertCount={alerts.length}
           />
 
-          <AttentionPanel alerts={alerts} />
-
-          <CloudProviderReportPanel reports={cloudReports} />
-
-          <AccountWideUsagePanel rows={accountUsageRows} />
-
-          <CloudCoveragePanel reports={cloudReports} />
-
-          <CostOverview
-            eyebrow={`All Accounts · ${monthLabel(analysis.period)}`}
-            rows={analysis.costRows}
-            measuredUsageCount={measuredUsageCount}
-            emptyNote="No billed spend across your connected accounts this month. Connect accounts under Credentials, or check Repos for per-project usage."
-          />
-
-          <BudgetForecast
-            spent={totalCost}
-            projected={forecast.projected}
-            dailyRate={forecast.dailyRate}
-            elapsedDays={forecast.elapsedDays}
-            totalDays={forecast.totalDays}
-            budget={state.monthlyBudgetUsd ?? null}
-            monthLabel={monthLabel(analysis.period)}
-          />
-
-          <CostDriversPanel analysis={analysis} />
-
-          <DashboardWidgets analysis={analysis} accountCount={accounts.length} />
-
-          <AccountsBoard accounts={accounts} />
-
-          <AiInsights tools={buildAiTools(analysis, state)} />
-
-          <div className="insight-pair">
-            <UsageHeadroomPanel rows={accountUsageRows} />
-            <UsageFootprintPanel analysis={analysis} />
-          </div>
-
-          <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} />
+          <DashboardGrid initialLayout={state.dashboardLayout} widgets={dashboardWidgets} />
         </>
       ) : null}
 

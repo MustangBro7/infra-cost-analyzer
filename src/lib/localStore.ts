@@ -13,6 +13,7 @@ import type {
   StoredConnection,
   WorkspaceStore,
 } from "./types"
+import { normalizeDashboardLayout, type DashboardWidgetLayout } from "./dashboardLayout"
 import { CONNECTABLE_PROVIDERS } from "./repoLinks"
 
 const EMPTY_WORKSPACE: WorkspaceStore = {
@@ -506,6 +507,13 @@ export async function setMonthlyBudget(userId: string, amount: number | null) {
   return workspace.monthlyBudgetUsd
 }
 
+export async function setDashboardLayout(userId: string, layout: DashboardWidgetLayout[]) {
+  const workspace = await readWorkspace(userId)
+  workspace.dashboardLayout = normalizeDashboardLayout(layout)
+  await writeWorkspace(userId, workspace)
+  return workspace.dashboardLayout
+}
+
 export async function appendEvent(userId: string, event: Omit<ConnectionEvent, "id" | "createdAt">) {
   const workspace = await readWorkspace(userId)
   workspace.events = withEvent(workspace.events, event)
@@ -552,6 +560,7 @@ function publicStoreFromWorkspace(workspace: WorkspaceStore) {
     repoProviderLinks: workspace.repoProviderLinks,
     costAssignments: workspace.costAssignments,
     monthlyBudgetUsd: workspace.monthlyBudgetUsd ?? null,
+    dashboardLayout: normalizeDashboardLayout(workspace.dashboardLayout),
     // Custom provider definitions (no secrets) plus whether each has a saved
     // secret, so the UI can render and prompt to connect them.
     customProviders: Object.values(workspace.customProviders).map((def) => ({
@@ -627,6 +636,7 @@ function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore
     customProviders: workspace.customProviders ?? {},
     customConnections: workspace.customConnections ?? {},
     monthlyBudgetUsd: workspace.monthlyBudgetUsd ?? null,
+    dashboardLayout: normalizeDashboardLayout(workspace.dashboardLayout),
   }
 }
 
