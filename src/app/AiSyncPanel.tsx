@@ -2,9 +2,15 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Clock, ClipboardCopy, Loader2, RefreshCw, TerminalSquare } from "lucide-react"
+import { ArrowUpRight, Clock, ClipboardCopy, Loader2, RefreshCw, TerminalSquare } from "lucide-react"
 import type { Provider } from "@/lib/types"
 import { ProviderLogo } from "./ProviderLogo"
+
+const USAGE_URL: Partial<Record<Provider, string>> = {
+  anthropic: "https://claude.ai/new#settings/usage",
+  openai: "https://chatgpt.com/codex/cloud/settings/analytics#usage",
+  cursor: "https://cursor.com/dashboard",
+}
 
 type PublicConnection = {
   provider: Provider
@@ -141,6 +147,14 @@ launchctl unload "$P" 2>/dev/null; launchctl load "$P" && echo "Ambrium auto-syn
                   <small>
                     {tool.source === "both" ? "Subscription + live API" : tool.hasApi ? "Live API" : "Subscription (local)"} ·{" "}
                     <Clock aria-hidden /> {timeAgo(tool.lastVerifiedAt)}
+                    {USAGE_URL[tool.provider] ? (
+                      <>
+                        {" · "}
+                        <a className="ai-usage-link" href={USAGE_URL[tool.provider]} target="_blank" rel="noreferrer">
+                          official usage <ArrowUpRight aria-hidden />
+                        </a>
+                      </>
+                    ) : null}
                   </small>
                 </div>
               </div>

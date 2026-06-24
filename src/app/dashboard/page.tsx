@@ -29,6 +29,7 @@ import { RepoSyncPanel } from "../RepoSyncPanel"
 import { ProviderConnectPanel } from "../ProviderConnectPanel"
 import { CustomProviderPanel } from "../CustomProviderPanel"
 import { AiSyncPanel } from "../AiSyncPanel"
+import { AiInsights, type AiToolData } from "../AiInsights"
 import { RepoAccountPicker } from "../RepoAccountPicker"
 import { ProviderCostPanel } from "../ProviderCostPanel"
 import { ProviderResourcePanel } from "../ProviderResourcePanel"
@@ -688,124 +689,68 @@ function CliConnectionGuide() {
   )
 }
 
-// Relative "Xh ago" for sync freshness badges.
-function relativeAge(iso: string | null | undefined): { text: string; hours: number } {
-  if (!iso) return { text: "never", hours: Number.POSITIVE_INFINITY }
-  const ms = Date.now() - new Date(iso).getTime()
-  if (Number.isNaN(ms)) return { text: "never", hours: Number.POSITIVE_INFINITY }
-  const mins = Math.round(ms / 60000)
-  const hours = ms / 3_600_000
-  if (mins < 1) return { text: "just now", hours }
-  if (mins < 60) return { text: `${mins}m ago`, hours }
-  const hrs = Math.round(mins / 60)
-  if (hrs < 24) return { text: `${hrs}h ago`, hours }
-  return { text: `${Math.round(hrs / 24)}d ago`, hours }
+const AI_USAGE_URL: Partial<Record<Provider, string>> = {
+  anthropic: "https://claude.ai/new#settings/usage",
+  openai: "https://chatgpt.com/codex/cloud/settings/analytics#usage",
+  cursor: "https://cursor.com/dashboard",
 }
 
-// Dedicated AI coding-tool surface: Claude, OpenAI (Codex), Cursor, and any
-// custom AI connectors. Shows each tool's month-to-date subscription/API cost
-// plus the token/request usage, and a sync-freshness badge per tool.
-function AiToolsPanel({
-  analysis,
-  accounts,
-  state,
-}: {
-  analysis: AnalysisResult
-  accounts: AccountEntry[]
-  state: Awaited<ReturnType<typeof publicStore>>
-}) {
-  const aiAccounts = accounts.filter((entry) => AI_PROVIDERS.includes(entry.provider))
-  if (aiAccounts.length === 0) return null
-  const total = aiAccounts.reduce((sum, entry) => sum + entry.cost, 0)
+// Builds the per-tool AI insight model from the snapshot + connection metadata:
+// flat subscription vs live API cost, token mix, per-model breakdown (from the
+// locally-pushed usage), API-rate value, and the official usage link.
+function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof publicStore>>): AiToolData[] {
+  const tools: AiToolData[] = []
+  for (const provider of AI_PROVIDERS) {
+    const conn = state.connections[provider]
+    if (conn?.status !== "connected") continue
+    const meta = (conn.metadata ?? {}) as {
+      source?: "local" | "api" | "both"
+      localUsage?: {
+        planLabel?: string | null
+        totals?: { inputTokens?: number; cacheTokens?: number; outputTokens?: number }
+        models?: Array<{ model: string; inputTokens?: number; cacheTokens?: number; outputTokens?: number; estimatedApiUsd?: number }>
+      }
+      subscriptionUsdOverride?: number
+      planLabelOverride?: string
+    }
+    const rows = analysis.costRows.filter((row) => row.provider === provider)
+    const subscriptionCost = rows.filter((row) => /subscription/i.test(row.serviceName)).reduce((s, r) => s + r.cost, 0)
+    const apiCost = rows.filter((row) => /\(API\)/.test(row.serviceName)).reduce((s, r) => s + r.cost, 0)
+    const apiValue = analysis.freeTier.find((row) => row.provider === provider && row.service === "Value at API rates")?.used ?? 0
 
-  // Value-for-money: flat subscription price vs. what the month's usage would
-  // cost at public API rates (pushed from local logs as "Value at API rates").
-  const planCostFor = (provider: Provider) =>
-    sumCost(analysis.costRows.filter((row) => row.provider === provider && /subscription/i.test(row.serviceName)))
-  const apiValueFor = (provider: Provider) =>
-    analysis.freeTier.find((row) => row.provider === provider && row.service === "Value at API rates")?.used ?? 0
-  const totalPlan = aiAccounts.reduce((sum, entry) => sum + planCostFor(entry.provider), 0)
-  const totalValue = aiAccounts.reduce((sum, entry) => sum + apiValueFor(entry.provider), 0)
-  const overallMultiplier = totalPlan > 0 && totalValue > 0 ? totalValue / totalPlan : null
+    const apiUsage = (service: RegExp) =>
+      analysis.freeTier.filter((row) => row.provider === provider && service.test(row.service)).reduce((s, r) => s + (r.used ?? 0), 0)
+    const inputTokens = (meta.localUsage?.totals?.inputTokens ?? 0) + apiUsage(/^input tokens \(api\)/i)
+    const cacheTokens = meta.localUsage?.totals?.cacheTokens ?? 0
+    const outputTokens = (meta.localUsage?.totals?.outputTokens ?? 0) + apiUsage(/^output tokens \(api\)/i)
 
-  // Overall freshness across AI tools, for the header badge.
-  const ages = aiAccounts
-    .map((entry) => relativeAge(state.connections[entry.provider]?.lastVerifiedAt))
-    .sort((a, b) => a.hours - b.hours)
-  const freshest = ages[0]
-  const headerTone = !freshest || freshest.hours > 26 ? "warn" : "ok"
+    const models = (meta.localUsage?.models ?? []).map((model) => {
+      const input = model.inputTokens ?? 0
+      const cache = model.cacheTokens ?? 0
+      const output = model.outputTokens ?? 0
+      return { model: model.model, inputTokens: input, cacheTokens: cache, outputTokens: output, totalTokens: input + cache + output, estimatedApiUsd: model.estimatedApiUsd ?? 0 }
+    })
 
-  return (
-    <section className="insight-panel ai-tools" aria-label="AI coding tools">
-      <div className="insight-panel-head">
-        <div>
-          <p>AI coding tools</p>
-          <h2>{money(total)} <span className="hero-sub">across {aiAccounts.length} {aiAccounts.length === 1 ? "tool" : "tools"}</span></h2>
-        </div>
-        <Link href="/dashboard?view=credentials" prefetch={false} className={`ai-sync-badge ${headerTone}`} title="Manage automatic AI sync">
-          <RefreshCw aria-hidden /> {freshest ? `Synced ${freshest.text}` : "Sync now"}
-        </Link>
-      </div>
-      <div className="ai-tools-list">
-        {aiAccounts.map((entry) => {
-          const usageRows = analysis.freeTier.filter(
-            (row) => row.provider === entry.provider && row.source === "measured"
-          )
-          const conn = state.connections[entry.provider]
-          const isLocal = (conn?.metadata as { source?: string } | undefined)?.source === "local"
-          const age = relativeAge(conn?.lastVerifiedAt)
-          const planCost = planCostFor(entry.provider)
-          const apiValue = apiValueFor(entry.provider)
-          const multiplier = planCost > 0 && apiValue > 0 ? apiValue / planCost : null
-          return (
-            <article className="ai-tool-row" key={entry.key}>
-              <div className="ai-tool-id">
-                <ProviderLogo provider={entry.provider} />
-                <div>
-                  <strong>{entry.label}</strong>
-                  <small>
-                    {entry.accountLabel ?? "Connected"}
-                    <span className={`ai-tool-sync ${age.hours > 26 ? "warn" : "ok"}`}>
-                      · {isLocal ? "local" : "live"} · synced {age.text}
-                    </span>
-                  </small>
-                </div>
-              </div>
-              <div className="ai-tool-usage">
-                {usageRows.length ? (
-                  usageRows.map((row) => (
-                    <span key={row.service} className="ai-tool-metric">
-                      {quantity(row.used ?? 0)} {row.unit} · {row.service}
-                    </span>
-                  ))
-                ) : (
-                  <span className="ai-tool-metric muted">No usage metrics reported</span>
-                )}
-              </div>
-              <div className="ai-tool-amount">
-                {entry.cost > 0.005 ? <b>{money(entry.cost)}</b> : <span className="amount-tag muted">No billed cost</span>}
-                {multiplier ? (
-                  <span className="ai-tool-value" title={`${money(apiValue)} of usage at public API rates vs your ${money(planCost)} plan`}>
-                    ≈ {money(apiValue)} value · {multiplier.toFixed(1)}×
-                  </span>
-                ) : null}
-              </div>
-            </article>
-          )
-        })}
-      </div>
-      {overallMultiplier ? (
-        <div className="ai-tools-value-summary">
-          <TrendingUp aria-hidden />
-          <span>
-            Your AI subscriptions cost <strong>{money(totalPlan)}</strong> this month but delivered{" "}
-            <strong>{money(totalValue)}</strong> of usage at public API rates —{" "}
-            <strong>{overallMultiplier.toFixed(1)}× value</strong>.
-          </span>
-        </div>
-      ) : null}
-    </section>
-  )
+    tools.push({
+      provider,
+      label: providerName(provider),
+      accountLabel: conn.accountLabel ?? null,
+      source: meta.source ?? null,
+      planLabel: meta.planLabelOverride ?? meta.localUsage?.planLabel ?? null,
+      subscriptionCost: Number(subscriptionCost.toFixed(2)),
+      apiCost: Number(apiCost.toFixed(2)),
+      totalCost: Number((subscriptionCost + apiCost).toFixed(2)),
+      apiValue: Number(apiValue.toFixed(2)),
+      inputTokens,
+      cacheTokens,
+      outputTokens,
+      totalTokens: inputTokens + cacheTokens + outputTokens,
+      models,
+      lastVerifiedAt: conn.lastVerifiedAt ?? null,
+      usageUrl: AI_USAGE_URL[provider] ?? null,
+    })
+  }
+  return tools.sort((a, b) => b.totalCost - a.totalCost)
 }
 
 function RepositoryDashboard({
@@ -856,7 +801,7 @@ function RepositoryDashboard({
 
           <AccountsBoard accounts={accounts} />
 
-          <AiToolsPanel analysis={analysis} accounts={accounts} state={state} />
+          <AiInsights tools={buildAiTools(analysis, state)} />
 
           <div className="insight-pair">
             <UsageHeadroomPanel rows={analysis.freeTier} />
