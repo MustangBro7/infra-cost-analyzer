@@ -1191,6 +1191,7 @@ function RepoDetail({
   // Within the linked accounts, split the cost actually tied to this project
   // (auto-attributed or manually assigned) from the rest of those accounts.
   const projectCostRows = linkedCostRows.filter((row) => isAssignedHere(row, assignments, selectedName, repoShort))
+  const projectTotal = sumCost(projectCostRows)
   const restTotal = sumCost(linkedCostRows.filter((row) => !isAssignedHere(row, assignments, selectedName, repoShort)))
   const measuredUsageCount = analysis.freeTier.filter((row) => row.source === "measured" && linkedSet.has(row.provider)).length
   const linkedConnections = analysis.providerConnections.filter((connection) => linkedSet.has(connection.provider))
@@ -1227,6 +1228,13 @@ function RepoDetail({
 
       {hasScan ? (
         <>
+          <div className="ai-kpis repo-kpis">
+            <article><Coins aria-hidden /><span>This project</span><strong>{money(projectTotal)}</strong><small>assigned cost this month</small></article>
+            <article><Layers aria-hidden /><span>Rest of accounts</span><strong>{money(restTotal)}</strong><small>account-level, not this repo</small></article>
+            <article><Boxes aria-hidden /><span>Linked accounts</span><strong>{linked.length}</strong><small>providers this repo uses</small></article>
+            <article><Signal aria-hidden /><span>Repo signals</span><strong>{analysis.summary.signals}</strong><small>infra detected in code</small></article>
+          </div>
+
           <CostOverview
             eyebrow={`This Project · ${monthLabel(analysis.period)}`}
             rows={projectCostRows}

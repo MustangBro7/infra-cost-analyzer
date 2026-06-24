@@ -5866,6 +5866,9 @@ th {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* Pin to the card bottom so cards of differing height (more/fewer models)
+     keep their footers aligned across the row. */
+  margin-top: auto;
   border-top: 1px solid var(--line);
   padding-top: 10px;
   font-size: 0.74rem;

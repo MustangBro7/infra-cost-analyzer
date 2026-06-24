@@ -10,6 +10,24 @@ function monthOffset(month: string, offset: number): string {
   return value.toISOString().slice(0, 7)
 }
 
+const PROVIDER_NAMES: Record<string, string> = {
+  aws: "AWS",
+  gcp: "Google Cloud",
+  anthropic: "Claude",
+  openai: "OpenAI",
+  cloudflare: "Cloudflare",
+  vercel: "Vercel",
+  motherduck: "MotherDuck",
+  cursor: "Cursor",
+  digitalocean: "DigitalOcean",
+  azure: "Azure",
+  custom: "Custom",
+}
+
+function providerName(provider: string): string {
+  return PROVIDER_NAMES[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1)
+}
+
 function monthName(month: string): string {
   return new Date(`${month}-01T00:00:00Z`).toLocaleString("en-US", {
     month: "short",
@@ -198,7 +216,7 @@ export function HistoricalAnalyticsPanel({
             const pct = mover.prev > 0 ? Math.round((mover.delta / mover.prev) * 100) : null
             return (
               <div className="mover-row" key={`${mover.provider}-${mover.currency}`}>
-                <span className="mover-name">{mover.provider}</span>
+                <span className="mover-name">{providerName(mover.provider)}</span>
                 <span className="mover-vals">
                   {currency(mover.prev, mover.currency)} → {currency(mover.cur, mover.currency)}
                 </span>
@@ -218,7 +236,7 @@ export function HistoricalAnalyticsPanel({
           <h3>Providers · {monthName(currentMonth)}</h3>
           {latestProviders.length ? latestProviders.map((row) => (
             <div className="analytics-breakdown-row" key={`${row.provider}-${row.currency}`}>
-              <span>{row.provider}</span>
+              <span>{providerName(row.provider)}</span>
               <strong>{currency(row.total, row.currency)}</strong>
             </div>
           )) : <span className="analytics-empty-copy">No provider cost this month.</span>}
