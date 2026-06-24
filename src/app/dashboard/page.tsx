@@ -804,7 +804,7 @@ function RepositoryDashboard({
           <AiInsights tools={buildAiTools(analysis, state)} />
 
           <div className="insight-pair">
-            <UsageHeadroomPanel rows={analysis.freeTier} />
+            <UsageHeadroomPanel rows={analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider))} />
             <UsageFootprintPanel analysis={analysis} />
           </div>
 
