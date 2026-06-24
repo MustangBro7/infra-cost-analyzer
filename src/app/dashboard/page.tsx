@@ -718,6 +718,16 @@ function AiToolsPanel({
   if (aiAccounts.length === 0) return null
   const total = aiAccounts.reduce((sum, entry) => sum + entry.cost, 0)
 
+  // Value-for-money: flat subscription price vs. what the month's usage would
+  // cost at public API rates (pushed from local logs as "Value at API rates").
+  const planCostFor = (provider: Provider) =>
+    sumCost(analysis.costRows.filter((row) => row.provider === provider && /subscription/i.test(row.serviceName)))
+  const apiValueFor = (provider: Provider) =>
+    analysis.freeTier.find((row) => row.provider === provider && row.service === "Value at API rates")?.used ?? 0
+  const totalPlan = aiAccounts.reduce((sum, entry) => sum + planCostFor(entry.provider), 0)
+  const totalValue = aiAccounts.reduce((sum, entry) => sum + apiValueFor(entry.provider), 0)
+  const overallMultiplier = totalPlan > 0 && totalValue > 0 ? totalValue / totalPlan : null
+
   // Overall freshness across AI tools, for the header badge.
   const ages = aiAccounts
     .map((entry) => relativeAge(state.connections[entry.provider]?.lastVerifiedAt))
@@ -744,6 +754,9 @@ function AiToolsPanel({
           const conn = state.connections[entry.provider]
           const isLocal = (conn?.metadata as { source?: string } | undefined)?.source === "local"
           const age = relativeAge(conn?.lastVerifiedAt)
+          const planCost = planCostFor(entry.provider)
+          const apiValue = apiValueFor(entry.provider)
+          const multiplier = planCost > 0 && apiValue > 0 ? apiValue / planCost : null
           return (
             <article className="ai-tool-row" key={entry.key}>
               <div className="ai-tool-id">
@@ -771,11 +784,26 @@ function AiToolsPanel({
               </div>
               <div className="ai-tool-amount">
                 {entry.cost > 0.005 ? <b>{money(entry.cost)}</b> : <span className="amount-tag muted">No billed cost</span>}
+                {multiplier ? (
+                  <span className="ai-tool-value" title={`${money(apiValue)} of usage at public API rates vs your ${money(planCost)} plan`}>
+                    ≈ {money(apiValue)} value · {multiplier.toFixed(1)}×
+                  </span>
+                ) : null}
               </div>
             </article>
           )
         })}
       </div>
+      {overallMultiplier ? (
+        <div className="ai-tools-value-summary">
+          <TrendingUp aria-hidden />
+          <span>
+            Your AI subscriptions cost <strong>{money(totalPlan)}</strong> this month but delivered{" "}
+            <strong>{money(totalValue)}</strong> of usage at public API rates —{" "}
+            <strong>{overallMultiplier.toFixed(1)}× value</strong>.
+          </span>
+        </div>
+      ) : null}
     </section>
   )
 }
