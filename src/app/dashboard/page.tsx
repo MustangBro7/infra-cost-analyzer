@@ -388,7 +388,7 @@ function statusText(connection: ProviderConnection) {
 }
 
 // Bumped every deploy — a visible marker so it's obvious which build is live.
-const BUILD_TAG = "build jun24·2310"
+const BUILD_TAG = "build jun24·2318"
 
 function Header({ subtitle }: { subtitle: string }) {
   return (

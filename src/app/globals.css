@@ -5673,6 +5673,12 @@ th {
   gap: 6px;
 }
 
+/* The shared .plan-badge pushes right with margin-left:auto (for the connect
+   cards); inside the AI card title it should sit right next to the name. */
+.ai-card-title .plan-badge {
+  margin-left: 0;
+}
+
 .ai-card-id strong {
   font-size: 0.95rem;
 }
