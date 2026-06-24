@@ -832,6 +832,84 @@ function CloudProviderReportPanel({ reports }: { reports: CloudProviderReport[] 
   )
 }
 
+type AccountUsageGroup = {
+  key: string
+  provider: Provider
+  label: string
+  planName: string
+  rows: FreeTierUsageRow[]
+}
+
+function accountUsageGroups(rows: FreeTierUsageRow[]): AccountUsageGroup[] {
+  const groups = new Map<string, AccountUsageGroup>()
+  for (const row of rows) {
+    const key = row.provider === "custom" && row.customProviderId ? `custom:${row.customProviderId}` : row.provider
+    const existing = groups.get(key)
+    if (existing) {
+      existing.rows.push(row)
+      continue
+    }
+    groups.set(key, {
+      key,
+      provider: row.provider,
+      label: row.customLabel ?? providerName(row.provider),
+      planName: row.planName,
+      rows: [row],
+    })
+  }
+  return [...groups.values()].sort((a, b) => {
+    const aMeasured = a.rows.filter((row) => row.source === "measured").length
+    const bMeasured = b.rows.filter((row) => row.source === "measured").length
+    return bMeasured - aMeasured || a.label.localeCompare(b.label)
+  })
+}
+
+// Full account-wide usage is intentionally visible without opening a modal.
+// This restores the operational view across every regular/custom cloud source;
+// the compact headroom widget below remains a prioritized risk summary.
+function AccountWideUsagePanel({ rows }: { rows: FreeTierUsageRow[] }) {
+  const groups = accountUsageGroups(rows)
+  if (!groups.length) return null
+  const measured = rows.filter((row) => row.source === "measured").length
+  const nearLimit = rows.filter((row) => (row.percentUsed ?? 0) >= 80).length
+
+  return (
+    <section className="account-usage-panel" aria-label="Account-wide provider usage">
+      <div className="insight-panel-head account-usage-head">
+        <div>
+          <p>Account-wide usage</p>
+          <h2>Every provider metric</h2>
+          <span>Live consumption and published allowances for the full connected account, independent of repo assignment.</span>
+        </div>
+        <div className="account-usage-summary">
+          <strong>{measured}</strong>
+          <span>measured</span>
+          <small>{groups.length} providers · {nearLimit} near limit</small>
+        </div>
+      </div>
+      <div className="account-usage-grid">
+        {groups.map((group) => (
+          <article className="account-usage-provider" key={group.key}>
+            <header>
+              <ProviderLogo provider={group.provider} />
+              <div>
+                <strong>{group.label}</strong>
+                <span>{group.planName} · {group.rows.length} metric{group.rows.length === 1 ? "" : "s"}</span>
+              </div>
+            </header>
+            <FreeTierUsage
+              rows={group.rows}
+              hasCost={false}
+              heading="Account-wide usage"
+              subtext="Usage for the whole connected provider account."
+            />
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 // A compact truthfulness layer: users can immediately see which connected
 // accounts have full billing visibility and which are usage-only or incomplete.
 function CloudCoveragePanel({ reports }: { reports: CloudProviderReport[] }) {
@@ -1209,6 +1287,7 @@ function RepositoryDashboard({
     elapsedDays: forecast.elapsedDays,
     totalDays: forecast.totalDays,
   })
+  const accountUsageRows = analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider))
 
   return (
     <>
@@ -1240,6 +1319,8 @@ function RepositoryDashboard({
 
           <CloudProviderReportPanel reports={cloudReports} />
 
+          <AccountWideUsagePanel rows={accountUsageRows} />
+
           <CloudCoveragePanel reports={cloudReports} />
 
           <CostOverview
@@ -1268,7 +1349,7 @@ function RepositoryDashboard({
           <AiInsights tools={buildAiTools(analysis, state)} />
 
           <div className="insight-pair">
-            <UsageHeadroomPanel rows={analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider))} />
+            <UsageHeadroomPanel rows={accountUsageRows} />
             <UsageFootprintPanel analysis={analysis} />
           </div>
 

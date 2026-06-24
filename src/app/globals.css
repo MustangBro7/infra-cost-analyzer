@@ -3616,6 +3616,7 @@ th {
 
 /* ---- Provider brand logos ---- */
 .provider-logo {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3627,8 +3628,29 @@ th {
 }
 
 .provider-logo svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
   width: 17px;
   height: 17px;
+  overflow: visible;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+}
+
+/* Optical centering for marks whose vector bounds are not centered in their
+   24×24 viewBox. The SVG box remains mathematically centered above. */
+.provider-logo.provider-aws svg {
+  transform: translate(-50%, calc(-50% + 1px)) scale(0.92);
+}
+
+.provider-logo.provider-cloudflare svg {
+  transform: translate(-50%, calc(-50% + 0.5px)) scale(0.94);
+}
+
+.provider-logo.provider-motherduck svg {
+  transform: translate(calc(-50% + 0.5px), calc(-50% + 0.5px)) scale(0.94);
 }
 
 .provider-logo.provider-unknown,
@@ -6579,6 +6601,105 @@ th {
   flex: 0 0 auto;
 }
 
+/* Full account-wide usage, grouped by connected provider. */
+.account-usage-panel {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 18px;
+}
+
+.account-usage-head > div:first-child > span {
+  display: block;
+  max-width: 760px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.account-usage-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  column-gap: 8px;
+  border-left: 3px solid var(--blue);
+  background: var(--info-soft);
+  padding: 9px 12px;
+}
+
+.account-usage-summary strong {
+  grid-row: span 2;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-usage-summary span {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.account-usage-summary small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.account-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.account-usage-provider {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.account-usage-provider > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding: 11px 13px;
+}
+
+.account-usage-provider > header > div {
+  min-width: 0;
+}
+
+.account-usage-provider > header strong,
+.account-usage-provider > header span {
+  display: block;
+}
+
+.account-usage-provider > header span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.account-usage-provider .free-tier-block {
+  margin-top: 0;
+  border: 0;
+  background: transparent;
+  padding: 12px 13px;
+}
+
+.account-usage-provider .free-tier-head {
+  display: none;
+}
+
+.account-usage-provider .free-tier-list {
+  margin-top: 0;
+}
+
+.account-usage-provider .free-tier-row {
+  background: var(--panel);
+}
+
 .cloud-coverage-panel {
   margin-top: 16px;
 }
@@ -6726,6 +6847,14 @@ th {
 
   .cloud-report-summary {
     width: 100%;
+  }
+
+  .account-usage-summary {
+    width: 100%;
+  }
+
+  .account-usage-grid {
+    grid-template-columns: 1fr;
   }
 
   .cloud-report-signals {
