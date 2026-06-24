@@ -2904,10 +2904,11 @@ th {
   }
 
   .cost-legend-row {
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
-  .cost-legend-row .cost-legend-pct {
+  .cost-legend-row .cost-legend-pct,
+  .cost-legend-row .cost-legend-bar {
     display: none;
   }
 
@@ -3043,12 +3044,24 @@ th {
 
 .cost-legend-row {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(80px, max-content) minmax(60px, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   border: 1px solid var(--line);
   background: var(--surface);
   padding: 8px 12px;
+}
+
+.cost-legend-bar {
+  height: 8px;
+  background: var(--neutral);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.cost-legend-bar i {
+  display: block;
+  height: 100%;
 }
 
 .cost-legend-dot {

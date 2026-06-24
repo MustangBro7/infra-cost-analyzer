@@ -357,9 +357,11 @@ function CostOverview({
               const pct = total > 0 ? Math.round((entry.total / total) * 100) : 0
               return (
                 <div key={entry.key} className="cost-legend-row">
-                  <span className="cost-legend-dot" style={{ background: providerColor(entry.provider) }} aria-hidden />
                   <ProviderLogo provider={entry.provider} />
                   <strong>{entry.label}</strong>
+                  <span className="cost-legend-bar" aria-hidden>
+                    <i style={{ width: `${Math.max(pct, 2)}%`, background: providerColor(entry.provider) }} />
+                  </span>
                   <span className="cost-legend-pct">{pct}%</span>
                   <b>{money(entry.total)}</b>
                 </div>
