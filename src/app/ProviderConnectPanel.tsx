@@ -70,7 +70,7 @@ const AI_PROVIDER_CARDS: Record<
     title: "Connect Claude",
     endpoint: "/api/anthropic/connect",
     placeholder: "sk-ant-admin…",
-    blurb: "Paste an Anthropic Admin API key to pull your organization's Claude cost and token usage.",
+    blurb: "Needs an Anthropic API org — paste an Admin API key for org-wide Claude cost & usage. On a personal Claude Pro/Max plan? Use the local reader below instead.",
     docUrl: "https://console.anthropic.com/settings/admin-keys",
     docLabel: "Create Anthropic Admin key",
   },
@@ -78,7 +78,7 @@ const AI_PROVIDER_CARDS: Record<
     title: "Connect OpenAI",
     endpoint: "/api/openai/connect",
     placeholder: "sk-admin-…",
-    blurb: "Paste an OpenAI Admin key to pull organization cost and usage (covers Codex and API spend).",
+    blurb: "Needs an OpenAI API org — paste an Admin key for org-wide cost & usage (covers Codex API spend). On personal ChatGPT Plus/Pro? Use the local reader below.",
     docUrl: "https://platform.openai.com/settings/organization/admin-keys",
     docLabel: "Create OpenAI Admin key",
   },
@@ -86,7 +86,7 @@ const AI_PROVIDER_CARDS: Record<
     title: "Connect Cursor",
     endpoint: "/api/cursor/connect",
     placeholder: "Cursor Team API key",
-    blurb: "Paste a Cursor Team API key (Cursor Admin API) to pull team spend and usage.",
+    blurb: "Needs a Cursor Team plan — paste a Team API key (Cursor Admin API) for team spend & usage. Individual Cursor Pro has no usage API.",
     docUrl: "https://cursor.com/dashboard",
     docLabel: "Open Cursor dashboard",
   },
@@ -194,13 +194,15 @@ export function ProviderConnectPanel({
   })
 
   const suggestedSet = new Set<Provider>(state.suggestedProviders ?? [])
+  const aiProviders = new Set<Provider>(["anthropic", "openai", "cursor"])
   const isConnected = (provider: Provider) => state.connections[provider]?.status === "connected"
   const detectionRank = (connection: ProviderConnection) =>
     suggestedSet.has(connection.provider) && !isConnected(connection.provider) ? 0 : 1
-  // Promote providers detected in the synced repos (and ones already connected);
-  // tuck the rest behind a disclosure so the user sees what they actually use.
+  // Promote providers detected in the synced repos, ones already connected, and
+  // the AI coding tools (so they're not hidden); tuck the rest behind a
+  // disclosure so the user sees what they actually use.
   const promoted = relevant
-    .filter((connection) => suggestedSet.has(connection.provider) || isConnected(connection.provider))
+    .filter((connection) => suggestedSet.has(connection.provider) || isConnected(connection.provider) || aiProviders.has(connection.provider))
     .sort((a, b) => detectionRank(a) - detectionRank(b))
   const others = relevant.filter((connection) => !promoted.includes(connection))
 

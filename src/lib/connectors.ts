@@ -126,6 +126,43 @@ export async function connectOpenAiKey(userId: string, adminKey: string) {
   return { accountLabel: verified.accountLabel }
 }
 
+export interface AiLocalUsagePayload {
+  month: string
+  subscriptionUsd: number
+  planLabel: string | null
+  toolLabel?: string
+  models: Array<{ model: string; inputTokens: number; cacheTokens: number; outputTokens: number; estimatedApiUsd: number }>
+  totals: { inputTokens: number; cacheTokens: number; outputTokens: number; estimatedApiUsd: number }
+}
+
+/**
+ * Records AI usage read from LOCAL Claude Code / Codex logs by the companion CLI,
+ * for users on flat personal subscriptions (Claude Pro, ChatGPT Plus, …) whose
+ * vendors expose no cost API. Stored server-side on the provider connection so it
+ * persists and renders like every other source; the cost engine reads it from
+ * metadata instead of calling the org API.
+ */
+export async function recordAiLocalUsage(
+  userId: string,
+  provider: "anthropic" | "openai" | "cursor",
+  payload: AiLocalUsagePayload
+) {
+  const toolLabel = payload.toolLabel ?? (provider === "anthropic" ? "Claude Code" : provider === "openai" ? "Codex" : "Cursor")
+  const accountLabel = `${toolLabel} (local)${payload.planLabel ? ` · ${payload.planLabel}` : ""}`
+  await upsertConnection(userId, {
+    provider,
+    status: "connected",
+    accountLabel,
+    // No secret for the local path; a sentinel keeps the "connected" invariant.
+    accessToken: "local",
+    connectedAt: new Date().toISOString(),
+    lastVerifiedAt: new Date().toISOString(),
+    lastError: null,
+    metadata: { source: "local", localUsage: payload, updatedAt: new Date().toISOString() },
+  })
+  return { accountLabel }
+}
+
 export async function connectCursorKey(userId: string, apiKey: string) {
   const verified = await verifyCursorKey(apiKey)
   await upsertConnection(userId, {

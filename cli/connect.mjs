@@ -16,6 +16,7 @@ import { readFileSync, rmSync } from "node:fs"
 import { createInterface } from "node:readline/promises"
 import { stdin, stdout } from "node:process"
 import { connectedProviderMap } from "./provider-state.mjs"
+import { collectAiUsage } from "./ai-usage.mjs"
 
 const API_BASE = (process.env.AMBRIUM_API || "http://localhost:3000").replace(/\/+$/, "")
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -227,6 +228,32 @@ async function connectMotherDuck(cliToken) {
   return result.accountLabel
 }
 
+// ---- AI coding tools (local usage) ----
+async function pushAiUsage(cliToken) {
+  log(`\n◇ AI coding tools (local usage)`)
+  let payloads = []
+  try {
+    payloads = collectAiUsage()
+  } catch (error) {
+    log(`   • could not read local logs: ${error instanceof Error ? error.message : String(error)}`)
+    return
+  }
+  if (payloads.length === 0) {
+    log(`   • no Claude Code / Codex usage found for this month`)
+    return
+  }
+  for (const payload of payloads) {
+    const tokens = payload.models.reduce((sum, m) => sum + m.inputTokens + m.outputTokens, 0)
+    const est = payload.models.reduce((sum, m) => sum + m.estimatedApiUsd, 0)
+    try {
+      await api("/api/cli/ai-usage", { method: "POST", token: cliToken, body: payload })
+      log(`   ✓ ${payload.toolLabel}: ${tokens.toLocaleString()} tokens this month, ~$${est.toFixed(2)} at API rates`)
+    } catch (error) {
+      log(`   ✗ ${payload.toolLabel}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+}
+
 // ---- orchestration ----
 async function main() {
   log(`Ambrium connect → ${API_BASE}`)
@@ -289,6 +316,10 @@ async function main() {
       results.push([name, false, msg])
     }
   }
+
+  // AI coding-tool usage from local logs (Claude Code, Codex). This is the only
+  // source for flat personal subscriptions, whose vendors expose no cost API.
+  await pushAiUsage(cliToken)
 
   const ok = results.filter(([, success]) => success).length
   log(`\n${ok}/${results.length} new providers connected; ${connectedEntries.length} already connected. Dashboard: ${API_BASE}`)

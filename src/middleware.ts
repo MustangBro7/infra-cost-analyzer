@@ -18,6 +18,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/cli/status",
   "/api/cli/aws/params",
   "/api/cli/connect/(.*)",
+  "/api/cli/ai-usage",
   // Agent-facing custom-provider endpoints authenticate with a cliToken in the
   // route handler (requireUserFromCliToken), so they bypass Clerk's session
   // gate — same model as /api/cli/connect/*.

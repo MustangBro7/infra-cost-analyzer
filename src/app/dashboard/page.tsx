@@ -681,7 +681,7 @@ function CliConnectionGuide() {
       </div>
       <div className="cli-prereqs">
         <strong>Provider notes</strong>
-        <span>AWS Cost Explorer is opt-in because AWS charges per request. GCP detailed cost still requires Billing Export. MotherDuck shows verified storage usage only because its actual invoice is available only in MotherDuck Billing.</span>
+        <span>AWS Cost Explorer is opt-in because AWS charges per request. GCP detailed cost still requires Billing Export. MotherDuck shows verified storage usage only because its actual invoice is available only in MotherDuck Billing. The CLI also reads your local Claude Code &amp; Codex logs to track AI usage for flat personal plans (Claude Pro/Max, ChatGPT Plus/Pro) — the only place that data exists.</span>
       </div>
     </section>
   )

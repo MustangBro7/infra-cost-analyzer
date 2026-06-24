@@ -662,9 +662,64 @@ const AI_PROVIDER_LABEL: Record<"anthropic" | "openai" | "cursor", string> = {
   cursor: "Cursor",
 }
 
+// Usage pushed by the companion CLI from local Claude Code / Codex logs, for
+// users on flat personal subscriptions whose vendors expose no cost API.
+interface AiLocalUsagePayload {
+  month: string
+  subscriptionUsd: number
+  planLabel: string | null
+  toolLabel?: string
+  models: Array<{ model: string; inputTokens: number; cacheTokens: number; outputTokens: number; estimatedApiUsd: number }>
+  totals: { inputTokens: number; cacheTokens: number; outputTokens: number; estimatedApiUsd: number }
+}
+
+function buildLocalAiResult(provider: "anthropic" | "openai" | "cursor", label: string, payload: AiLocalUsagePayload): LiveResult {
+  const currentPeriod = period()
+  const rows: NormalizedCostRow[] = []
+  if (payload.subscriptionUsd > 0) {
+    rows.push({
+      provider,
+      serviceName: `${payload.planLabel ? `${payload.planLabel} ` : ""}subscription`,
+      resourceId: null,
+      resourceName: label,
+      billingPeriodStart: currentPeriod.from,
+      billingPeriodEnd: currentPeriod.to,
+      cost: Number(payload.subscriptionUsd.toFixed(2)),
+      currency: "USD",
+      attribution: "user_confirmed",
+      attributionReason: `Flat ${label} subscription price. Local usage this month is worth ~$${payload.totals.estimatedApiUsd.toFixed(2)} at API rates (${payload.toolLabel ?? "local logs"}).`,
+      signalId: `${provider}-local:sub`,
+      source: "live",
+    })
+  }
+  const usage: ProviderUsageSample[] = []
+  if (payload.totals.inputTokens > 0) usage.push({ provider, service: "Input tokens", quantity: payload.totals.inputTokens, unit: "tokens" })
+  if (payload.totals.cacheTokens > 0) usage.push({ provider, service: "Cache tokens", quantity: payload.totals.cacheTokens, unit: "tokens" })
+  if (payload.totals.outputTokens > 0) usage.push({ provider, service: "Output tokens", quantity: payload.totals.outputTokens, unit: "tokens" })
+  if (payload.totals.estimatedApiUsd > 0) usage.push({ provider, service: "Value at API rates", quantity: Number(payload.totals.estimatedApiUsd.toFixed(2)), unit: "USD est." })
+
+  return {
+    rows,
+    usage,
+    sync: {
+      provider,
+      status: "success",
+      message: `Loaded local ${payload.toolLabel ?? label} usage for ${payload.month}: ${payload.totals.inputTokens + payload.totals.outputTokens} tokens, ~$${payload.totals.estimatedApiUsd.toFixed(2)} at API rates.`,
+      rows: rows.length,
+      syncedAt: new Date().toISOString(),
+    },
+  }
+}
+
 async function loadAiLive(workspace: WorkspaceStore, provider: "anthropic" | "openai" | "cursor"): Promise<LiveResult> {
   const connection = workspace.connections[provider]
   const label = AI_PROVIDER_LABEL[provider]
+  // Local-source connections carry their pushed usage in metadata — render that
+  // instead of calling the org API (which personal subscriptions can't use).
+  const meta = connection?.metadata as { source?: string; localUsage?: AiLocalUsagePayload } | undefined
+  if (connection?.status === "connected" && meta?.source === "local" && meta.localUsage) {
+    return buildLocalAiResult(provider, label, meta.localUsage)
+  }
   if (!connection?.accessToken || connection.status !== "connected") {
     return notConnected(provider, `Connect ${label} to pull subscription cost and token usage.`)
   }
