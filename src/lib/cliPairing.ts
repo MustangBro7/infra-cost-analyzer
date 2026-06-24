@@ -8,7 +8,11 @@ import type { CliPairing } from "./types"
 // cliToken it then uses as a Bearer credential on the /api/cli/* endpoints.
 
 const PAIRING_TTL_MS = 10 * 60 * 1000 // approval window for the user/device code
-const CLI_TOKEN_TTL_MS = 30 * 60 * 1000 // lifetime of the minted CLI token
+// Lifetime of the minted CLI token. Long-lived so the companion CLI can persist
+// it (~/.ambrium/credentials) and a scheduled `--ai-only` refresh runs unattended
+// without re-prompting for browser approval. It is connect-scoped (only the
+// /api/cli/* connect + usage endpoints, all per-user) and revocable by re-pairing.
+const CLI_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 export const PAIRING_POLL_INTERVAL_SECONDS = 5
 
 // User-typed code: avoid ambiguous chars (no 0/O/1/I), grouped XXXX-XXXX.

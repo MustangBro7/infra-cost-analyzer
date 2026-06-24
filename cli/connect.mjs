@@ -12,15 +12,43 @@
 //   Cloudflare -> a scoped API token (env CLOUDFLARE_API_TOKEN, or you paste one)
 
 import { execFileSync } from "node:child_process"
-import { readFileSync, rmSync } from "node:fs"
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
 import { createInterface } from "node:readline/promises"
 import { stdin, stdout } from "node:process"
 import { connectedProviderMap } from "./provider-state.mjs"
 import { collectAiUsage } from "./ai-usage.mjs"
 
 const API_BASE = (process.env.AMBRIUM_API || "http://localhost:3000").replace(/\/+$/, "")
+const AI_ONLY = process.argv.includes("--ai-only")
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const log = (m) => process.stdout.write(`${m}\n`)
+
+// Persist the minted cliToken so re-runs (and scheduled --ai-only jobs) reuse it
+// until it expires instead of re-prompting for browser approval every time.
+const CRED_PATH = join(homedir(), ".ambrium", "credentials.json")
+function saveToken(cliToken, expiresIn) {
+  try {
+    mkdirSync(join(homedir(), ".ambrium"), { recursive: true })
+    writeFileSync(
+      CRED_PATH,
+      JSON.stringify({ api: API_BASE, cliToken, expiresAt: Date.now() + (expiresIn ?? 0) * 1000 }, null, 2)
+    )
+    chmodSync(CRED_PATH, 0o600)
+  } catch {
+    /* best effort — fall back to re-pairing next time */
+  }
+}
+function loadToken() {
+  try {
+    const saved = JSON.parse(readFileSync(CRED_PATH, "utf8"))
+    if (saved.api === API_BASE && saved.cliToken && saved.expiresAt > Date.now() + 30_000) return saved.cliToken
+  } catch {
+    /* none / unreadable */
+  }
+  return null
+}
 
 function run(cmd, args) {
   return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
@@ -71,11 +99,29 @@ async function pair() {
   while (Date.now() < deadline) {
     await sleep(start.interval * 1000)
     const poll = await api("/api/cli/pair/poll", { method: "POST", body: { deviceCode: start.deviceCode } })
-    if (poll.status === "authorized") return poll.cliToken
+    if (poll.status === "authorized") {
+      saveToken(poll.cliToken, poll.expiresIn)
+      return poll.cliToken
+    }
     if (poll.status === "denied") throw new Error("Pairing was denied.")
     if (poll.status === "expired") throw new Error("Pairing code expired. Re-run the CLI.")
   }
   throw new Error("Timed out waiting for approval.")
+}
+
+// Reuse a saved cliToken when still valid (no browser), else pair fresh.
+async function getToken() {
+  const saved = loadToken()
+  if (saved) {
+    try {
+      await api("/api/cli/status", { token: saved })
+      log(`\n◇ Reusing saved Ambrium pairing`)
+      return saved
+    } catch {
+      /* expired/invalid — pair again */
+    }
+  }
+  return pair()
 }
 
 // ---- AWS ----
@@ -242,23 +288,36 @@ async function pushAiUsage(cliToken) {
     log(`   • no Claude Code / Codex usage found for this month`)
     return
   }
+  let pushed = 0
   for (const payload of payloads) {
     const tokens = payload.models.reduce((sum, m) => sum + m.inputTokens + m.outputTokens, 0)
     const est = payload.models.reduce((sum, m) => sum + m.estimatedApiUsd, 0)
     try {
       await api("/api/cli/ai-usage", { method: "POST", token: cliToken, body: payload })
       log(`   ✓ ${payload.toolLabel}: ${tokens.toLocaleString()} tokens this month, ~$${est.toFixed(2)} at API rates`)
+      pushed += 1
     } catch (error) {
       log(`   ✗ ${payload.toolLabel}: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+  if (pushed > 0 && !AI_ONLY) {
+    log(`   tip: keep these fresh automatically — schedule "ambrium-connect --ai-only" (see docs/local-ai-usage.md)`)
   }
 }
 
 // ---- orchestration ----
 async function main() {
   log(`Ambrium connect → ${API_BASE}`)
-  const cliToken = await pair()
+  const cliToken = await getToken()
   log(`   ✓ paired`)
+
+  // --ai-only: skip cloud provisioning entirely; just push local AI usage. This
+  // is the lightweight command to schedule (launchd/cron) for periodic refresh.
+  if (AI_ONLY) {
+    await pushAiUsage(cliToken)
+    log(`\nDashboard: ${API_BASE}`)
+    return
+  }
 
   const state = await api("/api/cli/status", { token: cliToken })
   const connected = connectedProviderMap(state)
@@ -297,11 +356,14 @@ async function main() {
 
   if (providers.length === 0) {
     if (connectedEntries.length > 0) {
-      log(`\nAll available cloud providers are already connected. Dashboard: ${API_BASE}`)
-      return
+      log(`\nAll available cloud providers are already connected.`)
+    } else {
+      log(`\nNo cloud CLIs detected. Install/authenticate aws or gcloud to add cloud accounts.`)
     }
-    log(`\nNo cloud CLIs detected. Install/authenticate aws or gcloud and re-run.`)
-    process.exit(1)
+    // Still push local AI usage — it's independent of the cloud CLIs.
+    await pushAiUsage(cliToken)
+    log(`\nDashboard: ${API_BASE}`)
+    return
   }
 
   const results = []
