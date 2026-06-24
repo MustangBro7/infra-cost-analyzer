@@ -18,6 +18,12 @@ const isPublicRoute = createRouteMatcher([
   "/api/cli/status",
   "/api/cli/aws/params",
   "/api/cli/connect/(.*)",
+  // Agent-facing custom-provider endpoints authenticate with a cliToken in the
+  // route handler (requireUserFromCliToken), so they bypass Clerk's session
+  // gate — same model as /api/cli/connect/*.
+  "/api/cli/custom-providers(.*)",
+  // Public, machine-readable extension guide (no secrets) the AI agent reads.
+  "/api/extend/(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
