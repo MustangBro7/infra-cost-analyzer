@@ -711,12 +711,23 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
       return { model: model.model, inputTokens: input, cacheTokens: cache, outputTokens: output, totalTokens: input + cache + output, estimatedApiUsd: model.estimatedApiUsd ?? 0 }
     })
 
+    const planLabel = meta.planLabelOverride ?? meta.localUsage?.planLabel ?? null
+    // The card already shows the plan as a badge and the source as a tag, so
+    // strip "(local)" and a trailing "· <plan>" from the stored label to avoid
+    // repeating them in the subtitle (e.g. "Codex (local) · Plus" → "Codex").
+    let accountLabel = conn.accountLabel ?? null
+    if (accountLabel) {
+      accountLabel = accountLabel.replace(/\s*\(local\)/i, "")
+      if (planLabel) accountLabel = accountLabel.replace(new RegExp(`\\s*·\\s*${planLabel}\\s*$`, "i"), "")
+      accountLabel = accountLabel.trim() || null
+    }
+
     tools.push({
       provider,
       label: providerName(provider),
-      accountLabel: conn.accountLabel ?? null,
+      accountLabel,
       source: meta.source ?? null,
-      planLabel: meta.planLabelOverride ?? meta.localUsage?.planLabel ?? null,
+      planLabel,
       subscriptionCost: Number(subscriptionCost.toFixed(2)),
       apiCost: Number(apiCost.toFixed(2)),
       totalCost: Number((subscriptionCost + apiCost).toFixed(2)),
