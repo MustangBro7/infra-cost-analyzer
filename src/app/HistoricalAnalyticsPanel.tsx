@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { AlertTriangle, BarChart3, Loader2 } from "lucide-react"
+import { AlertTriangle, BarChart3, Loader2, TrendingDown, TrendingUp } from "lucide-react"
 import type { AnalyticsDashboardResult, AnalyticsServicesResult, AnalyticsTrendsResult } from "@/lib/analytics/types"
 
 function monthOffset(month: string, offset: number): string {
@@ -129,6 +129,24 @@ export function HistoricalAnalyticsPanel({
   const months = Array.from({ length: 12 }, (_, index) => monthOffset(currentMonth, index - 11))
   const latestProviders = trends.providers.filter((row) => row.month === currentMonth)
 
+  // Biggest movers: per-provider delta of this month vs last month.
+  const prevMonth = monthOffset(currentMonth, -1)
+  const hasPrevMonth = trends.providers.some((row) => row.month === prevMonth)
+  const moverMap = new Map<string, { provider: string; currency: string; cur: number; prev: number }>()
+  for (const row of trends.providers) {
+    if (row.month !== currentMonth && row.month !== prevMonth) continue
+    const key = `${row.provider}|${row.currency}`
+    const entry = moverMap.get(key) ?? { provider: row.provider, currency: row.currency, cur: 0, prev: 0 }
+    if (row.month === currentMonth) entry.cur = row.total
+    else entry.prev = row.total
+    moverMap.set(key, entry)
+  }
+  const movers = [...moverMap.values()]
+    .map((entry) => ({ ...entry, delta: entry.cur - entry.prev }))
+    .filter((entry) => Math.abs(entry.delta) >= 0.01)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, 5)
+
   return (
     <section className="analytics-dashboard" aria-label="Historical cost analytics">
       <div className="analytics-heading">
@@ -171,6 +189,29 @@ export function HistoricalAnalyticsPanel({
           )
         })}
       </div>
+
+      {hasPrevMonth && movers.length > 0 ? (
+        <div className="analytics-movers">
+          <h3>Biggest movers vs {monthName(prevMonth)}</h3>
+          {movers.map((mover) => {
+            const up = mover.delta > 0
+            const pct = mover.prev > 0 ? Math.round((mover.delta / mover.prev) * 100) : null
+            return (
+              <div className="mover-row" key={`${mover.provider}-${mover.currency}`}>
+                <span className="mover-name">{mover.provider}</span>
+                <span className="mover-vals">
+                  {currency(mover.prev, mover.currency)} → {currency(mover.cur, mover.currency)}
+                </span>
+                <span className={`mover-delta ${up ? "up" : "down"}`}>
+                  {up ? <TrendingUp aria-hidden /> : <TrendingDown aria-hidden />}
+                  {up ? "+" : "−"}{currency(Math.abs(mover.delta), mover.currency)}
+                  {pct != null ? ` (${up ? "+" : "−"}${Math.abs(pct)}%)` : ""}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
 
       <div className="analytics-breakdowns">
         <div>

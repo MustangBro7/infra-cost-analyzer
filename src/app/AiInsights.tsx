@@ -84,6 +84,27 @@ function TokenMixBar({ input, cache, output }: { input: number; cache: number; o
   )
 }
 
+// One model row: bar length conveys total tokens (magnitude); inside, the bar is
+// split into input/cache/output so composition is visible per model.
+function ModelRow({ model, max }: { model: AiModelStat; max: number }) {
+  const total = model.totalTokens || 1
+  const magnitude = Math.max((model.totalTokens / max) * 100, 2)
+  const share = (value: number) => `${(value / total) * 100}%`
+  return (
+    <div className="ai-model-row">
+      <span className="ai-model-name" title={model.model}>{model.model}</span>
+      <span className="ai-model-bar" aria-hidden title={`Input ${compact(model.inputTokens)} · Cache ${compact(model.cacheTokens)} · Output ${compact(model.outputTokens)}`}>
+        <span className="ai-model-fill" style={{ width: `${magnitude}%` }}>
+          <i style={{ width: share(model.inputTokens), background: INPUT_C }} />
+          <i style={{ width: share(model.cacheTokens), background: CACHE_C }} />
+          <i style={{ width: share(model.outputTokens), background: OUTPUT_C }} />
+        </span>
+      </span>
+      <span className="ai-model-meta">{compact(model.totalTokens)} · {money(model.estimatedApiUsd)}</span>
+    </div>
+  )
+}
+
 export function AiInsights({ tools }: { tools: AiToolData[] }) {
   const [filter, setFilter] = React.useState<Provider | "all">("all")
   if (tools.length === 0) return null
@@ -180,27 +201,15 @@ export function AiInsights({ tools }: { tools: AiToolData[] }) {
 
               {topModels.length > 0 ? (
                 <div className="ai-models">
-                  <div className="ai-models-head">By model</div>
+                  <div className="ai-models-head">By model · bar length = tokens, fill = input / cache / output</div>
                   {topModels.slice(0, 4).map((model) => (
-                    <div className="ai-model-row" key={model.model}>
-                      <span className="ai-model-name" title={model.model}>{model.model}</span>
-                      <span className="ai-model-bar" aria-hidden>
-                        <i style={{ width: `${Math.max((model.totalTokens / tokenMax) * 100, 2)}%`, background: color(tool.provider) }} />
-                      </span>
-                      <span className="ai-model-meta">{compact(model.totalTokens)} · {money(model.estimatedApiUsd)}</span>
-                    </div>
+                    <ModelRow key={model.model} model={model} max={tokenMax} />
                   ))}
                   {topModels.length > 4 ? (
                     <details className="ai-models-more">
                       <summary>{topModels.length - 4} more model{topModels.length - 4 === 1 ? "" : "s"}</summary>
                       {topModels.slice(4).map((model) => (
-                        <div className="ai-model-row" key={model.model}>
-                          <span className="ai-model-name" title={model.model}>{model.model}</span>
-                          <span className="ai-model-bar" aria-hidden>
-                            <i style={{ width: `${Math.max((model.totalTokens / tokenMax) * 100, 2)}%`, background: color(tool.provider) }} />
-                          </span>
-                          <span className="ai-model-meta">{compact(model.totalTokens)} · {money(model.estimatedApiUsd)}</span>
-                        </div>
+                        <ModelRow key={model.model} model={model} max={tokenMax} />
                       ))}
                     </details>
                   ) : null}

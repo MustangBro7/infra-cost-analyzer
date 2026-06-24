@@ -5075,6 +5075,266 @@ th {
   }
 }
 
+/* ---- Repo cost ranking ---- */
+.repo-rank-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.repo-rank-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.3fr) 2fr 90px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--neutral);
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.repo-rank-row:hover {
+  border-color: var(--ink);
+}
+
+.repo-rank-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.repo-rank-name svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.repo-rank-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+
+.repo-rank-bar {
+  height: 9px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.repo-rank-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #4d8cf0, #46a37b);
+}
+
+.repo-rank-meta {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.repo-rank-meta b {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.repo-rank-meta small {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+@media (max-width: 560px) {
+  .repo-rank-row {
+    grid-template-columns: 1fr auto;
+  }
+  .repo-rank-bar {
+    display: none;
+  }
+}
+
+/* ---- Month-over-month movers ---- */
+.analytics-movers {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: var(--neutral);
+}
+
+.analytics-movers h3 {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.mover-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(120px, auto) minmax(120px, auto);
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.84rem;
+}
+
+.mover-row:first-of-type {
+  border-top: 0;
+}
+
+.mover-name {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.mover-vals {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+}
+
+.mover-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mover-delta svg {
+  width: 14px;
+  height: 14px;
+}
+
+.mover-delta.up {
+  color: #b54035;
+}
+
+.mover-delta.down {
+  color: #2f8f5b;
+}
+
+@media (max-width: 560px) {
+  .mover-row {
+    grid-template-columns: 1fr auto;
+  }
+  .mover-vals {
+    display: none;
+  }
+}
+
+/* ---- Account health ---- */
+.health-panel {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+}
+
+.health-pill svg {
+  width: 13px;
+  height: 13px;
+}
+
+.health-pill.ok {
+  background: var(--ok-soft);
+}
+
+.health-pill.warn {
+  background: var(--warn-soft);
+}
+
+.health-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.health-tile {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  background: var(--neutral);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.health-tile.ok {
+  border-left-color: #46a37b;
+}
+
+.health-tile.warn {
+  border-left-color: #d79c22;
+}
+
+.health-tile > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.health-tile > span {
+  font-size: 0.73rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.health-tile strong {
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-tile small {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.health-bar {
+  height: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  margin: 4px 0 2px;
+}
+
+.health-bar i {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+}
+
+.health-bar i.ok {
+  background: #46a37b;
+}
+
+.health-bar i.warn {
+  background: #d79c22;
+}
+
+@media (max-width: 720px) {
+  .health-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* ---- Budget & forecast ---- */
 .budget-card {
   border: 1px solid var(--line);
@@ -5556,8 +5816,17 @@ th {
   overflow: hidden;
 }
 
-.ai-model-bar i,
 .ai-topmodel-bar i {
+  display: block;
+  height: 100%;
+}
+
+.ai-model-fill {
+  display: flex;
+  height: 100%;
+}
+
+.ai-model-fill i {
   display: block;
   height: 100%;
 }

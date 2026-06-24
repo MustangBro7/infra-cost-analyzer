@@ -488,32 +488,56 @@ function DashboardWidgets({
     .filter((value): value is string => Boolean(value))
     .sort()
     .at(-1)
+  const healthPct = accountCount > 0 ? Math.round((successful / accountCount) * 100) : 0
+  const healthTone = errors > 0 ? "warn" : healthPct >= 100 ? "ok" : "neutral"
+  const latestMs = latest ? Date.now() - new Date(latest).getTime() : Number.POSITIVE_INFINITY
+  const freshTone = latestMs > 26 * 3_600_000 ? "warn" : "ok"
+  const latestText = latest
+    ? latestMs < 3_600_000
+      ? `${Math.max(Math.round(latestMs / 60000), 1)}m ago`
+      : latestMs < 24 * 3_600_000
+        ? `${Math.round(latestMs / 3_600_000)}h ago`
+        : `${Math.round(latestMs / (24 * 3_600_000))}d ago`
+    : "—"
+
   return (
-    <section className="dashboard-widgets" aria-label="Account health">
-      <article>
-        <CheckCircle2 aria-hidden />
-        <span>Live sources</span>
-        <strong>{successful}/{accountCount}</strong>
-        <small>{errors ? `${errors} need attention` : "All responding"}</small>
-      </article>
-      <article>
-        <Gauge aria-hidden />
-        <span>Usage metrics</span>
-        <strong>{measured}</strong>
-        <small>Measured this period</small>
-      </article>
-      <article>
-        <Boxes aria-hidden />
-        <span>Resources</span>
-        <strong>{analysis.resourceItems.length}</strong>
-        <small>Available for repo assignment</small>
-      </article>
-      <article>
-        <RefreshCw aria-hidden />
-        <span>Last refresh</span>
-        <strong>{latest ? new Date(latest).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"}</strong>
-        <small>{latest ? new Date(latest).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Waiting for first sync"}</small>
-      </article>
+    <section className="health-panel" aria-label="Account health">
+      <div className="insight-panel-head">
+        <div>
+          <p>Account health</p>
+          <h2>{successful}/{accountCount} <span className="hero-sub">live sources responding</span></h2>
+        </div>
+        <span className={`health-pill ${healthTone}`}>
+          <CheckCircle2 aria-hidden /> {errors > 0 ? `${errors} need attention` : "All healthy"}
+        </span>
+      </div>
+      <div className="health-tiles">
+        <article className={`health-tile ${healthTone}`}>
+          <CheckCircle2 aria-hidden />
+          <span>Live sources</span>
+          <strong>{successful}/{accountCount}</strong>
+          <span className="health-bar" aria-hidden><i className={healthTone} style={{ width: `${Math.max(healthPct, 2)}%` }} /></span>
+          <small>{errors ? `${errors} need attention` : "All responding"}</small>
+        </article>
+        <article className="health-tile">
+          <Gauge aria-hidden />
+          <span>Usage metrics</span>
+          <strong>{measured}</strong>
+          <small>measured this period</small>
+        </article>
+        <article className="health-tile">
+          <Boxes aria-hidden />
+          <span>Resources</span>
+          <strong>{analysis.resourceItems.length}</strong>
+          <small>available for repo assignment</small>
+        </article>
+        <article className={`health-tile ${freshTone}`}>
+          <RefreshCw aria-hidden />
+          <span>Last refresh</span>
+          <strong>{latestText}</strong>
+          <small>{latest ? new Date(latest).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "waiting for first sync"}</small>
+        </article>
+      </div>
     </section>
   )
 }
@@ -792,44 +816,80 @@ function RepositoryDashboard({
             </h1>
           </section>
 
-          {repos.length > 0 ? (
-            <section className="repo-home-grid" aria-label="Synced repositories">
-              {repos.map((repo) => {
-                const repoAnalysis = repoAnalyses[repo.fullName]
-                const detectedProviders = [...new Set((repoAnalysis?.signals ?? []).map((signal) => signal.provider))]
-                const linked = resolveLinkedProviders({
-                  explicit: state.repoProviderLinks[repo.fullName],
-                  detected: detectedProviders,
-                  connected: connectedProviders,
-                })
-                const repoShortName = repo.name.toLowerCase()
-                const candidateRows = [...(repoAnalysis?.costRows ?? []), ...analysis.costRows]
-                const uniqueRows = [...new Map(candidateRows.map((row) => [costItemKey(row), row])).values()]
-                const projectCost = sumCost(
-                  uniqueRows.filter(
-                    (row) => isAssignedHere(row, state.costAssignments, repo.fullName, repoShortName)
-                  )
-                )
-                return (
-                  <RepoHomeCard
-                    key={repo.fullName}
-                    fullName={repo.fullName}
-                    isPrivate={repo.private}
-                    defaultBranch={repo.defaultBranch}
-                    active={repo.fullName === selectedRepo}
-                    headline={linked.length === 0 ? (projectCost > 0.005 ? money(projectCost) : "Pick accounts") : money(projectCost)}
-                    detail={
-                      linked.length === 0
-                        ? projectCost > 0.005
-                          ? "Assigned cost · open to link accounts"
-                          : "No accounts linked yet — open to link"
-                        : `${linked.length} ${linked.length === 1 ? "account" : "accounts"} linked${repoAnalysis ? ` · ${repoAnalysis.summary.signals} signals` : ""}`
-                    }
-                  />
-                )
-              })}
-            </section>
-          ) : null}
+          {repos.length > 0 ? (() => {
+            const repoCosts = repos.map((repo) => {
+              const repoAnalysis = repoAnalyses[repo.fullName]
+              const detectedProviders = [...new Set((repoAnalysis?.signals ?? []).map((signal) => signal.provider))]
+              const linked = resolveLinkedProviders({
+                explicit: state.repoProviderLinks[repo.fullName],
+                detected: detectedProviders,
+                connected: connectedProviders,
+              })
+              const repoShortName = repo.name.toLowerCase()
+              const candidateRows = [...(repoAnalysis?.costRows ?? []), ...analysis.costRows]
+              const uniqueRows = [...new Map(candidateRows.map((row) => [costItemKey(row), row])).values()]
+              const cost = sumCost(
+                uniqueRows.filter((row) => isAssignedHere(row, state.costAssignments, repo.fullName, repoShortName))
+              )
+              return { repo, repoAnalysis, linked, cost }
+            })
+            const ranked = repoCosts.filter((entry) => entry.cost > 0.005).sort((a, b) => b.cost - a.cost)
+            const rankMax = Math.max(...ranked.map((entry) => entry.cost), 0.01)
+            const rankedTotal = ranked.reduce((sum, entry) => sum + entry.cost, 0)
+
+            return (
+              <>
+                {ranked.length > 0 ? (
+                  <section className="insight-panel repo-ranking" aria-label="Cost by repository">
+                    <div className="insight-panel-head">
+                      <div>
+                        <p>Cost by repository · {monthLabel(analysis.period)}</p>
+                        <h2>{money(rankedTotal)} <span className="hero-sub">assigned across {ranked.length} {ranked.length === 1 ? "repo" : "repos"}</span></h2>
+                      </div>
+                      <Coins aria-hidden />
+                    </div>
+                    <div className="repo-rank-list">
+                      {ranked.map((entry) => {
+                        const pct = rankedTotal > 0 ? Math.round((entry.cost / rankedTotal) * 100) : 0
+                        return (
+                          <Link key={entry.repo.fullName} href={`/dashboard?repo=${encodeURIComponent(entry.repo.fullName)}`} prefetch={false} className="repo-rank-row">
+                            <span className="repo-rank-name">
+                              <FolderGit2 aria-hidden />
+                              <span title={entry.repo.fullName}>{entry.repo.name}</span>
+                            </span>
+                            <span className="repo-rank-bar" aria-hidden>
+                              <i style={{ width: `${Math.max((entry.cost / rankMax) * 100, 2)}%` }} />
+                            </span>
+                            <span className="repo-rank-meta"><b>{money(entry.cost)}</b><small>{pct}%</small></span>
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  </section>
+                ) : null}
+
+                <section className="repo-home-grid" aria-label="Synced repositories">
+                  {repoCosts.map(({ repo, repoAnalysis, linked, cost }) => (
+                    <RepoHomeCard
+                      key={repo.fullName}
+                      fullName={repo.fullName}
+                      isPrivate={repo.private}
+                      defaultBranch={repo.defaultBranch}
+                      active={repo.fullName === selectedRepo}
+                      headline={linked.length === 0 ? (cost > 0.005 ? money(cost) : "Pick accounts") : money(cost)}
+                      detail={
+                        linked.length === 0
+                          ? cost > 0.005
+                            ? "Assigned cost · open to link accounts"
+                            : "No accounts linked yet — open to link"
+                          : `${linked.length} ${linked.length === 1 ? "account" : "accounts"} linked${repoAnalysis ? ` · ${repoAnalysis.summary.signals} signals` : ""}`
+                      }
+                    />
+                  ))}
+                </section>
+              </>
+            )
+          })() : null}
 
           <RepoSyncPanel initialState={state} />
         </>
