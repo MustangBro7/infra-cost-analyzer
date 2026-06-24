@@ -688,13 +688,42 @@ function CliConnectionGuide() {
   )
 }
 
+// Relative "Xh ago" for sync freshness badges.
+function relativeAge(iso: string | null | undefined): { text: string; hours: number } {
+  if (!iso) return { text: "never", hours: Number.POSITIVE_INFINITY }
+  const ms = Date.now() - new Date(iso).getTime()
+  if (Number.isNaN(ms)) return { text: "never", hours: Number.POSITIVE_INFINITY }
+  const mins = Math.round(ms / 60000)
+  const hours = ms / 3_600_000
+  if (mins < 1) return { text: "just now", hours }
+  if (mins < 60) return { text: `${mins}m ago`, hours }
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return { text: `${hrs}h ago`, hours }
+  return { text: `${Math.round(hrs / 24)}d ago`, hours }
+}
+
 // Dedicated AI coding-tool surface: Claude, OpenAI (Codex), Cursor, and any
 // custom AI connectors. Shows each tool's month-to-date subscription/API cost
-// plus the token/request usage pulled from its org/team API.
-function AiToolsPanel({ analysis, accounts }: { analysis: AnalysisResult; accounts: AccountEntry[] }) {
+// plus the token/request usage, and a sync-freshness badge per tool.
+function AiToolsPanel({
+  analysis,
+  accounts,
+  state,
+}: {
+  analysis: AnalysisResult
+  accounts: AccountEntry[]
+  state: Awaited<ReturnType<typeof publicStore>>
+}) {
   const aiAccounts = accounts.filter((entry) => AI_PROVIDERS.includes(entry.provider))
   if (aiAccounts.length === 0) return null
   const total = aiAccounts.reduce((sum, entry) => sum + entry.cost, 0)
+
+  // Overall freshness across AI tools, for the header badge.
+  const ages = aiAccounts
+    .map((entry) => relativeAge(state.connections[entry.provider]?.lastVerifiedAt))
+    .sort((a, b) => a.hours - b.hours)
+  const freshest = ages[0]
+  const headerTone = !freshest || freshest.hours > 26 ? "warn" : "ok"
 
   return (
     <section className="insight-panel ai-tools" aria-label="AI coding tools">
@@ -703,20 +732,30 @@ function AiToolsPanel({ analysis, accounts }: { analysis: AnalysisResult; accoun
           <p>AI coding tools</p>
           <h2>{money(total)} <span className="hero-sub">across {aiAccounts.length} {aiAccounts.length === 1 ? "tool" : "tools"}</span></h2>
         </div>
-        <Boxes aria-hidden />
+        <Link href="/dashboard?view=credentials" prefetch={false} className={`ai-sync-badge ${headerTone}`} title="Manage automatic AI sync">
+          <RefreshCw aria-hidden /> {freshest ? `Synced ${freshest.text}` : "Sync now"}
+        </Link>
       </div>
       <div className="ai-tools-list">
         {aiAccounts.map((entry) => {
           const usageRows = analysis.freeTier.filter(
             (row) => row.provider === entry.provider && row.source === "measured"
           )
+          const conn = state.connections[entry.provider]
+          const isLocal = (conn?.metadata as { source?: string } | undefined)?.source === "local"
+          const age = relativeAge(conn?.lastVerifiedAt)
           return (
             <article className="ai-tool-row" key={entry.key}>
               <div className="ai-tool-id">
                 <ProviderLogo provider={entry.provider} />
                 <div>
                   <strong>{entry.label}</strong>
-                  <small>{entry.accountLabel ?? "Connected"}</small>
+                  <small>
+                    {entry.accountLabel ?? "Connected"}
+                    <span className={`ai-tool-sync ${age.hours > 26 ? "warn" : "ok"}`}>
+                      · {isLocal ? "local" : "live"} · synced {age.text}
+                    </span>
+                  </small>
                 </div>
               </div>
               <div className="ai-tool-usage">
@@ -789,7 +828,7 @@ function RepositoryDashboard({
 
           <AccountsBoard accounts={accounts} />
 
-          <AiToolsPanel analysis={analysis} accounts={accounts} />
+          <AiToolsPanel analysis={analysis} accounts={accounts} state={state} />
 
           <div className="insight-pair">
             <UsageHeadroomPanel rows={analysis.freeTier} />

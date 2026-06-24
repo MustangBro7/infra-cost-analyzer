@@ -4931,6 +4931,42 @@ th {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---- AI sync freshness badge (dashboard view) ---- */
+.ai-sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  text-decoration: none;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.ai-sync-badge svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ai-sync-badge.ok {
+  background: var(--ok-mid);
+}
+
+.ai-sync-badge.warn {
+  background: var(--warn-mid);
+}
+
+.ai-tool-sync {
+  margin-left: 4px;
+  font-size: 0.72rem;
+}
+
+.ai-tool-sync.warn {
+  color: var(--warn-ink);
+}
+
 /* ---- Custom provider panel ---- */
 .custom-agent-guide {
   margin: 12px 0 18px;
