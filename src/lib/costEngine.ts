@@ -18,6 +18,8 @@ import { fetchVercelAccountUsage, listVercelBillingCharges } from "./vercelClien
 import { getCloudflareAccountResources, getCloudflareAccountUsage, listCloudflareAccounts, listCloudflareSubscriptions, type CloudflareAccount, type CloudflareSubscription } from "./cloudflareClient"
 import { queryGcpBillingExportCosts } from "./gcpClient"
 import { fetchMotherDuckUsage, type MotherDuckPlan } from "./motherduckClient"
+import { fetchAnthropicCostUsage, fetchOpenAiCostUsage, fetchCursorCostUsage, type AiCostUsage } from "./aiClients"
+import { runCustomProvider } from "./customProvider"
 
 function period() {
   const now = new Date()
@@ -114,14 +116,23 @@ export async function buildAnalysisWithLiveData(
 ): Promise<AnalysisResult> {
   const workspace = await readWorkspace(userId)
   const previous = options?.previousAnalysis
-  const [vercel, cloudflare, gcp, motherduck, awsRaw] = await Promise.all([
+  const [vercel, cloudflare, gcp, motherduck, anthropic, openai, cursor, custom, awsRaw] = await Promise.all([
     loadVercelLive(workspace, repoScan),
     loadCloudflareLive(workspace),
     loadGcpLive(workspace),
     loadMotherDuckLive(workspace),
+    loadAiLive(workspace, "anthropic"),
+    loadAiLive(workspace, "openai"),
+    loadAiLive(workspace, "cursor"),
+    loadCustomProvidersLive(workspace),
     loadAwsLive(workspace, userId, options),
   ])
-  const standard = [vercel, cloudflare, gcp, motherduck].map((result) => carryForwardOnError(result, previous))
+  // Carry-forward (reuse last-known-good on a failed-empty pull) keys by
+  // provider, so it only covers the single-connection built-ins. Custom
+  // providers (all share provider "custom") are appended as-is.
+  const standard = [vercel, cloudflare, gcp, motherduck, anthropic, openai, cursor].map((result) =>
+    carryForwardOnError(result, previous)
+  )
 
   // AWS carries its own free-tier rows, so guard it separately against the same
   // failed-and-empty case rather than through the shared usage path above.
@@ -143,10 +154,10 @@ export async function buildAnalysisWithLiveData(
     }
   }
 
-  const costRows = [...standard.flatMap((result) => result.rows), ...aws.rows]
-  const usage = [...standard.flatMap((result) => result.usage), ...aws.usage]
-  const liveSync = [...standard.map((result) => result.sync), aws.sync]
-  const resourceItems = [...standard, aws].flatMap((result) => result.resources ?? [])
+  const costRows = [...standard.flatMap((result) => result.rows), ...custom.flatMap((result) => result.rows), ...aws.rows]
+  const usage = [...standard.flatMap((result) => result.usage), ...custom.flatMap((result) => result.usage), ...aws.usage]
+  const liveSync = [...standard.map((result) => result.sync), ...custom.map((result) => result.sync), aws.sync]
+  const resourceItems = [...standard, ...custom, aws].flatMap((result) => result.resources ?? [])
   return finalizeAnalysis(repoScan, env, workspace, costRows, usage, liveSync, aws.freeTier, resourceItems)
 }
 
@@ -187,6 +198,10 @@ function finalizeAnalysis(
 
   const actions = buildActions(repoScan.signals, costRows)
   const providerConnections = buildProviderConnections(repoScan.signals, env, workspace)
+  // Custom providers aren't in the built-in connection catalog, so their usage
+  // samples are turned into measured usage rows here (no published free-tier
+  // limit), tagged so the dashboard groups them under the right custom provider.
+  const customUsage = buildCustomUsageRows(usage)
   return {
     repo: repoScan.repo,
     period: period(),
@@ -202,7 +217,7 @@ function finalizeAnalysis(
     providerConnections,
     providerBreakdown,
     costRows,
-    freeTier: [...computeFreeTierUsage(costRows, usage, providerConnections), ...providerFreeTier],
+    freeTier: [...computeFreeTierUsage(costRows, usage, providerConnections), ...providerFreeTier, ...customUsage],
     resourceItems: attributedResources,
     actions,
     liveSync,
@@ -214,6 +229,35 @@ type LiveResult = {
   usage: ProviderUsageSample[]
   sync: AnalysisResult["liveSync"][number]
   resources?: ResourceUsageItem[]
+}
+
+/** Aggregates custom-provider usage samples into measured free-tier usage rows. */
+function buildCustomUsageRows(usage: ProviderUsageSample[]): FreeTierUsageRow[] {
+  const byKey = new Map<string, FreeTierUsageRow>()
+  for (const sample of usage) {
+    if (sample.provider !== "custom" || !Number.isFinite(sample.quantity) || sample.quantity <= 0) continue
+    const key = `${sample.customProviderId ?? ""}|${sample.service}|${sample.unit}`
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.used = Number(((existing.used ?? 0) + sample.quantity).toFixed(2))
+    } else {
+      byKey.set(key, {
+        provider: "custom",
+        planName: sample.customLabel ?? "Custom provider",
+        service: sample.service,
+        used: Number(sample.quantity.toFixed(2)),
+        limit: null,
+        unit: sample.unit,
+        remaining: null,
+        percentUsed: null,
+        source: "measured",
+        note: `Live usage reported by the custom "${sample.customLabel ?? "provider"}" connector.`,
+        customProviderId: sample.customProviderId,
+        customLabel: sample.customLabel,
+      })
+    }
+  }
+  return [...byKey.values()]
 }
 
 function notConnected(provider: Provider, message: string): LiveResult {
@@ -610,6 +654,165 @@ async function loadMotherDuckLive(workspace: WorkspaceStore): Promise<LiveResult
       },
     }
   }
+}
+
+const AI_PROVIDER_LABEL: Record<"anthropic" | "openai" | "cursor", string> = {
+  anthropic: "Claude",
+  openai: "OpenAI",
+  cursor: "Cursor",
+}
+
+async function loadAiLive(workspace: WorkspaceStore, provider: "anthropic" | "openai" | "cursor"): Promise<LiveResult> {
+  const connection = workspace.connections[provider]
+  const label = AI_PROVIDER_LABEL[provider]
+  if (!connection?.accessToken || connection.status !== "connected") {
+    return notConnected(provider, `Connect ${label} to pull subscription cost and token usage.`)
+  }
+
+  const currentPeriod = period()
+  const fetcher =
+    provider === "anthropic"
+      ? fetchAnthropicCostUsage
+      : provider === "openai"
+        ? fetchOpenAiCostUsage
+        : fetchCursorCostUsage
+
+  try {
+    const result: AiCostUsage = await fetcher(connection.accessToken, currentPeriod)
+    const rows: NormalizedCostRow[] = result.costRows.map((row, index) => ({
+      provider,
+      serviceName: row.service,
+      resourceId: null,
+      resourceName: label,
+      billingPeriodStart: currentPeriod.from,
+      billingPeriodEnd: currentPeriod.to,
+      cost: Number(row.cost.toFixed(4)),
+      currency: row.currency,
+      attribution: "verified",
+      attributionReason: `Live ${label} cost from the organization usage & cost API.`,
+      signalId: `${provider}-live:${index}`,
+      source: "live",
+    }))
+    const usage: ProviderUsageSample[] = result.usage.map((sample) => ({
+      provider,
+      service: sample.service,
+      quantity: sample.quantity,
+      unit: sample.unit,
+    }))
+    const syncedAt = new Date().toISOString()
+    if (rows.length === 0 && usage.length === 0) {
+      return {
+        rows,
+        usage,
+        sync: { provider, status: "empty", message: `${label} reported no cost or usage for the current month.`, rows: 0, syncedAt },
+      }
+    }
+    return {
+      rows,
+      usage,
+      sync: {
+        provider,
+        status: "success",
+        message: `Loaded ${rows.length} ${label} cost row${rows.length === 1 ? "" : "s"}${usage.length ? ` and ${usage.length} usage metric${usage.length === 1 ? "" : "s"}` : ""}.`,
+        rows: rows.length,
+        syncedAt,
+      },
+    }
+  } catch (error) {
+    return {
+      rows: [],
+      usage: [],
+      sync: {
+        provider,
+        status: "error",
+        message: error instanceof Error ? error.message : `Failed to sync ${label}.`,
+        rows: 0,
+        syncedAt: new Date().toISOString(),
+      },
+    }
+  }
+}
+
+/**
+ * Runs every user-defined custom provider that has a saved secret, mapping each
+ * one's HTTP/JSON response into the same cost rows + usage the built-ins emit.
+ * Returns one LiveResult per custom provider (each tagged with customProviderId
+ * so the dashboard shows them distinctly).
+ */
+async function loadCustomProvidersLive(workspace: WorkspaceStore): Promise<LiveResult[]> {
+  const defs = Object.values(workspace.customProviders ?? {})
+  if (defs.length === 0) return []
+  const results = await Promise.all(
+    defs.map(async (def): Promise<LiveResult> => {
+      const connection = workspace.customConnections?.[def.id]
+      const syncedAt = new Date().toISOString()
+      if (!connection?.accessToken || connection.status !== "connected") {
+        return {
+          rows: [],
+          usage: [],
+          sync: { provider: "custom", status: "not_connected", message: `Add a secret for ${def.name} to pull its data.`, rows: 0, syncedAt: null },
+        }
+      }
+      try {
+        const out = await runCustomProvider(def, connection.accessToken, period())
+        const rows: NormalizedCostRow[] = out.costRows.map((row, index) => ({
+          provider: "custom",
+          serviceName: row.service,
+          resourceId: null,
+          resourceName: def.name,
+          billingPeriodStart: period().from,
+          billingPeriodEnd: period().to,
+          cost: Number(row.cost.toFixed(4)),
+          currency: row.currency,
+          attribution: "verified",
+          attributionReason: `Live cost from the custom "${def.name}" connector.`,
+          signalId: `custom-${def.id}:${index}`,
+          source: "live",
+          customProviderId: def.id,
+          customLabel: def.name,
+        }))
+        const usage: ProviderUsageSample[] = out.usage.map((sample) => ({
+          provider: "custom",
+          service: sample.service,
+          quantity: sample.quantity,
+          unit: sample.unit,
+          customProviderId: def.id,
+          customLabel: def.name,
+        }))
+        if (rows.length === 0 && usage.length === 0) {
+          return {
+            rows,
+            usage,
+            sync: { provider: "custom", status: "empty", message: `${def.name} returned no cost or usage rows.`, rows: 0, syncedAt },
+          }
+        }
+        return {
+          rows,
+          usage,
+          sync: {
+            provider: "custom",
+            status: "success",
+            message: `Loaded ${rows.length} cost row${rows.length === 1 ? "" : "s"} from ${def.name}.`,
+            rows: rows.length,
+            syncedAt,
+          },
+        }
+      } catch (error) {
+        return {
+          rows: [],
+          usage: [],
+          sync: {
+            provider: "custom",
+            status: "error",
+            message: error instanceof Error ? `${def.name}: ${error.message}` : `Failed to sync ${def.name}.`,
+            rows: 0,
+            syncedAt,
+          },
+        }
+      }
+    })
+  )
+  return results
 }
 
 type AwsLiveResult = LiveResult & { freeTier: FreeTierUsageRow[] }

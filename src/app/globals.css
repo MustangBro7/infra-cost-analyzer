@@ -1148,6 +1148,30 @@ a.ghost-button {
   color: white;
 }
 
+.provider-anthropic,
+.fill-anthropic {
+  background: #d97757;
+  color: white;
+}
+
+.provider-openai,
+.fill-openai {
+  background: #10a37f;
+  color: white;
+}
+
+.provider-cursor,
+.fill-cursor {
+  background: #0f0f10;
+  color: white;
+}
+
+.provider-custom,
+.fill-custom {
+  background: #6d5bd0;
+  color: white;
+}
+
 .status {
   border-color: var(--line);
   background: var(--neutral);
@@ -4847,6 +4871,131 @@ th {
 
   .driver-amount {
     justify-content: flex-start;
+  }
+}
+
+/* ---- AI coding tools panel ---- */
+.ai-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ai-tool-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.2fr) 2fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.ai-tool-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-tool-id strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.ai-tool-id small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.ai-tool-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-tool-metric {
+  font-size: 0.76rem;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  background: var(--neutral);
+  padding: 2px 7px;
+}
+
+.ai-tool-metric.muted {
+  color: var(--muted);
+}
+
+.ai-tool-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Custom provider panel ---- */
+.custom-agent-guide {
+  margin: 12px 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.custom-agent-guide p {
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.custom-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.custom-manual-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.custom-manual-form p {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.custom-definition-input {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--neutral);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.custom-test-output {
+  max-height: 280px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--neutral);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 560px) {
+  .ai-tool-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .ai-tool-amount {
+    text-align: left;
   }
 }
 

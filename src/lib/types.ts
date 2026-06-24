@@ -8,6 +8,15 @@ export type Provider =
   | "motherduck"
   | "digitalocean"
   | "docker"
+  // AI coding tools / subscriptions (cost + token usage pulled from each
+  // vendor's organization usage & cost API).
+  | "anthropic"
+  | "openai"
+  | "cursor"
+  // A user-defined connector registered at runtime (by the user or their AI
+  // agent) via the extension API. The specific connector is identified by
+  // `customProviderId` on each row; see CustomProviderDef.
+  | "custom"
   | "unknown"
 
 export type SignalType =
@@ -63,6 +72,11 @@ export interface NormalizedCostRow {
   // Lowercased short name of the repo this row is tied to within its account
   // (e.g. a Vercel project linked to the repo). null = account-level / shared.
   attributedRepo?: string | null
+  // For provider === "custom": which user-defined connector produced this row,
+  // and its display label. Lets the dashboard group/show each custom provider
+  // distinctly even though they share the "custom" Provider value.
+  customProviderId?: string
+  customLabel?: string
 }
 
 /**
@@ -74,6 +88,8 @@ export interface ProviderUsageSample {
   service: string
   quantity: number
   unit: string
+  customProviderId?: string
+  customLabel?: string
 }
 
 /**
@@ -93,6 +109,8 @@ export interface FreeTierUsageRow {
   percentUsed: number | null
   source: "measured" | "allowance"
   note: string
+  customProviderId?: string
+  customLabel?: string
 }
 
 export interface ProviderBreakdown {
@@ -117,6 +135,8 @@ export interface ResourceUsageItem {
   quantity: number
   unit: string
   attributedRepo?: string | null
+  customProviderId?: string
+  customLabel?: string
 }
 
 export interface AnalysisResult {
@@ -179,6 +199,60 @@ export interface StoredConnection {
 }
 
 /**
+ * A user-defined ("custom") provider connector, registered at runtime via the
+ * extension API (by the user or their AI coding agent) so the platform can pull
+ * cost and usage from hosting providers we don't ship a built-in integration
+ * for. It is a declarative HTTP-to-JSON mapping the cost engine executes on each
+ * refresh — no code deploy required. The pasted secret lives on the matching
+ * StoredConnection (workspace.customConnections), never in the definition.
+ */
+export interface CustomProviderDef {
+  // Stable id (e.g. "cpr_ab12cd"). Used as customProviderId on every row.
+  id: string
+  name: string
+  // Optional 1–2 char badge + chart color for the dashboard.
+  shortLabel?: string | null
+  color?: string | null
+  homepage?: string | null
+  // How to authenticate. The user's pasted secret is injected wherever the
+  // request template references {{token}}; this just picks the transport.
+  auth: {
+    type: "bearer" | "header" | "basic" | "query" | "none"
+    headerName?: string | null
+    queryParam?: string | null
+  }
+  // The HTTP request to make. URL/headers/body may use {{token}} plus the time
+  // placeholders {{periodStart}} {{periodEnd}} (YYYY-MM-DD), {{monthStart}},
+  // and {{periodStartUnix}} {{periodEndUnix}} (seconds).
+  request: {
+    method: "GET" | "POST"
+    url: string
+    headers?: Record<string, string>
+    body?: string | null
+  }
+  // Extract cost rows from the JSON response. itemsPath is a dot path to an
+  // array ("" means the response itself is the array). amountField/serviceField
+  // are dot paths within each item.
+  cost?: {
+    itemsPath: string
+    amountField: string
+    amountInCents?: boolean
+    serviceField?: string | null
+    currency?: string | null
+  } | null
+  // Extract usage samples (e.g. tokens, GB, requests) the same way.
+  usage?: {
+    itemsPath: string
+    quantityField: string
+    serviceField?: string | null
+    unitField?: string | null
+    unit?: string | null
+  } | null
+  createdAt: string
+  updatedAt: string
+}
+
+/**
  * A persisted analysis result so the dashboard renders from the database
  * instead of recomputing live provider/GitHub data on every page load.
  */
@@ -203,6 +277,13 @@ export interface WorkspaceStore {
   // by a stable cost-item key. Value is a repo full name, or "__account__" to
   // force account-level. Lets the user split an account's cost across repos.
   costAssignments: Record<string, string>
+  // User-defined provider connectors registered via the extension API, keyed by
+  // CustomProviderDef.id.
+  customProviders: Record<string, CustomProviderDef>
+  // Pasted secrets for custom providers, keyed by CustomProviderDef.id. Stored
+  // server-side only (publicStore never exposes accessToken), exactly like the
+  // built-in provider connections.
+  customConnections: Record<string, StoredConnection>
 }
 
 export interface LocalUser {

@@ -9,6 +9,7 @@ import {
   sanitizeMotherDuckConnectionString,
   type MotherDuckPlan,
 } from "./motherduckClient"
+import { verifyAnthropicKey, verifyOpenAiKey, verifyCursorKey } from "./aiClients"
 
 export async function connectVercelToken(
   userId: string,
@@ -93,6 +94,51 @@ export async function connectMotherDuck(userId: string, connectionString: string
     },
   })
   return { accountLabel, databaseCount: usage.databases.length, plan }
+}
+
+export async function connectAnthropicKey(userId: string, adminKey: string) {
+  const verified = await verifyAnthropicKey(adminKey)
+  await upsertConnection(userId, {
+    provider: "anthropic",
+    status: "connected",
+    accountLabel: verified.accountLabel,
+    accessToken: adminKey,
+    connectedAt: new Date().toISOString(),
+    lastVerifiedAt: new Date().toISOString(),
+    lastError: null,
+    metadata: {},
+  })
+  return { accountLabel: verified.accountLabel }
+}
+
+export async function connectOpenAiKey(userId: string, adminKey: string) {
+  const verified = await verifyOpenAiKey(adminKey)
+  await upsertConnection(userId, {
+    provider: "openai",
+    status: "connected",
+    accountLabel: verified.accountLabel,
+    accessToken: adminKey,
+    connectedAt: new Date().toISOString(),
+    lastVerifiedAt: new Date().toISOString(),
+    lastError: null,
+    metadata: {},
+  })
+  return { accountLabel: verified.accountLabel }
+}
+
+export async function connectCursorKey(userId: string, apiKey: string) {
+  const verified = await verifyCursorKey(apiKey)
+  await upsertConnection(userId, {
+    provider: "cursor",
+    status: "connected",
+    accountLabel: verified.accountLabel,
+    accessToken: apiKey,
+    connectedAt: new Date().toISOString(),
+    lastVerifiedAt: new Date().toISOString(),
+    lastError: null,
+    metadata: {},
+  })
+  return { accountLabel: verified.accountLabel }
 }
 
 /**
@@ -361,6 +407,25 @@ export async function autoConnectFromEnv(userId: string): Promise<Array<{ provid
         )
         return result.accountLabel
       },
+    })
+  }
+
+  if (workspace.connections.anthropic?.status !== "connected" && process.env.ANTHROPIC_ADMIN_KEY) {
+    tasks.push({
+      provider: "anthropic",
+      run: async () => (await connectAnthropicKey(userId, process.env.ANTHROPIC_ADMIN_KEY as string)).accountLabel,
+    })
+  }
+  if (workspace.connections.openai?.status !== "connected" && process.env.OPENAI_ADMIN_KEY) {
+    tasks.push({
+      provider: "openai",
+      run: async () => (await connectOpenAiKey(userId, process.env.OPENAI_ADMIN_KEY as string)).accountLabel,
+    })
+  }
+  if (workspace.connections.cursor?.status !== "connected" && process.env.CURSOR_API_KEY) {
+    tasks.push({
+      provider: "cursor",
+      run: async () => (await connectCursorKey(userId, process.env.CURSOR_API_KEY as string)).accountLabel,
     })
   }
 

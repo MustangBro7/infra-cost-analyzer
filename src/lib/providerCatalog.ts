@@ -2,7 +2,7 @@ import type { Provider, ProviderConnection, RepoSignal, WorkspaceStore } from ".
 
 type ProviderConfig = Omit<ProviderConnection, "status" | "detected">
 
-export const PROVIDERS: Record<Exclude<Provider, "unknown">, ProviderConfig> = {
+export const PROVIDERS: Record<Exclude<Provider, "unknown" | "custom">, ProviderConfig> = {
   github: {
     provider: "github",
     label: "GitHub",
@@ -65,6 +65,27 @@ export const PROVIDERS: Record<Exclude<Provider, "unknown">, ProviderConfig> = {
     authMode: "none",
     requiredSecrets: [],
     setupNotes: "Docker is scanned as deployment evidence. Exact cost attribution comes from the cloud provider running the containers.",
+  },
+  anthropic: {
+    provider: "anthropic",
+    label: "Claude",
+    authMode: "api_token",
+    requiredSecrets: ["ANTHROPIC_ADMIN_KEY"],
+    setupNotes: "Paste an Anthropic Admin API key (sk-ant-admin…) from Console → Settings → Admin keys to pull your organization's Claude cost and token usage.",
+  },
+  openai: {
+    provider: "openai",
+    label: "OpenAI",
+    authMode: "api_token",
+    requiredSecrets: ["OPENAI_ADMIN_KEY"],
+    setupNotes: "Paste an OpenAI Admin key (sk-admin-…) from platform.openai.com → Settings → Admin keys to pull organization cost and usage (covers Codex).",
+  },
+  cursor: {
+    provider: "cursor",
+    label: "Cursor",
+    authMode: "api_token",
+    requiredSecrets: ["CURSOR_API_KEY"],
+    setupNotes: "Paste a Cursor Team API key from cursor.com → Dashboard → Settings → Cursor Admin API to pull team spend and usage.",
   },
 }
 

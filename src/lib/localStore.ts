@@ -5,6 +5,7 @@ import type {
   AnalysisSnapshot,
   AppStore,
   ConnectionEvent,
+  CustomProviderDef,
   GitHubRepoSummary,
   LocalSession,
   LocalUser,
@@ -23,6 +24,8 @@ const EMPTY_WORKSPACE: WorkspaceStore = {
   analysisSnapshots: {},
   repoProviderLinks: {},
   costAssignments: {},
+  customProviders: {},
+  customConnections: {},
 }
 
 const EMPTY_STORE: AppStore = {
@@ -176,6 +179,8 @@ export async function readStore(): Promise<AppStore> {
         analysisSnapshots: {},
         repoProviderLinks: {},
         costAssignments: {},
+        customProviders: {},
+        customConnections: {},
       },
     },
     cliPairings: {},
@@ -430,6 +435,69 @@ export async function setCostAssignment(userId: string, itemKey: string, target:
   return workspace.costAssignments[itemKey] ?? null
 }
 
+// ---------- custom (user/agent-defined) providers ----------
+
+export async function listCustomProviders(userId: string): Promise<CustomProviderDef[]> {
+  const workspace = await readWorkspace(userId)
+  return Object.values(workspace.customProviders)
+}
+
+export async function upsertCustomProvider(userId: string, def: CustomProviderDef) {
+  const workspace = await readWorkspace(userId)
+  const existing = workspace.customProviders[def.id]
+  workspace.customProviders[def.id] = { ...def, createdAt: existing?.createdAt ?? def.createdAt, updatedAt: new Date().toISOString() }
+  workspace.events = withEvent(workspace.events, {
+    provider: "custom",
+    level: "success",
+    message: `${existing ? "Updated" : "Added"} custom provider ${def.name}.`,
+  })
+  await writeWorkspace(userId, workspace)
+  return workspace.customProviders[def.id]
+}
+
+export async function removeCustomProvider(userId: string, id: string) {
+  const workspace = await readWorkspace(userId)
+  const def = workspace.customProviders[id]
+  delete workspace.customProviders[id]
+  delete workspace.customConnections[id]
+  workspace.events = withEvent(workspace.events, {
+    provider: "custom",
+    level: "warning",
+    message: `Removed custom provider ${def?.name ?? id}.`,
+  })
+  await writeWorkspace(userId, workspace)
+}
+
+/** Saves the pasted secret for a custom provider (server-side only). */
+export async function setCustomConnection(userId: string, id: string, secret: string, accountLabel?: string | null) {
+  const workspace = await readWorkspace(userId)
+  const def = workspace.customProviders[id]
+  if (!def) throw new Error("Unknown custom provider.")
+  const now = new Date().toISOString()
+  workspace.customConnections[id] = {
+    provider: "custom",
+    status: "connected",
+    accountLabel: accountLabel ?? def.name,
+    accessToken: secret,
+    connectedAt: now,
+    lastVerifiedAt: now,
+    lastError: null,
+    metadata: { customProviderId: id },
+  }
+  workspace.events = withEvent(workspace.events, {
+    provider: "custom",
+    level: "success",
+    message: `${def.name} secret saved.`,
+  })
+  await writeWorkspace(userId, workspace)
+}
+
+export async function removeCustomConnection(userId: string, id: string) {
+  const workspace = await readWorkspace(userId)
+  delete workspace.customConnections[id]
+  await writeWorkspace(userId, workspace)
+}
+
 export async function appendEvent(userId: string, event: Omit<ConnectionEvent, "id" | "createdAt">) {
   const workspace = await readWorkspace(userId)
   workspace.events = withEvent(workspace.events, event)
@@ -475,6 +543,13 @@ function publicStoreFromWorkspace(workspace: WorkspaceStore) {
     suggestedProviders: computeSuggestedProviders(workspace),
     repoProviderLinks: workspace.repoProviderLinks,
     costAssignments: workspace.costAssignments,
+    // Custom provider definitions (no secrets) plus whether each has a saved
+    // secret, so the UI can render and prompt to connect them.
+    customProviders: Object.values(workspace.customProviders).map((def) => ({
+      ...def,
+      connected: workspace.customConnections[def.id]?.status === "connected",
+      accountLabel: workspace.customConnections[def.id]?.accountLabel ?? null,
+    })),
     events: events.slice(0, 30),
     connections: Object.fromEntries(
       Object.entries(workspace.connections).map(([provider, connection]) => [
@@ -540,6 +615,8 @@ function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore
     analysisSnapshots: workspace.analysisSnapshots ?? {},
     repoProviderLinks: workspace.repoProviderLinks ?? {},
     costAssignments: workspace.costAssignments ?? {},
+    customProviders: workspace.customProviders ?? {},
+    customConnections: workspace.customConnections ?? {},
   }
 }
 

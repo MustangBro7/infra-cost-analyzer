@@ -56,7 +56,40 @@ async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
 
 function providerLabel(provider: Provider) {
   if (provider === "gcp") return "Google Cloud"
+  if (provider === "anthropic") return "Claude"
+  if (provider === "openai") return "OpenAI"
   return provider.charAt(0).toUpperCase() + provider.slice(1)
+}
+
+// Connect-card copy for the AI coding-tool providers (token-paste flow).
+const AI_PROVIDER_CARDS: Record<
+  "anthropic" | "openai" | "cursor",
+  { title: string; endpoint: string; placeholder: string; blurb: string; docUrl: string; docLabel: string }
+> = {
+  anthropic: {
+    title: "Connect Claude",
+    endpoint: "/api/anthropic/connect",
+    placeholder: "sk-ant-admin…",
+    blurb: "Paste an Anthropic Admin API key to pull your organization's Claude cost and token usage.",
+    docUrl: "https://console.anthropic.com/settings/admin-keys",
+    docLabel: "Create Anthropic Admin key",
+  },
+  openai: {
+    title: "Connect OpenAI",
+    endpoint: "/api/openai/connect",
+    placeholder: "sk-admin-…",
+    blurb: "Paste an OpenAI Admin key to pull organization cost and usage (covers Codex and API spend).",
+    docUrl: "https://platform.openai.com/settings/organization/admin-keys",
+    docLabel: "Create OpenAI Admin key",
+  },
+  cursor: {
+    title: "Connect Cursor",
+    endpoint: "/api/cursor/connect",
+    placeholder: "Cursor Team API key",
+    blurb: "Paste a Cursor Team API key (Cursor Admin API) to pull team spend and usage.",
+    docUrl: "https://cursor.com/dashboard",
+    docLabel: "Open Cursor dashboard",
+  },
 }
 
 /** Turns a raw Vercel plan ("hobby", "pro", …) into a card label. */
@@ -116,6 +149,9 @@ export function ProviderConnectPanel({
   const [awsSecretAccessKey, setAwsSecretAccessKey] = React.useState("")
   const [awsSessionToken, setAwsSessionToken] = React.useState("")
   const [awsCostExplorer, setAwsCostExplorer] = React.useState(false)
+  const [anthropicKey, setAnthropicKey] = React.useState("")
+  const [openaiKey, setOpenaiKey] = React.useState("")
+  const [cursorKey, setCursorKey] = React.useState("")
   const [busy, setBusy] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -151,7 +187,10 @@ export function ProviderConnectPanel({
   }
 
   const relevant = providerConnections.filter((connection) => {
-    return connection.detected || ["vercel", "cloudflare", "gcp", "aws", "motherduck"].includes(connection.provider)
+    return (
+      connection.detected ||
+      ["vercel", "cloudflare", "gcp", "aws", "motherduck", "anthropic", "openai", "cursor"].includes(connection.provider)
+    )
   })
 
   const suggestedSet = new Set<Provider>(state.suggestedProviders ?? [])
@@ -578,6 +617,58 @@ export function ProviderConnectPanel({
                         </button>
                       </form>
                     </details>
+                  </>
+                )}
+              </article>
+            )
+          }
+
+          if (connection.provider === "anthropic" || connection.provider === "openai" || connection.provider === "cursor") {
+            const card = AI_PROVIDER_CARDS[connection.provider]
+            const value = connection.provider === "anthropic" ? anthropicKey : connection.provider === "openai" ? openaiKey : cursorKey
+            const setValue =
+              connection.provider === "anthropic" ? setAnthropicKey : connection.provider === "openai" ? setOpenaiKey : setCursorKey
+            return (
+              <article key={connection.provider} className={connected ? "provider-connect-card connected" : "provider-connect-card"}>
+                <div className="provider-connect-title">
+                  <ProviderBadge provider={connection.provider} />
+                  <strong>{connected ? saved?.accountLabel : card.title}</strong>
+                  {detected ? <span className="detected-chip">Detected</span> : null}
+                </div>
+                {connected && saved ? (
+                  <ConnectedProviderState
+                    provider={connection.provider}
+                    connection={saved}
+                    detail="Live cost and token usage are pulled from the organization usage & cost API."
+                  />
+                ) : (
+                  <>
+                    <p>{card.blurb}</p>
+                    <a className="ghost-button" href={card.docUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink aria-hidden />
+                      {card.docLabel}
+                    </a>
+                    <form
+                      className="provider-token-form single"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        run(`${connection.provider}-connect`, async () => {
+                          await jsonRequest(card.endpoint, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ key: value }),
+                          })
+                          setValue("")
+                          setMessage(`${providerLabel(connection.provider)} connected. Refreshing cost and usage.`)
+                        })
+                      }}
+                    >
+                      <input type="password" value={value} onChange={(event) => setValue(event.target.value)} placeholder={card.placeholder} autoComplete="off" spellCheck={false} />
+                      <button type="submit" className="command-button" disabled={Boolean(busy) || !value.trim()}>
+                        {busy === `${connection.provider}-connect` ? <Loader2 className="spin" aria-hidden /> : <KeyRound aria-hidden />}
+                        Verify
+                      </button>
+                    </form>
                   </>
                 )}
               </article>

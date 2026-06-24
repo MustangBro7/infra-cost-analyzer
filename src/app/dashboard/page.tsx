@@ -27,6 +27,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { RepoSyncPanel } from "../RepoSyncPanel"
 import { ProviderConnectPanel } from "../ProviderConnectPanel"
+import { CustomProviderPanel } from "../CustomProviderPanel"
 import { RepoAccountPicker } from "../RepoAccountPicker"
 import { ProviderCostPanel } from "../ProviderCostPanel"
 import { ProviderResourcePanel } from "../ProviderResourcePanel"
@@ -76,6 +77,8 @@ function monthLabel(period: { from: string }) {
 function providerName(provider: Provider) {
   if (provider === "gcp") return "Google Cloud"
   if (provider === "aws") return "AWS"
+  if (provider === "anthropic") return "Claude"
+  if (provider === "openai") return "OpenAI"
   return provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
@@ -86,7 +89,15 @@ const PROVIDER_COLOR: Partial<Record<Provider, string>> = {
   vercel: "#151515",
   motherduck: "#46a37b",
   azure: "#7152a5",
+  anthropic: "#d97757",
+  openai: "#10a37f",
+  cursor: "#3a3a44",
+  custom: "#6d5bd0",
 }
+
+// Providers tracked at the account level on the overview (hosting + AI tools).
+// Custom (user-defined) providers are listed separately by id.
+const AI_PROVIDERS: Provider[] = ["anthropic", "openai", "cursor"]
 
 function providerColor(provider: Provider) {
   return PROVIDER_COLOR[provider] ?? "#696459"
@@ -96,11 +107,27 @@ function sumCost(rows: NormalizedCostRow[]) {
   return rows.reduce((sum, row) => sum + row.cost, 0)
 }
 
+// A "series" is one bar/legend entry. Built-in providers are keyed by provider;
+// each custom (user-defined) provider gets its own series so they don't all
+// collapse into a single "Custom" bucket.
+function seriesKey(row: { provider: Provider; customProviderId?: string }) {
+  return row.provider === "custom" && row.customProviderId ? `custom:${row.customProviderId}` : row.provider
+}
+
+function seriesLabel(row: { provider: Provider; customLabel?: string }) {
+  if (row.provider === "custom") return row.customLabel ?? "Custom"
+  return providerName(row.provider)
+}
+
 function breakdownByProvider(rows: NormalizedCostRow[]) {
-  const totals = new Map<Provider, number>()
-  for (const row of rows) totals.set(row.provider, (totals.get(row.provider) ?? 0) + row.cost)
-  return [...totals.entries()]
-    .map(([provider, total]) => ({ provider, total }))
+  const totals = new Map<string, { key: string; provider: Provider; label: string; total: number }>()
+  for (const row of rows) {
+    const key = seriesKey(row)
+    const existing = totals.get(key)
+    if (existing) existing.total += row.cost
+    else totals.set(key, { key, provider: row.provider, label: seriesLabel(row), total: row.cost })
+  }
+  return [...totals.values()]
     .filter((entry) => entry.total > 0.005)
     .sort((a, b) => b.total - a.total)
 }
@@ -157,6 +184,44 @@ function providerFreeTier(provider: Provider, freeTier: FreeTierUsageRow[]) {
 
 function quantity(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)
+}
+
+type AccountEntry = {
+  key: string
+  provider: Provider
+  label: string
+  accountLabel: string | null
+  cost: number
+  hasUsage: boolean
+}
+
+// Every connected account shown on the overview: built-in hosting + AI tools
+// (keyed by provider) plus each connected custom provider (keyed by id).
+function accountEntries(analysis: AnalysisResult, state: Awaited<ReturnType<typeof publicStore>>): AccountEntry[] {
+  const entries: AccountEntry[] = []
+  for (const provider of [...CONNECTABLE_PROVIDERS, ...AI_PROVIDERS]) {
+    if (state.connections[provider]?.status !== "connected") continue
+    entries.push({
+      key: provider,
+      provider,
+      label: providerName(provider),
+      accountLabel: state.connections[provider]?.accountLabel ?? null,
+      cost: sumCost(providerRows(provider, analysis.costRows)),
+      hasUsage: providerFreeTier(provider, analysis.freeTier).some((row) => row.source === "measured"),
+    })
+  }
+  for (const def of state.customProviders ?? []) {
+    if (!def.connected) continue
+    entries.push({
+      key: `custom:${def.id}`,
+      provider: "custom",
+      label: def.name,
+      accountLabel: def.accountLabel ?? null,
+      cost: sumCost(analysis.costRows.filter((row) => row.customProviderId === def.id)),
+      hasUsage: analysis.freeTier.some((row) => row.customProviderId === def.id && row.source === "measured"),
+    })
+  }
+  return entries.sort((a, b) => b.cost - a.cost)
 }
 
 function FreeTierUsage({
@@ -281,10 +346,10 @@ function CostOverview({
           <div className="cost-bar" role="img" aria-label="Cost split by provider">
             {breakdown.map((entry) => (
               <span
-                key={entry.provider}
+                key={entry.key}
                 className="cost-bar-seg"
                 style={{ width: `${Math.max((entry.total / total) * 100, 1.5)}%`, background: providerColor(entry.provider) }}
-                title={`${providerName(entry.provider)} · ${money(entry.total)}`}
+                title={`${entry.label} · ${money(entry.total)}`}
               />
             ))}
           </div>
@@ -292,10 +357,10 @@ function CostOverview({
             {breakdown.map((entry) => {
               const pct = total > 0 ? Math.round((entry.total / total) * 100) : 0
               return (
-                <div key={entry.provider} className="cost-legend-row">
+                <div key={entry.key} className="cost-legend-row">
                   <span className="cost-legend-dot" style={{ background: providerColor(entry.provider) }} aria-hidden />
                   <ProviderLogo provider={entry.provider} />
-                  <strong>{providerName(entry.provider)}</strong>
+                  <strong>{entry.label}</strong>
                   <span className="cost-legend-pct">{pct}%</span>
                   <b>{money(entry.total)}</b>
                 </div>
@@ -371,16 +436,8 @@ function ViewTabs({ view }: { view: ViewKey }) {
   )
 }
 
-function AccountsBoard({
-  analysis,
-  connectedProviders,
-  state,
-}: {
-  analysis: AnalysisResult
-  connectedProviders: Provider[]
-  state: Awaited<ReturnType<typeof publicStore>>
-}) {
-  if (connectedProviders.length === 0) {
+function AccountsBoard({ accounts }: { accounts: AccountEntry[] }) {
+  if (accounts.length === 0) {
     return (
       <section className="accounts-board empty" aria-label="Connected accounts">
         <ShieldAlert aria-hidden />
@@ -395,26 +452,21 @@ function AccountsBoard({
     <section className="accounts-board" aria-label="Connected accounts">
       <h3>Connected accounts</h3>
       <div className="accounts-board-list">
-        {connectedProviders.map((provider) => {
-          const cost = sumCost(providerRows(provider, analysis.costRows))
-          const usage = providerFreeTier(provider, analysis.freeTier).some((row) => row.source === "measured")
-          const label = state.connections[provider]?.accountLabel
-          return (
-            <div key={provider} className="account-board-row">
-              <span className="cost-legend-dot" style={{ background: providerColor(provider) }} aria-hidden />
-              <ProviderLogo provider={provider} />
-              <span className="account-board-id">
-                <strong>{providerName(provider)}</strong>
-                <small>{label ?? "Connected"}</small>
-              </span>
-              {cost > 0.005 ? (
-                <b>{money(cost)}</b>
-              ) : (
-                <span className={`amount-tag ${usage ? "ok" : "muted"}`}>{usage ? "Free tier" : "No cost"}</span>
-              )}
-            </div>
-          )
-        })}
+        {accounts.map((entry) => (
+          <div key={entry.key} className="account-board-row">
+            <span className="cost-legend-dot" style={{ background: providerColor(entry.provider) }} aria-hidden />
+            <ProviderLogo provider={entry.provider} />
+            <span className="account-board-id">
+              <strong>{entry.label}</strong>
+              <small>{entry.accountLabel ?? "Connected"}</small>
+            </span>
+            {entry.cost > 0.005 ? (
+              <b>{money(entry.cost)}</b>
+            ) : (
+              <span className={`amount-tag ${entry.hasUsage ? "ok" : "muted"}`}>{entry.hasUsage ? "Usage tracked" : "No cost"}</span>
+            )}
+          </div>
+        ))}
       </div>
     </section>
   )
@@ -422,10 +474,10 @@ function AccountsBoard({
 
 function DashboardWidgets({
   analysis,
-  connectedProviders,
+  accountCount,
 }: {
   analysis: AnalysisResult
-  connectedProviders: Provider[]
+  accountCount: number
 }) {
   const successful = analysis.liveSync.filter((entry) => entry.status === "success").length
   const errors = analysis.liveSync.filter((entry) => entry.status === "error").length
@@ -440,7 +492,7 @@ function DashboardWidgets({
       <article>
         <CheckCircle2 aria-hidden />
         <span>Live sources</span>
-        <strong>{successful}/{connectedProviders.length}</strong>
+        <strong>{successful}/{accountCount}</strong>
         <small>{errors ? `${errors} need attention` : "All responding"}</small>
       </article>
       <article>
@@ -635,6 +687,59 @@ function CliConnectionGuide() {
   )
 }
 
+// Dedicated AI coding-tool surface: Claude, OpenAI (Codex), Cursor, and any
+// custom AI connectors. Shows each tool's month-to-date subscription/API cost
+// plus the token/request usage pulled from its org/team API.
+function AiToolsPanel({ analysis, accounts }: { analysis: AnalysisResult; accounts: AccountEntry[] }) {
+  const aiAccounts = accounts.filter((entry) => AI_PROVIDERS.includes(entry.provider))
+  if (aiAccounts.length === 0) return null
+  const total = aiAccounts.reduce((sum, entry) => sum + entry.cost, 0)
+
+  return (
+    <section className="insight-panel ai-tools" aria-label="AI coding tools">
+      <div className="insight-panel-head">
+        <div>
+          <p>AI coding tools</p>
+          <h2>{money(total)} <span className="hero-sub">across {aiAccounts.length} {aiAccounts.length === 1 ? "tool" : "tools"}</span></h2>
+        </div>
+        <Boxes aria-hidden />
+      </div>
+      <div className="ai-tools-list">
+        {aiAccounts.map((entry) => {
+          const usageRows = analysis.freeTier.filter(
+            (row) => row.provider === entry.provider && row.source === "measured"
+          )
+          return (
+            <article className="ai-tool-row" key={entry.key}>
+              <div className="ai-tool-id">
+                <ProviderLogo provider={entry.provider} />
+                <div>
+                  <strong>{entry.label}</strong>
+                  <small>{entry.accountLabel ?? "Connected"}</small>
+                </div>
+              </div>
+              <div className="ai-tool-usage">
+                {usageRows.length ? (
+                  usageRows.map((row) => (
+                    <span key={row.service} className="ai-tool-metric">
+                      {quantity(row.used ?? 0)} {row.unit} · {row.service}
+                    </span>
+                  ))
+                ) : (
+                  <span className="ai-tool-metric muted">No usage metrics reported</span>
+                )}
+              </div>
+              <div className="ai-tool-amount">
+                {entry.cost > 0.005 ? <b>{money(entry.cost)}</b> : <span className="amount-tag muted">No billed cost</span>}
+              </div>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function RepositoryDashboard({
   analysis,
   repos,
@@ -651,6 +756,7 @@ function RepositoryDashboard({
   view: ViewKey
 }) {
   const connectedProviders = CONNECTABLE_PROVIDERS.filter((provider) => state.connections[provider]?.status === "connected")
+  const accounts = accountEntries(analysis, state)
   const measuredUsageCount = analysis.freeTier.filter((row) => row.source === "measured").length
   const totalCost = sumCost(analysis.costRows)
 
@@ -663,7 +769,7 @@ function RepositoryDashboard({
           <section className="overview-hero" aria-label="Cost dashboard">
             <p>Dashboards · {monthLabel(analysis.period)}</p>
             <h1>
-              {money(totalCost)} <span className="hero-sub">across {connectedProviders.length} {connectedProviders.length === 1 ? "account" : "accounts"}</span>
+              {money(totalCost)} <span className="hero-sub">across {accounts.length} {accounts.length === 1 ? "account" : "accounts"}</span>
             </h1>
           </section>
 
@@ -678,9 +784,11 @@ function RepositoryDashboard({
 
           <CostDriversPanel analysis={analysis} />
 
-          <DashboardWidgets analysis={analysis} connectedProviders={connectedProviders} />
+          <DashboardWidgets analysis={analysis} accountCount={accounts.length} />
 
-          <AccountsBoard analysis={analysis} connectedProviders={connectedProviders} state={state} />
+          <AccountsBoard accounts={accounts} />
+
+          <AiToolsPanel analysis={analysis} accounts={accounts} />
 
           <div className="insight-pair">
             <UsageHeadroomPanel rows={analysis.freeTier} />
@@ -748,15 +856,17 @@ function RepositoryDashboard({
           <section className="overview-hero" aria-label="Credentials">
             <p>Credentials</p>
             <h1>
-              {connectedProviders.length} {connectedProviders.length === 1 ? "account" : "accounts"} <span className="hero-sub">connected</span>
+              {accounts.length} {accounts.length === 1 ? "account" : "accounts"} <span className="hero-sub">connected</span>
             </h1>
           </section>
 
           <CliConnectionGuide />
 
-          <AccountsBoard analysis={analysis} connectedProviders={connectedProviders} state={state} />
+          <AccountsBoard accounts={accounts} />
 
           <ProviderConnectPanel providerConnections={analysis.providerConnections} initialState={state} />
+
+          <CustomProviderPanel initialState={state} />
         </>
       ) : null}
     </>
