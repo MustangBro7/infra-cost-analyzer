@@ -1,4 +1,6 @@
 import {
+  Activity,
+  AlertTriangle,
   ArrowLeft,
   ArrowUpRight,
   Boxes,
@@ -15,7 +17,9 @@ import {
   Server,
   ShieldAlert,
   Signal,
+  Target,
   TerminalSquare,
+  TrendingUp,
   Wallet,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -300,6 +304,59 @@ function FreeTierUsage({
   )
 }
 
+// SVG donut of the provider cost split — a more scannable companion to the
+// stacked bar/legend. Segments are drawn as stroke arcs on concentric circles,
+// rotated so the first segment starts at 12 o'clock.
+function ProviderDonut({
+  breakdown,
+  total,
+}: {
+  breakdown: Array<{ key: string; provider: Provider; label: string; total: number }>
+  total: number
+}) {
+  const size = 132
+  const stroke = 22
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  let offset = 0
+  const segments = breakdown.map((entry) => {
+    const fraction = total > 0 ? entry.total / total : 0
+    const seg = { entry, dash: fraction * circumference, gap: circumference - fraction * circumference, dashOffset: -offset }
+    offset += fraction * circumference
+    return seg
+  })
+  const top = breakdown[0]
+  const topPct = top && total > 0 ? Math.round((top.total / total) * 100) : 0
+
+  return (
+    <div className="cost-donut" role="img" aria-label="Cost split by provider">
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
+        <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--track)" strokeWidth={stroke} />
+          {segments.map(({ entry, dash, gap, dashOffset }) => (
+            <circle
+              key={entry.key}
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke={providerColor(entry.provider)}
+              strokeWidth={stroke}
+              strokeDasharray={`${dash} ${gap}`}
+              strokeDashoffset={dashOffset}
+            />
+          ))}
+        </g>
+      </svg>
+      <div className="cost-donut-center">
+        <strong>{breakdown.length}</strong>
+        <span>{breakdown.length === 1 ? "account" : "accounts"}</span>
+        {top ? <small title={top.label}>{topPct}% {top.label}</small> : null}
+      </div>
+    </div>
+  )
+}
+
 /**
  * Reusable headline cost surface: total up front, a single stacked bar split by
  * provider, and an aligned legend. Used for the account-wide Overview total and
@@ -352,21 +409,24 @@ function CostOverview({
               />
             ))}
           </div>
-          <div className="cost-legend">
-            {breakdown.map((entry) => {
-              const pct = total > 0 ? Math.round((entry.total / total) * 100) : 0
-              return (
-                <div key={entry.key} className="cost-legend-row">
-                  <ProviderLogo provider={entry.provider} />
-                  <strong>{entry.label}</strong>
-                  <span className="cost-legend-bar" aria-hidden>
-                    <i style={{ width: `${Math.max(pct, 2)}%`, background: providerColor(entry.provider) }} />
-                  </span>
-                  <span className="cost-legend-pct">{pct}%</span>
-                  <b>{money(entry.total)}</b>
-                </div>
-              )
-            })}
+          <div className="cost-split">
+            {breakdown.length > 1 ? <ProviderDonut breakdown={breakdown} total={total} /> : null}
+            <div className="cost-legend">
+              {breakdown.map((entry) => {
+                const pct = total > 0 ? Math.round((entry.total / total) * 100) : 0
+                return (
+                  <div key={entry.key} className="cost-legend-row">
+                    <ProviderLogo provider={entry.provider} />
+                    <strong>{entry.label}</strong>
+                    <span className="cost-legend-bar" aria-hidden>
+                      <i style={{ width: `${Math.max(pct, 2)}%`, background: providerColor(entry.provider) }} />
+                    </span>
+                    <span className="cost-legend-pct">{pct}%</span>
+                    <b>{money(entry.total)}</b>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </>
       ) : (
@@ -552,6 +612,16 @@ function CostDriversPanel({ analysis }: { analysis: AnalysisResult }) {
   const total = sumCost(analysis.costRows)
   const top = services.slice(0, 6)
   const max = Math.max(...top.map((entry) => entry.total), 0.01)
+  // Spend concentration: how many of the top services it takes to reach ~80% of
+  // total cost — a quick read on whether spend is diffuse or dominated by a few.
+  let running = 0
+  let concentrationCount = 0
+  for (const entry of services) {
+    running += entry.total
+    concentrationCount += 1
+    if (total > 0 && running / total >= 0.8) break
+  }
+  const topShare = total > 0 && services[0] ? Math.round((services[0].total / total) * 100) : 0
 
   return (
     <section className="insight-panel cost-drivers" aria-label="Top cost drivers">
@@ -562,6 +632,15 @@ function CostDriversPanel({ analysis }: { analysis: AnalysisResult }) {
         </div>
         <Coins aria-hidden />
       </div>
+      {services.length > 1 ? (
+        <p className="cost-concentration">
+          <Target aria-hidden />
+          <span>
+            Top {concentrationCount} of {services.length} services drive <strong>~80%</strong> of spend
+            {services[0] ? <> · <strong>{services[0].serviceName}</strong> alone is {topShare}%</> : null}
+          </span>
+        </p>
+      ) : null}
       {top.length ? (
         <div className="driver-list">
           {top.map((entry) => {
@@ -639,6 +718,193 @@ function UsageFootprintPanel({ analysis }: { analysis: AnalysisResult }) {
           <strong>{analysis.resourceItems.length}</strong> resources · <strong>{measured}</strong> live usage metric{measured === 1 ? "" : "s"} measured this period
         </span>
       </div>
+    </section>
+  )
+}
+
+type AlertSeverity = "crit" | "warn"
+
+interface DashAlert {
+  id: string
+  severity: AlertSeverity
+  title: string
+  detail: string
+}
+
+// Consolidates every actionable signal across the non-AI surface into one
+// prioritized list: forecast vs budget, free-tier metrics near their limit,
+// failed provider syncs, and stale data. Pure derivation from the snapshot so
+// both the KPI band ("needs attention" count) and the panel share one source.
+function dashboardAlerts({
+  freeTier,
+  liveSync,
+  projected,
+  budget,
+  latestMs,
+}: {
+  freeTier: FreeTierUsageRow[]
+  liveSync: AnalysisResult["liveSync"]
+  projected: number
+  budget: number | null
+  latestMs: number | null
+}): DashAlert[] {
+  const alerts: DashAlert[] = []
+
+  if (budget != null && budget > 0 && projected > 0) {
+    if (projected > budget) {
+      const over = projected - budget
+      alerts.push({
+        id: "budget-over",
+        severity: "crit",
+        title: "Forecast over budget",
+        detail: `Projected ${money(projected)} is ${money(over)} (${Math.round((over / budget) * 100)}%) above your ${money(budget)} budget.`,
+      })
+    } else if (projected > budget * 0.9) {
+      alerts.push({
+        id: "budget-near",
+        severity: "warn",
+        title: "Approaching budget",
+        detail: `Projected ${money(projected)} is ${Math.round((projected / budget) * 100)}% of your ${money(budget)} budget.`,
+      })
+    }
+  }
+
+  const nearLimit = freeTier
+    .filter((row) => row.source === "measured" && row.percentUsed !== null && row.limit !== null && (row.percentUsed ?? 0) >= 80)
+    .sort((a, b) => (b.percentUsed ?? 0) - (a.percentUsed ?? 0))
+    .slice(0, 4)
+  for (const row of nearLimit) {
+    const pct = Math.round(row.percentUsed ?? 0)
+    alerts.push({
+      id: `usage-${row.customProviderId ?? row.provider}-${row.service}`,
+      severity: pct >= 95 ? "crit" : "warn",
+      title: `${providerName(row.provider)} · ${row.service} near free-tier limit`,
+      detail: `${pct}% used — ${quantity(row.used ?? 0)} of ${quantity(row.limit ?? 0)} ${row.unit}, ${quantity(row.remaining ?? 0)} ${row.unit} left.`,
+    })
+  }
+
+  for (const [index, sync] of liveSync.filter((entry) => entry.status === "error").entries()) {
+    alerts.push({
+      id: `sync-${sync.provider}-${index}`,
+      severity: "warn",
+      title: `${providerName(sync.provider)} sync failed`,
+      detail: sync.message || "The last refresh could not read this account. Re-check its connection under Credentials.",
+    })
+  }
+
+  if (latestMs !== null && latestMs > 26 * 3_600_000) {
+    const days = Math.round(latestMs / (24 * 3_600_000))
+    alerts.push({
+      id: "stale",
+      severity: "warn",
+      title: "Data may be stale",
+      detail: `Last successful refresh was about ${days === 1 ? "a day" : `${days} days`} ago. Use “Refresh now” to update cost and usage.`,
+    })
+  }
+
+  const rank: Record<AlertSeverity, number> = { crit: 0, warn: 1 }
+  return alerts.sort((a, b) => rank[a.severity] - rank[b.severity])
+}
+
+// Executive KPI band at the top of the Dashboards view: the four numbers that
+// answer "how much, where it's heading, how fast, and is anything wrong" — so
+// the rest of the page is detail rather than the first read.
+function OverviewKpis({
+  total,
+  projected,
+  dailyRate,
+  elapsedDays,
+  totalDays,
+  accountCount,
+  serviceCount,
+  budget,
+  alertCount,
+}: {
+  total: number
+  projected: number
+  dailyRate: number
+  elapsedDays: number
+  totalDays: number
+  accountCount: number
+  serviceCount: number
+  budget: number | null
+  alertCount: number
+}) {
+  const overBudget = budget != null && budget > 0 && projected > budget
+  const daysLeft = Math.max(totalDays - elapsedDays, 0)
+  return (
+    <div className="ai-kpis overview-kpis">
+      <article>
+        <Coins aria-hidden />
+        <span>Month to date</span>
+        <strong>{money(total)}</strong>
+        <small>
+          {accountCount} {accountCount === 1 ? "account" : "accounts"}
+          {serviceCount > 0 ? ` · ${serviceCount} ${serviceCount === 1 ? "service" : "services"}` : ""}
+        </small>
+      </article>
+      <article className={overBudget ? "kpi-warn" : undefined}>
+        <TrendingUp aria-hidden />
+        <span>Projected month-end</span>
+        <strong>{money(projected)}</strong>
+        <small>
+          {budget != null && budget > 0
+            ? `${Math.round((projected / budget) * 100)}% of ${money(budget)} budget`
+            : "at current run rate"}
+        </small>
+      </article>
+      <article>
+        <Activity aria-hidden />
+        <span>Daily run rate</span>
+        <strong>{money(dailyRate)}</strong>
+        <small>{daysLeft} {daysLeft === 1 ? "day" : "days"} left of {totalDays}</small>
+      </article>
+      <article className={alertCount > 0 ? "kpi-warn" : "kpi-ok"}>
+        {alertCount > 0 ? <AlertTriangle aria-hidden /> : <CheckCircle2 aria-hidden />}
+        <span>Needs attention</span>
+        <strong>{alertCount}</strong>
+        <small>{alertCount > 0 ? `${alertCount === 1 ? "item" : "items"} to review below` : "all clear"}</small>
+      </article>
+    </div>
+  )
+}
+
+// Consolidated, prioritized alerts surface. Shows the highest-severity issues
+// first; a clean state is an explicit "all clear" rather than a hidden panel so
+// the user can trust the absence of warnings.
+function AttentionPanel({ alerts }: { alerts: DashAlert[] }) {
+  const crit = alerts.filter((alert) => alert.severity === "crit").length
+  return (
+    <section className="insight-panel attention-panel" aria-label="Needs attention">
+      <div className="insight-panel-head">
+        <div>
+          <p>Status</p>
+          <h2>Needs attention</h2>
+        </div>
+        <span className={alerts.length === 0 ? "attention-flag ok" : crit > 0 ? "attention-flag crit" : "attention-flag warn"}>
+          {alerts.length === 0 ? "All clear" : crit > 0 ? `${crit} urgent` : `${alerts.length} to review`}
+        </span>
+      </div>
+      {alerts.length === 0 ? (
+        <div className="attention-clear">
+          <CheckCircle2 aria-hidden />
+          <span>Nothing needs attention. Spend is within budget, free-tier usage has headroom, and every account synced cleanly.</span>
+        </div>
+      ) : (
+        <div className="attention-list">
+          {alerts.map((alert) => (
+            <article key={alert.id} className={`attention-row ${alert.severity}`}>
+              <span className="attention-icon" aria-hidden>
+                {alert.severity === "crit" ? <AlertTriangle /> : <ShieldAlert />}
+              </span>
+              <div>
+                <strong>{alert.title}</strong>
+                <span>{alert.detail}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   )
 }
@@ -773,6 +1039,23 @@ function RepositoryDashboard({
     dailyRate: elapsedDays > 0 ? totalCost / elapsedDays : 0,
     projected: (elapsedDays > 0 ? totalCost / elapsedDays : 0) * totalDays,
   }
+  const serviceCount = breakdownByService(analysis.costRows).length
+  const latestSync = analysis.liveSync
+    .filter((entry) => entry.status === "success")
+    .map((entry) => entry.syncedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1)
+  const latestSyncTime = latestSync ? new Date(latestSync).getTime() : Number.NaN
+  const latestMs = Number.isFinite(latestSyncTime) ? Math.max(Date.now() - latestSyncTime, 0) : null
+  // Non-AI alerts only: drop AI providers from the free-tier feed feeding alerts.
+  const alerts = dashboardAlerts({
+    freeTier: analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider)),
+    liveSync: analysis.liveSync.filter((entry) => !AI_PROVIDERS.includes(entry.provider)),
+    projected: forecast.projected,
+    budget: state.monthlyBudgetUsd ?? null,
+    latestMs,
+  })
 
   return (
     <>
@@ -783,9 +1066,24 @@ function RepositoryDashboard({
           <section className="overview-hero" aria-label="Cost dashboard">
             <p>Dashboards · {monthLabel(analysis.period)}</p>
             <h1>
-              {money(totalCost)} <span className="hero-sub">across {accounts.length} {accounts.length === 1 ? "account" : "accounts"}</span>
+              Cost &amp; usage overview{" "}
+              <span className="hero-sub">across {accounts.length} {accounts.length === 1 ? "account" : "accounts"}</span>
             </h1>
           </section>
+
+          <OverviewKpis
+            total={totalCost}
+            projected={forecast.projected}
+            dailyRate={forecast.dailyRate}
+            elapsedDays={forecast.elapsedDays}
+            totalDays={forecast.totalDays}
+            accountCount={accounts.length}
+            serviceCount={serviceCount}
+            budget={state.monthlyBudgetUsd ?? null}
+            alertCount={alerts.length}
+          />
+
+          <AttentionPanel alerts={alerts} />
 
           <CostOverview
             eyebrow={`All Accounts · ${monthLabel(analysis.period)}`}

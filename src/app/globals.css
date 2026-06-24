@@ -6114,6 +6114,230 @@ th {
   word-break: break-word;
 }
 
+/* ============================================================
+   Non-AI dashboard widgets: executive KPI band, attention panel,
+   cost donut, and spend-concentration insight.
+   ============================================================ */
+
+/* Executive KPI band — extends .ai-kpis with tone accents. */
+.overview-kpis {
+  margin-top: 16px;
+}
+
+.overview-kpis article {
+  position: relative;
+}
+
+.overview-kpis article.kpi-warn {
+  border-color: var(--yellow);
+  background: var(--warn-soft);
+}
+
+.overview-kpis article.kpi-warn svg {
+  color: var(--warn-ink);
+}
+
+.overview-kpis article.kpi-ok svg {
+  color: var(--green);
+}
+
+/* Cost overview: donut + legend side by side. */
+.cost-split {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.cost-split .cost-legend {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cost-donut {
+  position: relative;
+  flex: 0 0 auto;
+  width: 132px;
+  height: 132px;
+}
+
+.cost-donut svg {
+  display: block;
+}
+
+.cost-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+  padding: 0 6px;
+}
+
+.cost-donut-center strong {
+  font-size: 26px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-donut-center span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.cost-donut-center small {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--muted);
+  max-width: 78px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .cost-split {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cost-donut {
+    align-self: center;
+  }
+}
+
+/* Spend-concentration insight line in the cost-drivers panel. */
+.cost-concentration {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 0;
+  border: 1px dashed var(--line);
+  background: var(--surface-2);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.cost-concentration svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--yellow);
+}
+
+.cost-concentration strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Needs-attention panel. */
+.attention-flag {
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.attention-flag.ok {
+  color: var(--green);
+}
+
+.attention-flag.warn {
+  color: var(--yellow);
+}
+
+.attention-flag.crit {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.attention-clear {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  background: var(--ok-soft);
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.attention-clear svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  color: var(--green);
+}
+
+.attention-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.attention-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  background: var(--surface);
+  padding: 12px 14px;
+}
+
+.attention-row.warn {
+  border-left-color: var(--yellow);
+}
+
+.attention-row.crit {
+  border-left-color: var(--red);
+  background: var(--err-soft);
+}
+
+.attention-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  flex: 0 0 auto;
+}
+
+.attention-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.attention-row.warn .attention-icon svg {
+  color: var(--yellow);
+}
+
+.attention-row.crit .attention-icon svg {
+  color: var(--red);
+}
+
+.attention-row strong {
+  display: block;
+  font-size: 14px;
+}
+
+.attention-row span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 /* Theme rule: Ambrium is fully squared-off. This enforces no rounded corners
    anywhere — including form controls and third-party (Clerk) widgets. */
 *,
