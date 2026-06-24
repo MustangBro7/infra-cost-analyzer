@@ -96,6 +96,14 @@ export async function connectMotherDuck(userId: string, connectionString: string
   return { accountLabel, databaseCount: usage.databases.length, plan }
 }
 
+// Merges metadata for an AI key connection, preserving any locally-pushed usage
+// and user overrides so the org-API key and the local-subscription view coexist.
+async function aiKeyMetadata(userId: string, provider: "anthropic" | "openai" | "cursor") {
+  const workspace = await readWorkspace(userId)
+  const existing = (workspace.connections[provider]?.metadata ?? {}) as Record<string, unknown>
+  return { ...existing, source: existing.localUsage ? "both" : "api", showApi: existing.showApi ?? true }
+}
+
 export async function connectAnthropicKey(userId: string, adminKey: string) {
   const verified = await verifyAnthropicKey(adminKey)
   await upsertConnection(userId, {
@@ -106,7 +114,7 @@ export async function connectAnthropicKey(userId: string, adminKey: string) {
     connectedAt: new Date().toISOString(),
     lastVerifiedAt: new Date().toISOString(),
     lastError: null,
-    metadata: {},
+    metadata: await aiKeyMetadata(userId, "anthropic"),
   })
   return { accountLabel: verified.accountLabel }
 }
@@ -121,9 +129,32 @@ export async function connectOpenAiKey(userId: string, adminKey: string) {
     connectedAt: new Date().toISOString(),
     lastVerifiedAt: new Date().toISOString(),
     lastError: null,
-    metadata: {},
+    metadata: await aiKeyMetadata(userId, "openai"),
   })
   return { accountLabel: verified.accountLabel }
+}
+
+/**
+ * Updates AI provider display settings: the monthly subscription price (so a $200
+ * Claude Max / ChatGPT Pro shows the right flat cost), an optional plan label, and
+ * whether to also surface live API cost/usage when an admin key is connected.
+ */
+export async function setAiSettings(
+  userId: string,
+  provider: "anthropic" | "openai" | "cursor",
+  settings: { subscriptionUsd?: number; planLabel?: string | null; showApi?: boolean }
+) {
+  const workspace = await readWorkspace(userId)
+  const existing = workspace.connections[provider]
+  if (!existing || existing.status !== "connected") throw new Error(`Connect ${provider} first.`)
+  const metadata = { ...existing.metadata } as Record<string, unknown>
+  if (settings.subscriptionUsd !== undefined && Number.isFinite(settings.subscriptionUsd) && settings.subscriptionUsd >= 0) {
+    metadata.subscriptionUsdOverride = settings.subscriptionUsd
+  }
+  if (settings.planLabel !== undefined) metadata.planLabelOverride = settings.planLabel
+  if (settings.showApi !== undefined) metadata.showApi = settings.showApi
+  await upsertConnection(userId, { ...existing, lastVerifiedAt: new Date().toISOString(), metadata })
+  return { ok: true }
 }
 
 export interface AiLocalUsagePayload {
@@ -147,18 +178,27 @@ export async function recordAiLocalUsage(
   provider: "anthropic" | "openai" | "cursor",
   payload: AiLocalUsagePayload
 ) {
+  const workspace = await readWorkspace(userId)
+  const existing = workspace.connections[provider]
+  // Preserve an already-connected org API key (and its showApi/override settings)
+  // so the local-subscription view and the live-API view can coexist.
+  const hasKey = Boolean(existing?.accessToken && existing.accessToken !== "local")
   const toolLabel = payload.toolLabel ?? (provider === "anthropic" ? "Claude Code" : provider === "openai" ? "Codex" : "Cursor")
   const accountLabel = `${toolLabel} (local)${payload.planLabel ? ` · ${payload.planLabel}` : ""}`
   await upsertConnection(userId, {
     provider,
     status: "connected",
-    accountLabel,
-    // No secret for the local path; a sentinel keeps the "connected" invariant.
-    accessToken: "local",
-    connectedAt: new Date().toISOString(),
+    accountLabel: hasKey ? existing!.accountLabel : accountLabel,
+    accessToken: hasKey ? existing!.accessToken : "local",
+    connectedAt: existing?.connectedAt ?? new Date().toISOString(),
     lastVerifiedAt: new Date().toISOString(),
     lastError: null,
-    metadata: { source: "local", localUsage: payload, updatedAt: new Date().toISOString() },
+    metadata: {
+      ...(existing?.metadata ?? {}),
+      source: hasKey ? "both" : "local",
+      localUsage: payload,
+      updatedAt: new Date().toISOString(),
+    },
   })
   return { accountLabel }
 }
@@ -173,7 +213,7 @@ export async function connectCursorKey(userId: string, apiKey: string) {
     connectedAt: new Date().toISOString(),
     lastVerifiedAt: new Date().toISOString(),
     lastError: null,
-    metadata: {},
+    metadata: await aiKeyMetadata(userId, "cursor"),
   })
   return { accountLabel: verified.accountLabel }
 }

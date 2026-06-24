@@ -38,6 +38,14 @@ test("local AI usage records and surfaces a subscription cost + token usage", as
 
     const sync = analysis.liveSync.find((entry) => entry.provider === "anthropic")
     assert.equal(sync?.status, "success")
+
+    // Plan-cost override (e.g. $200 Claude Max) replaces the pushed subscription price.
+    const { setAiSettings } = await import("../src/lib/connectors")
+    await setAiSettings("usr_ai", "anthropic", { subscriptionUsd: 200, planLabel: "Max" })
+    const after = await buildAnalysisWithLiveData({ repo, signals: [] }, {} as unknown as NodeJS.ProcessEnv, "usr_ai")
+    const overridden = after.costRows.find((row) => row.provider === "anthropic")
+    assert.equal(overridden?.cost, 200)
+    assert.match(overridden?.serviceName ?? "", /Max/)
   } finally {
     setStorePathForTests(null)
     rmSync(dir, { recursive: true, force: true })

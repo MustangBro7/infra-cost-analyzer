@@ -711,80 +711,110 @@ function buildLocalAiResult(provider: "anthropic" | "openai" | "cursor", label: 
   }
 }
 
+// Live org/team API cost + usage (the path for real API/Team accounts). Throws on
+// failure so the caller can fold the error into a combined sync message.
+async function fetchAiApi(provider: "anthropic" | "openai" | "cursor", token: string): Promise<{ rows: NormalizedCostRow[]; usage: ProviderUsageSample[] }> {
+  const label = AI_PROVIDER_LABEL[provider]
+  const currentPeriod = period()
+  const fetcher = provider === "anthropic" ? fetchAnthropicCostUsage : provider === "openai" ? fetchOpenAiCostUsage : fetchCursorCostUsage
+  const result: AiCostUsage = await fetcher(token, currentPeriod)
+  const rows: NormalizedCostRow[] = result.costRows.map((row, index) => ({
+    provider,
+    serviceName: `${row.service} (API)`,
+    resourceId: null,
+    resourceName: `${label} API`,
+    billingPeriodStart: currentPeriod.from,
+    billingPeriodEnd: currentPeriod.to,
+    cost: Number(row.cost.toFixed(4)),
+    currency: row.currency,
+    attribution: "verified",
+    attributionReason: `Live ${label} pay-per-use cost from the organization usage & cost API.`,
+    signalId: `${provider}-api:${index}`,
+    source: "live",
+  }))
+  const usage: ProviderUsageSample[] = result.usage.map((sample) => ({
+    provider,
+    service: `${sample.service} (API)`,
+    quantity: sample.quantity,
+    unit: sample.unit,
+  }))
+  return { rows, usage }
+}
+
+/**
+ * Loads an AI coding tool, composing up to two independent sources that can
+ * coexist on one connection:
+ *   • local — flat subscription cost + token usage pushed from local logs
+ *     (Claude Pro/Max, ChatGPT Plus/Pro). The monthly price can be overridden by
+ *     the user (e.g. $200 Max) via metadata.subscriptionUsdOverride.
+ *   • api — real pay-per-use cost + usage from the org/team API, shown when an
+ *     admin key is connected and not toggled off (metadata.showApi).
+ * Both are genuinely different bills, so when both exist they're summed.
+ */
 async function loadAiLive(workspace: WorkspaceStore, provider: "anthropic" | "openai" | "cursor"): Promise<LiveResult> {
   const connection = workspace.connections[provider]
   const label = AI_PROVIDER_LABEL[provider]
-  // Local-source connections carry their pushed usage in metadata — render that
-  // instead of calling the org API (which personal subscriptions can't use).
-  const meta = connection?.metadata as { source?: string; localUsage?: AiLocalUsagePayload } | undefined
-  if (connection?.status === "connected" && meta?.source === "local" && meta.localUsage) {
-    return buildLocalAiResult(provider, label, meta.localUsage)
+  if (!connection || connection.status !== "connected") {
+    return notConnected(provider, `Connect ${label} to pull subscription cost and token usage.`)
   }
-  if (!connection?.accessToken || connection.status !== "connected") {
+  const meta = (connection.metadata ?? {}) as {
+    localUsage?: AiLocalUsagePayload
+    subscriptionUsdOverride?: number
+    planLabelOverride?: string
+    showApi?: boolean
+  }
+  const hasLocal = Boolean(meta.localUsage)
+  const hasKey = Boolean(connection.accessToken && connection.accessToken !== "local")
+  const showApi = hasKey && meta.showApi !== false
+  if (!hasLocal && !hasKey) {
     return notConnected(provider, `Connect ${label} to pull subscription cost and token usage.`)
   }
 
-  const currentPeriod = period()
-  const fetcher =
-    provider === "anthropic"
-      ? fetchAnthropicCostUsage
-      : provider === "openai"
-        ? fetchOpenAiCostUsage
-        : fetchCursorCostUsage
+  const rows: NormalizedCostRow[] = []
+  const usage: ProviderUsageSample[] = []
+  const messages: string[] = []
+  let errored = false
+  const syncedAt = new Date().toISOString()
 
-  try {
-    const result: AiCostUsage = await fetcher(connection.accessToken, currentPeriod)
-    const rows: NormalizedCostRow[] = result.costRows.map((row, index) => ({
+  if (hasLocal && meta.localUsage) {
+    // Apply the user's plan-price / label override to the pushed payload.
+    const payload: AiLocalUsagePayload = {
+      ...meta.localUsage,
+      subscriptionUsd:
+        typeof meta.subscriptionUsdOverride === "number" && Number.isFinite(meta.subscriptionUsdOverride)
+          ? meta.subscriptionUsdOverride
+          : meta.localUsage.subscriptionUsd,
+      planLabel: meta.planLabelOverride ?? meta.localUsage.planLabel,
+    }
+    const local = buildLocalAiResult(provider, label, payload)
+    rows.push(...local.rows)
+    usage.push(...local.usage)
+    messages.push(local.sync.message)
+  }
+
+  if (showApi && connection.accessToken) {
+    try {
+      const api = await fetchAiApi(provider, connection.accessToken)
+      rows.push(...api.rows)
+      usage.push(...api.usage)
+      messages.push(`Loaded ${api.rows.length} live API cost row${api.rows.length === 1 ? "" : "s"} from the ${label} org API.`)
+    } catch (error) {
+      errored = true
+      messages.push(error instanceof Error ? error.message : `Failed to pull ${label} API cost.`)
+    }
+  }
+
+  const status = rows.length > 0 || usage.length > 0 ? "success" : errored ? "error" : "empty"
+  return {
+    rows,
+    usage,
+    sync: {
       provider,
-      serviceName: row.service,
-      resourceId: null,
-      resourceName: label,
-      billingPeriodStart: currentPeriod.from,
-      billingPeriodEnd: currentPeriod.to,
-      cost: Number(row.cost.toFixed(4)),
-      currency: row.currency,
-      attribution: "verified",
-      attributionReason: `Live ${label} cost from the organization usage & cost API.`,
-      signalId: `${provider}-live:${index}`,
-      source: "live",
-    }))
-    const usage: ProviderUsageSample[] = result.usage.map((sample) => ({
-      provider,
-      service: sample.service,
-      quantity: sample.quantity,
-      unit: sample.unit,
-    }))
-    const syncedAt = new Date().toISOString()
-    if (rows.length === 0 && usage.length === 0) {
-      return {
-        rows,
-        usage,
-        sync: { provider, status: "empty", message: `${label} reported no cost or usage for the current month.`, rows: 0, syncedAt },
-      }
-    }
-    return {
-      rows,
-      usage,
-      sync: {
-        provider,
-        status: "success",
-        message: `Loaded ${rows.length} ${label} cost row${rows.length === 1 ? "" : "s"}${usage.length ? ` and ${usage.length} usage metric${usage.length === 1 ? "" : "s"}` : ""}.`,
-        rows: rows.length,
-        syncedAt,
-      },
-    }
-  } catch (error) {
-    return {
-      rows: [],
-      usage: [],
-      sync: {
-        provider,
-        status: "error",
-        message: error instanceof Error ? error.message : `Failed to sync ${label}.`,
-        rows: 0,
-        syncedAt: new Date().toISOString(),
-      },
-    }
+      status,
+      message: messages.join(" ") || `${label} reported no cost or usage for the current month.`,
+      rows: rows.length,
+      syncedAt,
+    },
   }
 }
 
