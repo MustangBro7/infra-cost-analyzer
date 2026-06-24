@@ -498,6 +498,14 @@ export async function removeCustomConnection(userId: string, id: string) {
   await writeWorkspace(userId, workspace)
 }
 
+/** Sets (or clears, with null) the workspace's monthly spend budget in USD. */
+export async function setMonthlyBudget(userId: string, amount: number | null) {
+  const workspace = await readWorkspace(userId)
+  workspace.monthlyBudgetUsd = amount != null && Number.isFinite(amount) && amount > 0 ? Number(amount.toFixed(2)) : null
+  await writeWorkspace(userId, workspace)
+  return workspace.monthlyBudgetUsd
+}
+
 export async function appendEvent(userId: string, event: Omit<ConnectionEvent, "id" | "createdAt">) {
   const workspace = await readWorkspace(userId)
   workspace.events = withEvent(workspace.events, event)
@@ -543,6 +551,7 @@ function publicStoreFromWorkspace(workspace: WorkspaceStore) {
     suggestedProviders: computeSuggestedProviders(workspace),
     repoProviderLinks: workspace.repoProviderLinks,
     costAssignments: workspace.costAssignments,
+    monthlyBudgetUsd: workspace.monthlyBudgetUsd ?? null,
     // Custom provider definitions (no secrets) plus whether each has a saved
     // secret, so the UI can render and prompt to connect them.
     customProviders: Object.values(workspace.customProviders).map((def) => ({
@@ -617,6 +626,7 @@ function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore
     costAssignments: workspace.costAssignments ?? {},
     customProviders: workspace.customProviders ?? {},
     customConnections: workspace.customConnections ?? {},
+    monthlyBudgetUsd: workspace.monthlyBudgetUsd ?? null,
   }
 }
 

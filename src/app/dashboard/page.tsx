@@ -1,15 +1,12 @@
 import {
-  Activity,
   ArrowLeft,
   ArrowUpRight,
   Boxes,
-  CalendarClock,
   CheckCircle2,
   ChevronDown,
   CloudCog,
   Coins,
   DatabaseZap,
-  Flame,
   FolderGit2,
   Gauge,
   Layers,
@@ -19,7 +16,6 @@ import {
   ShieldAlert,
   Signal,
   TerminalSquare,
-  TrendingUp,
   Wallet,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -30,6 +26,7 @@ import { ProviderConnectPanel } from "../ProviderConnectPanel"
 import { CustomProviderPanel } from "../CustomProviderPanel"
 import { AiSyncPanel } from "../AiSyncPanel"
 import { AiInsights, type AiToolData } from "../AiInsights"
+import { BudgetForecast } from "../BudgetForecast"
 import { RepoAccountPicker } from "../RepoAccountPicker"
 import { ProviderCostPanel } from "../ProviderCostPanel"
 import { ProviderResourcePanel } from "../ProviderResourcePanel"
@@ -519,49 +516,6 @@ function DashboardWidgets({
   )
 }
 
-// Cost analytics derived from the month-to-date rows: a run-rate projection and
-// the period's headline drivers. Complements the CostOverview total above it.
-function SpendInsights({ analysis }: { analysis: AnalysisResult }) {
-  const rows = analysis.costRows
-  const total = sumCost(rows)
-  const { elapsedDays, totalDays } = periodProgress(analysis.period)
-  const dailyRate = elapsedDays > 0 ? total / elapsedDays : 0
-  const projected = dailyRate * totalDays
-  const services = breakdownByService(rows)
-  const topService = services[0]
-  const topShare = topService && total > 0 ? Math.round((topService.total / total) * 100) : 0
-  const remainingDays = Math.max(totalDays - elapsedDays, 0)
-
-  return (
-    <section className="spend-insights" aria-label="Spend analytics">
-      <article>
-        <Wallet aria-hidden />
-        <span>Month to date</span>
-        <strong>{money(total)}</strong>
-        <small>{elapsedDays} of {totalDays} days billed</small>
-      </article>
-      <article>
-        <TrendingUp aria-hidden />
-        <span>Projected month-end</span>
-        <strong>{money(projected)}</strong>
-        <small>{remainingDays > 0 ? `on current run rate · ${remainingDays} days left` : "period complete"}</small>
-      </article>
-      <article>
-        <Activity aria-hidden />
-        <span>Daily run rate</span>
-        <strong>{money(dailyRate)}</strong>
-        <small>average per day so far</small>
-      </article>
-      <article>
-        <Flame aria-hidden />
-        <span>Top cost driver</span>
-        <strong>{topService ? money(topService.total) : "—"}</strong>
-        <small>{topService ? `${topService.serviceName} · ${topShare}% of spend` : "no billed spend yet"}</small>
-      </article>
-    </section>
-  )
-}
-
 // Horizontal ranking of the period's biggest services across every account, so
 // the user can see where spend concentrates without expanding each provider.
 function CostDriversPanel({ analysis }: { analysis: AnalysisResult }) {
@@ -772,6 +726,13 @@ function RepositoryDashboard({
   const accounts = accountEntries(analysis, state)
   const measuredUsageCount = analysis.freeTier.filter((row) => row.source === "measured").length
   const totalCost = sumCost(analysis.costRows)
+  const { elapsedDays, totalDays } = periodProgress(analysis.period)
+  const forecast = {
+    elapsedDays,
+    totalDays,
+    dailyRate: elapsedDays > 0 ? totalCost / elapsedDays : 0,
+    projected: (elapsedDays > 0 ? totalCost / elapsedDays : 0) * totalDays,
+  }
 
   return (
     <>
@@ -793,7 +754,15 @@ function RepositoryDashboard({
             emptyNote="No billed spend across your connected accounts this month. Connect accounts under Credentials, or check Repos for per-project usage."
           />
 
-          <SpendInsights analysis={analysis} />
+          <BudgetForecast
+            spent={totalCost}
+            projected={forecast.projected}
+            dailyRate={forecast.dailyRate}
+            elapsedDays={forecast.elapsedDays}
+            totalDays={forecast.totalDays}
+            budget={state.monthlyBudgetUsd ?? null}
+            monthLabel={monthLabel(analysis.period)}
+          />
 
           <CostDriversPanel analysis={analysis} />
 

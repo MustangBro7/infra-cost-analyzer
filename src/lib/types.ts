@@ -277,6 +277,9 @@ export interface WorkspaceStore {
   // by a stable cost-item key. Value is a repo full name, or "__account__" to
   // force account-level. Lets the user split an account's cost across repos.
   costAssignments: Record<string, string>
+  // Optional monthly spend budget (USD) the dashboard tracks actual + projected
+  // spend against. null/undefined = no budget set.
+  monthlyBudgetUsd?: number | null
   // User-defined provider connectors registered via the extension API, keyed by
   // CustomProviderDef.id.
   customProviders: Record<string, CustomProviderDef>
