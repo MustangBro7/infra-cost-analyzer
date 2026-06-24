@@ -28,6 +28,7 @@ import { redirect } from "next/navigation"
 import { RepoSyncPanel } from "../RepoSyncPanel"
 import { ProviderConnectPanel } from "../ProviderConnectPanel"
 import { CustomProviderPanel } from "../CustomProviderPanel"
+import { AiSyncPanel } from "../AiSyncPanel"
 import { RepoAccountPicker } from "../RepoAccountPicker"
 import { ProviderCostPanel } from "../ProviderCostPanel"
 import { ProviderResourcePanel } from "../ProviderResourcePanel"
@@ -865,6 +866,8 @@ function RepositoryDashboard({
           <AccountsBoard accounts={accounts} />
 
           <ProviderConnectPanel providerConnections={analysis.providerConnections} initialState={state} />
+
+          <AiSyncPanel initialState={state} />
 
           <CustomProviderPanel initialState={state} />
         </>
