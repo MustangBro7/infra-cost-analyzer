@@ -5075,6 +5075,16 @@ th {
   }
 }
 
+.build-tag {
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 1px 5px;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
+}
+
 /* ---- Repo cost ranking ---- */
 .repo-rank-list {
   display: flex;

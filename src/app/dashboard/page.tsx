@@ -387,6 +387,9 @@ function statusText(connection: ProviderConnection) {
   return "Not detected"
 }
 
+// Bumped every deploy — a visible marker so it's obvious which build is live.
+const BUILD_TAG = "build jun24·2310"
+
 function Header({ subtitle }: { subtitle: string }) {
   return (
     <header className="topbar clean">
@@ -395,7 +398,7 @@ function Header({ subtitle }: { subtitle: string }) {
           <CloudCog aria-hidden />
         </span>
         <div>
-          <strong>Ambrium</strong>
+          <strong>Ambrium <span className="build-tag" title="deployed build">{BUILD_TAG}</span></strong>
           <small>{subtitle}</small>
         </div>
       </div>
