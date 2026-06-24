@@ -36,7 +36,15 @@ export default clerkMiddleware(async (auth, request) => {
   }
   if (isPublicRoute(request)) return;
   const { userId, redirectToSignIn } = await auth();
-  if (userId) return;
+  if (userId) {
+    // Authenticated pages render per-user, always-dynamic data. Without an
+    // explicit directive the browser applies heuristic caching to the HTML
+    // document, so a fresh deploy or data refresh wouldn't show until a hard
+    // reload. no-store keeps the dashboard always fresh (and per-user private).
+    const response = NextResponse.next();
+    response.headers.set("Cache-Control", "no-store, must-revalidate");
+    return response;
+  }
   // Unauthenticated on a protected route: send page visitors to the sign-in page
   // (instead of a bare 404), and answer API requests with a 401 their callers
   // expect rather than an HTML redirect.
