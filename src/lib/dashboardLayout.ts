@@ -59,6 +59,21 @@ export function moveDashboardWidget(
   return next
 }
 
+export function moveDashboardWidgetRelative(
+  layout: DashboardWidgetLayout[],
+  id: DashboardWidgetId,
+  targetId: DashboardWidgetId,
+  after: boolean
+): DashboardWidgetLayout[] {
+  const normalized = normalizeDashboardLayout(layout)
+  const from = normalized.findIndex((entry) => entry.id === id)
+  const target = normalized.findIndex((entry) => entry.id === targetId)
+  if (from < 0 || target < 0 || from === target) return normalized
+
+  const targetIndex = target + (after ? (from > target ? 1 : 0) : (from < target ? -1 : 0))
+  return moveDashboardWidget(normalized, id, targetIndex)
+}
+
 export function cycleDashboardWidgetSize(
   layout: DashboardWidgetLayout[],
   id: DashboardWidgetId
@@ -68,4 +83,20 @@ export function cycleDashboardWidgetSize(
     const index = DASHBOARD_WIDGET_SIZES.indexOf(entry.size)
     return { ...entry, size: DASHBOARD_WIDGET_SIZES[(index + 1) % DASHBOARD_WIDGET_SIZES.length] }
   })
+}
+
+export function setDashboardWidgetSize(
+  layout: DashboardWidgetLayout[],
+  id: DashboardWidgetId,
+  size: DashboardWidgetSize
+): DashboardWidgetLayout[] {
+  return normalizeDashboardLayout(layout).map((entry) => entry.id === id ? { ...entry, size } : entry)
+}
+
+export function dashboardWidgetSizeFromRatio(ratio: number): DashboardWidgetSize {
+  const value = Math.max(0, Math.min(ratio, 1))
+  if (value < 0.375) return "compact"
+  if (value < 0.585) return "medium"
+  if (value < 0.835) return "wide"
+  return "full"
 }

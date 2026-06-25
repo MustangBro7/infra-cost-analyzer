@@ -446,7 +446,7 @@ function statusText(connection: ProviderConnection) {
 }
 
 // Bumped every deploy — a visible marker so it's obvious which build is live.
-const BUILD_TAG = "build jun24·custom-layout"
+const BUILD_TAG = "build jun25·direct-layout"
 
 function Header({ subtitle }: { subtitle: string }) {
   return (
