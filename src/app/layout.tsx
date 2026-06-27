@@ -5,6 +5,9 @@ import "./globals.css"
 export const metadata: Metadata = {
   title: "Ambrium",
   description: "See what each app, side project, cloud provider, and AI tool is costing before a surprise bill.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
