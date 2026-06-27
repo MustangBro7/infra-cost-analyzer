@@ -24,6 +24,9 @@ const isPublicRoute = createRouteMatcher([
   // route handler (requireUserFromCliToken), so they bypass Clerk's session
   // gate — same model as /api/cli/connect/*.
   "/api/cli/custom-providers(.*)",
+  // Dodo webhooks are server-to-server and are verified in the route handler
+  // with DODO_PAYMENTS_WEBHOOK_KEY, not a Clerk browser session.
+  "/api/billing/webhook/dodo",
   // Public, machine-readable extension guide (no secrets) the AI agent reads.
   "/api/extend/(.*)",
 ]);
