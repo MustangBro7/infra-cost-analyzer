@@ -28,6 +28,7 @@ const EMPTY_WORKSPACE: WorkspaceStore = {
   costAssignments: {},
   customProviders: {},
   customConnections: {},
+  billingSubscription: null,
 }
 
 const EMPTY_STORE: AppStore = {
@@ -260,6 +261,22 @@ async function ensureD1Schema(db: D1DatabaseLike): Promise<void> {
       cli_token TEXT,
       cli_token_expires_at TEXT
     )`,
+    `CREATE TABLE IF NOT EXISTS app_billing_subscriptions (
+      user_id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      status TEXT NOT NULL,
+      customer_id TEXT,
+      subscription_id TEXT,
+      checkout_session_id TEXT,
+      product_id TEXT,
+      current_period_end TEXT,
+      updated_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_billing_webhooks (
+      webhook_id TEXT PRIMARY KEY,
+      processed_at TEXT NOT NULL
+    )`,
   ]
   for (const statement of statements) {
     await db.prepare(statement).run()
@@ -485,6 +502,26 @@ async function loadD1Store(db: D1DatabaseLike): Promise<AppStore> {
     }
   }
 
+  const billingRows = (await db.prepare("SELECT * FROM app_billing_subscriptions").all<Record<string, string | null>>()).results ?? []
+  for (const row of billingRows) {
+    const userId = String(row.user_id)
+    store.workspaces[userId] = store.workspaces[userId] ?? structuredClone(EMPTY_WORKSPACE)
+    store.workspaces[userId].billingSubscription = {
+      provider: "dodo",
+      plan: row.plan === "indie" ? "indie" : "free",
+      status: normalizeBillingStatus(row.status),
+      customerId: row.customer_id ? String(row.customer_id) : null,
+      subscriptionId: row.subscription_id ? String(row.subscription_id) : null,
+      checkoutSessionId: row.checkout_session_id ? String(row.checkout_session_id) : null,
+      productId: row.product_id ? String(row.product_id) : null,
+      currentPeriodEnd: row.current_period_end ? String(row.current_period_end) : null,
+      updatedAt: String(row.updated_at),
+    }
+  }
+
+  const webhookRows = (await db.prepare("SELECT * FROM app_billing_webhooks").all<Record<string, string>>()).results ?? []
+  store.processedBillingWebhookIds = Object.fromEntries(webhookRows.map((row) => [row.webhook_id, row.processed_at]))
+
   return store
 }
 
@@ -502,6 +539,8 @@ async function persistD1Store(db: D1DatabaseLike, store: AppStore): Promise<void
     "app_events",
     "app_analysis_snapshots",
     "app_cli_pairings",
+    "app_billing_subscriptions",
+    "app_billing_webhooks",
   ]
   for (const table of tables) {
     await db.prepare(`DELETE FROM ${table}`).run()
@@ -627,6 +666,27 @@ async function persistD1Store(db: D1DatabaseLike, store: AppStore): Promise<void
          VALUES (?1, ?2, ?3, ?4)`
       ).bind(userId, snapshot.key, JSON.stringify(snapshot), snapshot.computedAt).run()
     }
+
+    if (workspace.billingSubscription) {
+      const subscription = workspace.billingSubscription
+      await db.prepare(
+        `INSERT INTO app_billing_subscriptions (
+          user_id, provider, plan, status, customer_id, subscription_id, checkout_session_id,
+          product_id, current_period_end, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+      ).bind(
+        userId,
+        subscription.provider,
+        subscription.plan,
+        subscription.status,
+        subscription.customerId,
+        subscription.subscriptionId,
+        subscription.checkoutSessionId,
+        subscription.productId,
+        subscription.currentPeriodEnd,
+        subscription.updatedAt
+      ).run()
+    }
   }
 
   for (const pairing of Object.values(store.cliPairings)) {
@@ -644,6 +704,13 @@ async function persistD1Store(db: D1DatabaseLike, store: AppStore): Promise<void
       pairing.cliToken,
       pairing.cliTokenExpiresAt
     ).run()
+  }
+
+  for (const [webhookId, processedAt] of Object.entries(store.processedBillingWebhookIds ?? {})) {
+    await db.prepare(
+      `INSERT INTO app_billing_webhooks (webhook_id, processed_at)
+       VALUES (?1, ?2)`
+    ).bind(webhookId, processedAt).run()
   }
 }
 
@@ -673,6 +740,7 @@ export async function readStore(): Promise<AppStore> {
       sessions: parsed.sessions ?? {},
       workspaces,
       cliPairings: parsed.cliPairings ?? {},
+      processedBillingWebhookIds: parsed.processedBillingWebhookIds ?? {},
     }
   }
 
@@ -701,9 +769,11 @@ export async function readStore(): Promise<AppStore> {
         costAssignments: {},
         customProviders: {},
         customConnections: {},
+        billingSubscription: null,
       },
     },
     cliPairings: {},
+    processedBillingWebhookIds: {},
   }
 }
 
@@ -1039,6 +1109,62 @@ export async function appendEvent(userId: string, event: Omit<ConnectionEvent, "
   await writeWorkspace(userId, workspace)
 }
 
+export async function startBillingCheckout(userId: string, input: {
+  checkoutSessionId: string
+  productId: string
+}) {
+  const workspace = await readWorkspace(userId)
+  workspace.billingSubscription = {
+    provider: "dodo",
+    plan: "indie",
+    status: "checkout_started",
+    customerId: workspace.billingSubscription?.customerId ?? null,
+    subscriptionId: workspace.billingSubscription?.subscriptionId ?? null,
+    checkoutSessionId: input.checkoutSessionId,
+    productId: input.productId,
+    currentPeriodEnd: workspace.billingSubscription?.currentPeriodEnd ?? null,
+    updatedAt: new Date().toISOString(),
+  }
+  await writeWorkspace(userId, workspace)
+  return workspace.billingSubscription
+}
+
+export async function upsertBillingSubscription(userId: string, input: Partial<NonNullable<WorkspaceStore["billingSubscription"]>>) {
+  const workspace = await readWorkspace(userId)
+  const previous = workspace.billingSubscription
+  workspace.billingSubscription = {
+    provider: "dodo",
+    plan: input.plan ?? previous?.plan ?? "indie",
+    status: normalizeBillingStatus(input.status ?? previous?.status ?? "active"),
+    customerId: input.customerId ?? previous?.customerId ?? null,
+    subscriptionId: input.subscriptionId ?? previous?.subscriptionId ?? null,
+    checkoutSessionId: input.checkoutSessionId ?? previous?.checkoutSessionId ?? null,
+    productId: input.productId ?? previous?.productId ?? null,
+    currentPeriodEnd: input.currentPeriodEnd ?? previous?.currentPeriodEnd ?? null,
+    updatedAt: new Date().toISOString(),
+  }
+  workspace.events = withEvent(workspace.events, {
+    provider: "system",
+    level: workspace.billingSubscription.status === "active" ? "success" : "info",
+    message: `Billing updated: ${workspace.billingSubscription.plan} is ${workspace.billingSubscription.status}.`,
+  })
+  await writeWorkspace(userId, workspace)
+  return workspace.billingSubscription
+}
+
+export async function markBillingWebhookProcessed(webhookId: string): Promise<boolean> {
+  const store = await readStore()
+  store.processedBillingWebhookIds = store.processedBillingWebhookIds ?? {}
+  if (store.processedBillingWebhookIds[webhookId]) return false
+  store.processedBillingWebhookIds[webhookId] = new Date().toISOString()
+  const entries = Object.entries(store.processedBillingWebhookIds)
+    .sort((a, b) => b[1].localeCompare(a[1]))
+    .slice(0, 500)
+  store.processedBillingWebhookIds = Object.fromEntries(entries)
+  await writeStore(store)
+  return true
+}
+
 export async function publicStore(userId: string) {
   const workspace = await readWorkspace(userId)
   return publicStoreFromWorkspace(workspace)
@@ -1079,6 +1205,7 @@ function publicStoreFromWorkspace(workspace: WorkspaceStore) {
     repoProviderLinks: workspace.repoProviderLinks,
     costAssignments: workspace.costAssignments,
     monthlyBudgetUsd: workspace.monthlyBudgetUsd ?? null,
+    billingSubscription: workspace.billingSubscription ?? null,
     dashboardLayout: normalizeDashboardLayout(workspace.dashboardLayout),
     // Custom provider definitions (no secrets) plus whether each has a saved
     // secret, so the UI can render and prompt to connect them.
@@ -1154,9 +1281,24 @@ function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore
     costAssignments: workspace.costAssignments ?? {},
     customProviders: workspace.customProviders ?? {},
     customConnections: workspace.customConnections ?? {},
+    billingSubscription: workspace.billingSubscription ?? null,
     monthlyBudgetUsd: workspace.monthlyBudgetUsd ?? null,
     dashboardLayout: normalizeDashboardLayout(workspace.dashboardLayout),
   }
+}
+
+function normalizeBillingStatus(status: unknown) {
+  return status === "active" ||
+    status === "past_due" ||
+    status === "cancelled" ||
+    status === "expired" ||
+    status === "checkout_started"
+    ? status
+    : status === "failed" || status === "payment_failed"
+      ? "past_due"
+      : status === "canceled"
+        ? "cancelled"
+        : "none"
 }
 
 function sanitizeMetadata(metadata: Record<string, unknown>) {

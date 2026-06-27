@@ -293,6 +293,23 @@ export interface WorkspaceStore {
   // server-side only (publicStore never exposes accessToken), exactly like the
   // built-in provider connections.
   customConnections: Record<string, StoredConnection>
+  billingSubscription?: BillingSubscription | null
+}
+
+export type BillingPlan = "free" | "indie"
+export type BillingProvider = "dodo"
+export type BillingStatus = "none" | "checkout_started" | "active" | "past_due" | "cancelled" | "expired"
+
+export interface BillingSubscription {
+  provider: BillingProvider
+  plan: BillingPlan
+  status: BillingStatus
+  customerId: string | null
+  subscriptionId: string | null
+  checkoutSessionId: string | null
+  productId: string | null
+  currentPeriodEnd: string | null
+  updatedAt: string
 }
 
 export interface LocalUser {
@@ -334,6 +351,7 @@ export interface AppStore {
   workspaces: Record<string, WorkspaceStore>
   // Companion-CLI pairings, keyed by deviceCode. Pruned on access once expired.
   cliPairings: Record<string, CliPairing>
+  processedBillingWebhookIds?: Record<string, string>
 }
 
 export interface ConnectionEvent {

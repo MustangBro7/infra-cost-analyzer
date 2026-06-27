@@ -1,11 +1,8 @@
 import Link from "next/link"
-import { PricingTable } from "@clerk/nextjs"
 import { ArrowRight, CheckCircle2, CloudCog } from "lucide-react"
+import { BillingCheckoutButton } from "../BillingCheckoutButton"
 
 export const runtime = "nodejs"
-
-const billingEnabled = process.env.NEXT_PUBLIC_CLERK_BILLING_ENABLED === "true"
-const indiePlanId = process.env.NEXT_PUBLIC_CLERK_INDIE_PLAN_ID ?? "cplan_3FidGw27iA7C2UEKc7NHigwZJDW"
 
 const PLANS = [
   {
@@ -77,23 +74,17 @@ export default function PricingPage() {
       <section className="clerk-pricing-shell" aria-label="Checkout">
         <div>
           <p>Checkout</p>
-          <h2>Clerk Billing</h2>
+          <h2>Dodo Payments</h2>
           <span>
-            Configure matching Free and Indie ($5/month) plans in Clerk Dashboard. Ambrium renders Clerk's live pricing
-            table here so upgrades stay tied to the signed-in user.
+            Ambrium uses Clerk for sign-in and Dodo Payments for global USD checkout, tax handling, invoices, and
+            subscription webhooks.
           </span>
         </div>
-        {billingEnabled ? (
-          <PricingTable highlightedPlan={indiePlanId} for="user" newSubscriptionRedirectUrl="/dashboard" />
-        ) : (
-          <div className="billing-disabled-note" role="status">
-            <strong>Billing is not enabled in this Clerk instance yet.</strong>
-            <span>
-              Create a Free plan and an Indie $5/month plan in Clerk Dashboard, enable Billing, then set
-              <code>NEXT_PUBLIC_CLERK_BILLING_ENABLED=true</code> to render live checkout here.
-            </span>
-          </div>
-        )}
+        <div className="billing-disabled-note" role="status">
+          <strong>Indie checkout is hosted by Dodo Payments.</strong>
+          <span>Sign in, start checkout, and Dodo returns you to the dashboard after payment.</span>
+          <BillingCheckoutButton />
+        </div>
       </section>
     </main>
   )

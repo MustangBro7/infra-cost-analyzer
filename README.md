@@ -30,10 +30,8 @@ repos, apps, free tiers, and subscriptions.
 - **Indie**: $5/month for unlimited personal projects, daily refresh, alerts,
   free-tier tracking, and AI/cloud cost surfaces.
 
-Clerk Billing is used for checkout. Enable Billing for users in Clerk, create a
-Free plan and an Indie `$5/month` plan, then set
-`NEXT_PUBLIC_CLERK_BILLING_ENABLED=true` for builds that should render Clerk's
-live pricing table.
+Dodo Payments is used for hosted USD checkout and subscription webhooks. Clerk
+is used only for authentication.
 
 ## What Works Now
 
@@ -101,21 +99,31 @@ tool usage where possible. Agents can use `npx ambrium spec` to get the setup
 contract and complete non-sensitive configuration while the user approves OAuth,
 IAM, billing exports, and token creation.
 
-### Clerk Billing
+### Dodo Payments Billing
 
-Development Billing can be enabled from the linked Clerk app:
+Create a Dodo Payments subscription product for Ambrium Indie:
+
+- Name: `Ambrium Indie`
+- Price: `$5/month`
+- Tax category: digital product / SaaS
+- Product ID: set as `DODO_INDIE_PRODUCT_ID`
+
+Set runtime secrets in Cloudflare:
 
 ```bash
-npx clerk enable billing --for users --yes --no-skills
+npx wrangler secret put DODO_PAYMENTS_API_KEY
+npx wrangler secret put DODO_PAYMENTS_WEBHOOK_KEY
 ```
 
-Production Billing may require enabling Billing and payment setup in the Clerk
-Dashboard before the API accepts the feature flag. After the Free and Indie
-plans exist, set this at build/deploy time:
+Set `DODO_PAYMENTS_ENVIRONMENT=live` and `DODO_INDIE_PRODUCT_ID=...` in the
+deployment environment. The webhook endpoint is:
 
-```bash
-NEXT_PUBLIC_CLERK_BILLING_ENABLED=true
+```text
+https://ambrium.io/api/billing/webhook/dodo
 ```
+
+Subscribe it to subscription/payment lifecycle events. The checkout route stores
+`user_id` metadata, and the webhook updates the user's subscription in D1.
 
 ### Production application storage
 
