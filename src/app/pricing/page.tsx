@@ -5,6 +5,7 @@ import { ArrowRight, CheckCircle2, CloudCog } from "lucide-react"
 export const runtime = "nodejs"
 
 const billingEnabled = process.env.NEXT_PUBLIC_CLERK_BILLING_ENABLED === "true"
+const indiePlanId = process.env.NEXT_PUBLIC_CLERK_INDIE_PLAN_ID ?? "cplan_3FidGw27iA7C2UEKc7NHigwZJDW"
 
 const PLANS = [
   {
@@ -83,7 +84,7 @@ export default function PricingPage() {
           </span>
         </div>
         {billingEnabled ? (
-          <PricingTable />
+          <PricingTable highlightedPlan={indiePlanId} for="user" newSubscriptionRedirectUrl="/dashboard" />
         ) : (
           <div className="billing-disabled-note" role="status">
             <strong>Billing is not enabled in this Clerk instance yet.</strong>

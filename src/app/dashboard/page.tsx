@@ -37,11 +37,12 @@ import { SignOutButton } from "../SignOutButton"
 import { ThemeToggle } from "../ThemeToggle"
 import { HistoricalAnalyticsPanel } from "../HistoricalAnalyticsPanel"
 import { RepoHomeCard } from "../RepoHomeCard"
+import { UnassignedCostQueue, type AssignmentQueueItem } from "../UnassignedCostQueue"
 import { getOrCreateAnalysisSnapshot, snapshotKeyForRepo } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore, readDashboardStore } from "@/lib/localStore"
 import { CONNECTABLE_PROVIDERS, resolveLinkedProviders } from "@/lib/repoLinks"
-import { costItemKey, isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
+import { ACCOUNT_SENTINEL, costItemKey, isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
 import { resourceMetricService, resourceUsageRows } from "@/lib/freeTier"
 import { buildCloudProviderReports, type CloudProviderReport } from "@/lib/cloudReporting"
 import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
@@ -51,7 +52,7 @@ export const dynamic = "force-dynamic"
 
 // Indie-first app sections, selected by ?view=. Projects is the default product
 // surface; old query values are accepted as aliases below for existing links.
-type ViewKey = "projects" | "limits" | "leaks" | "connect"
+type ViewKey = "projects" | "limits" | "leaks" | "ai" | "connect"
 
 function money(value: number) {
   const abs = Math.abs(value)
@@ -97,6 +98,7 @@ const PROVIDER_COLOR: Partial<Record<Provider, string>> = {
 // Providers tracked at the account level on the overview (hosting + AI tools).
 // Custom (user-defined) providers are listed separately by id.
 const AI_PROVIDERS: Provider[] = ["anthropic", "openai", "cursor"]
+const AI_ROW_PATTERN = /(ai|openai|anthropic|claude|chatgpt|codex|cursor|copilot|gemini|vertex ai|openrouter|workers ai|ai gateway|model|llm|token|prompt|inference|v0|lovable|bolt|replit)/i
 
 function providerColor(provider: Provider) {
   return PROVIDER_COLOR[provider] ?? "#696459"
@@ -479,6 +481,105 @@ function buildLeakCandidates(input: {
   return leaks.sort((a, b) => rank[a.severity] - rank[b.severity] || (b.amount ?? 0) - (a.amount ?? 0)).slice(0, 6)
 }
 
+function repoCandidates(repos: GitHubRepoSummary[]) {
+  return repos.map((repo) => ({ fullName: repo.fullName, name: repo.name }))
+}
+
+function suggestedReposForRow(row: NormalizedCostRow, repos: GitHubRepoSummary[]) {
+  const haystack = `${row.serviceName} ${row.resourceName ?? ""} ${row.resourceId ?? ""} ${row.attributionReason}`.toLowerCase()
+  const matches = repos.filter((repo) => haystack.includes(repo.name.toLowerCase()))
+  return (matches.length ? matches : repos).slice(0, 3).map((repo) => ({ fullName: repo.fullName, name: repo.name }))
+}
+
+function buildAssignmentQueue(input: {
+  analysis: AnalysisResult
+  repos: GitHubRepoSummary[]
+  assignments: Record<string, string>
+}): AssignmentQueueItem[] {
+  if (input.repos.length === 0) return []
+  const seen = new Set<string>()
+  const rows = input.analysis.costRows
+    .filter((row) => row.cost > 0.005)
+    .map((row) => {
+      const itemKey = costItemKey(row)
+      if (seen.has(itemKey)) return null
+      seen.add(itemKey)
+      const manual = input.assignments[itemKey]
+      const needsReview =
+        !manual && !row.attributedRepo ||
+        !manual && row.attribution === "inferred" ||
+        manual === ACCOUNT_SENTINEL
+      if (!needsReview) return null
+      const confidence: AssignmentQueueItem["confidence"] =
+        manual === ACCOUNT_SENTINEL ? "manual" : row.attribution === "inferred" ? "inferred" : "unassigned"
+      return {
+        itemKey,
+        providerLabel: seriesLabel(row),
+        serviceName: row.serviceName,
+        resourceName: row.resourceName ?? row.resourceId ?? "Account-level spend",
+        cost: row.cost,
+        currency: row.currency,
+        reason:
+          manual === ACCOUNT_SENTINEL
+            ? "Marked shared/account-level. Reassign it if this should belong to a project."
+            : row.attribution === "inferred"
+              ? row.attributionReason || "This row was inferred from naming or repo evidence."
+              : "No repo matched this provider billing row.",
+        confidence,
+        suggestedRepos: suggestedReposForRow(row, input.repos),
+      }
+    })
+    .filter((row): row is AssignmentQueueItem => Boolean(row))
+
+  return rows.sort((a, b) => b.cost - a.cost).slice(0, 20)
+}
+
+function DemoWorkspacePreview() {
+  const rows = [
+    { project: "my-saas", now: "$18.42", projected: "$27.10", status: "OK", tone: "ok" },
+    { project: "ai-bot", now: "$4.30", projected: "$31.00", status: "OpenAI spike", tone: "warn" },
+    { project: "old-demo", now: "$7.80", projected: "$7.80", status: "No recent activity", tone: "stale" },
+    { project: "portfolio", now: "$0.00", projected: "$0.00", status: "Free tier", tone: "free" },
+  ]
+  return (
+    <section className="demo-workspace" aria-label="Demo workspace preview">
+      <div className="insight-panel-head">
+        <div>
+          <p>Sample workspace</p>
+          <h2>See the value before connecting accounts</h2>
+          <span>This is the target five-minute outcome: projects, runway, leaks, and AI spend in one readable cockpit.</span>
+        </div>
+        <DatabaseZap aria-hidden />
+      </div>
+      <div className="demo-table">
+        <div className="demo-table-head">
+          <span>Project</span>
+          <span>This month</span>
+          <span>Projected</span>
+          <span>Status</span>
+        </div>
+        {rows.map((row) => (
+          <article key={row.project} className={`demo-row ${row.tone}`}>
+            <strong>{row.project}</strong>
+            <span>{row.now}</span>
+            <span>{row.projected}</span>
+            <b>{row.status}</b>
+          </article>
+        ))}
+      </div>
+      <div className="demo-insights">
+        <article><Gauge aria-hidden /><strong>72%</strong><span>Cloudflare Workers free requests used</span></article>
+        <article><ShieldAlert aria-hidden /><strong>$7.80</strong><span>stale project still billing</span></article>
+        <article><Boxes aria-hidden /><strong>2.4x</strong><span>Claude plan value at API rates</span></article>
+      </div>
+      <div className="demo-actions">
+        <a href="/dashboard?view=connect" className="command-button">Connect my workspace</a>
+        <a href="/dashboard?view=ai" className="ghost-button">View AI analysis</a>
+      </div>
+    </section>
+  )
+}
+
 function CostLeakPanel({ leaks }: { leaks: LeakCandidate[] }) {
   return (
     <section className="leak-panel" aria-label="Cost leak candidates">
@@ -802,6 +903,7 @@ function ViewTabs({ view }: { view: ViewKey }) {
     { key: "projects", label: "Projects", icon: FolderGit2, href: "/dashboard" },
     { key: "limits", label: "Limits", icon: Gauge, href: "/dashboard?view=limits" },
     { key: "leaks", label: "Leaks", icon: ShieldAlert, href: "/dashboard?view=leaks" },
+    { key: "ai", label: "AI", icon: Boxes, href: "/dashboard?view=ai" },
     { key: "connect", label: "Connect", icon: TerminalSquare, href: "/dashboard?view=connect" },
   ]
   return (
@@ -1299,11 +1401,34 @@ const AI_USAGE_URL: Partial<Record<Provider, string>> = {
   anthropic: "https://claude.ai/new#settings/usage",
   openai: "https://chatgpt.com/codex/cloud/settings/analytics#usage",
   cursor: "https://cursor.com/dashboard",
+  gcp: "https://console.cloud.google.com/billing",
+  cloudflare: "https://dash.cloudflare.com/?to=/:account/ai/ai-gateway",
+  vercel: "https://vercel.com/dashboard/usage",
+}
+
+function isAiLikeRow(row: NormalizedCostRow) {
+  if (AI_PROVIDERS.includes(row.provider)) return true
+  const text = `${row.customLabel ?? ""} ${row.serviceName} ${row.resourceName ?? ""} ${row.resourceId ?? ""} ${row.attributionReason}`.toLowerCase()
+  return AI_ROW_PATTERN.test(text)
+}
+
+function isAiLikeUsage(row: FreeTierUsageRow) {
+  if (AI_PROVIDERS.includes(row.provider)) return true
+  const text = `${row.customLabel ?? ""} ${row.service} ${row.planName} ${row.note}`.toLowerCase()
+  return AI_ROW_PATTERN.test(text)
+}
+
+function gatewayLabel(row: NormalizedCostRow) {
+  if (/openrouter/i.test(`${row.customLabel ?? ""} ${row.serviceName} ${row.resourceName ?? ""}`)) return "OpenRouter"
+  if (/gemini|vertex ai|ai studio/i.test(`${row.serviceName} ${row.resourceName ?? ""}`)) return "Gemini / Vertex AI"
+  if (/ai gateway|workers ai/i.test(`${row.serviceName} ${row.resourceName ?? ""}`) && row.provider === "cloudflare") return "Cloudflare AI"
+  if (/v0|vercel ai|ai sdk/i.test(`${row.serviceName} ${row.resourceName ?? ""}`) && row.provider === "vercel") return "Vercel AI"
+  return row.customLabel ?? `${providerName(row.provider)} AI`
 }
 
 // Builds the per-tool AI insight model from the snapshot + connection metadata:
 // flat subscription vs live API cost, token mix, per-model breakdown (from the
-// locally-pushed usage), API-rate value, and the official usage link.
+// locally-pushed usage), API-rate value, gateway spend, and official usage links.
 function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof publicStore>>): AiToolData[] {
   const tools: AiToolData[] = []
   for (const provider of AI_PROVIDERS) {
@@ -1349,6 +1474,7 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
     }
 
     tools.push({
+      id: provider,
       provider,
       label: providerName(provider),
       accountLabel,
@@ -1365,6 +1491,50 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
       models,
       lastVerifiedAt: conn.lastVerifiedAt ?? null,
       usageUrl: AI_USAGE_URL[provider] ?? null,
+      category: subscriptionCost > 0 ? "subscription" : meta.source === "local" ? "local" : "api",
+    })
+  }
+
+  const gatewayRows = analysis.costRows.filter((row) => !AI_PROVIDERS.includes(row.provider) && isAiLikeRow(row))
+  const grouped = new Map<string, NormalizedCostRow[]>()
+  for (const row of gatewayRows) {
+    const key = `${row.provider}:${row.customProviderId ?? row.customLabel ?? gatewayLabel(row)}`
+    grouped.set(key, [...(grouped.get(key) ?? []), row])
+  }
+
+  for (const [id, rows] of grouped) {
+    const first = rows[0]
+    const cost = sumCost(rows)
+    const usageRows = analysis.freeTier.filter((row) => row.provider === first.provider && isAiLikeUsage(row))
+    const tokenUsage = usageRows
+      .filter((row) => /token/i.test(row.unit) || /token/i.test(row.service))
+      .reduce((sum, row) => sum + (row.used ?? 0), 0)
+    tools.push({
+      id,
+      provider: first.provider,
+      label: gatewayLabel(first),
+      accountLabel: first.customLabel ?? providerName(first.provider),
+      source: "api",
+      planLabel: "gateway",
+      subscriptionCost: 0,
+      apiCost: Number(cost.toFixed(2)),
+      totalCost: Number(cost.toFixed(2)),
+      apiValue: Number(cost.toFixed(2)),
+      inputTokens: tokenUsage,
+      cacheTokens: 0,
+      outputTokens: 0,
+      totalTokens: tokenUsage,
+      models: rows.map((row) => ({
+        model: row.serviceName,
+        inputTokens: 0,
+        cacheTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        estimatedApiUsd: row.cost,
+      })),
+      lastVerifiedAt: analysis.liveSync.find((entry) => entry.provider === first.provider)?.syncedAt ?? null,
+      usageUrl: AI_USAGE_URL[first.provider] ?? null,
+      category: "gateway",
     })
   }
   return tools.sort((a, b) => b.totalCost - a.totalCost)
@@ -1434,8 +1604,14 @@ function RepositoryDashboard({
     syncedRepoFullNames: state.syncedRepoFullNames,
     latestMs,
   })
+  const assignmentQueue = buildAssignmentQueue({
+    analysis,
+    repos,
+    assignments: state.costAssignments,
+  })
   const accountUsageRows = analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider))
   const aiTools = buildAiTools(analysis, state)
+  const emptyWorkspace = repos.length === 0 && accounts.length === 0 && totalCost <= 0.005
 
   return (
     <>
@@ -1464,6 +1640,8 @@ function RepositoryDashboard({
           />
 
           <ProjectCostCockpit projects={indieProjects} />
+
+          {emptyWorkspace ? <DemoWorkspacePreview /> : null}
 
           {repos.length > 0 ? (() => {
             const repoCosts = indieProjects.map((project) => {
@@ -1575,7 +1753,40 @@ function RepositoryDashboard({
             <AttentionPanel alerts={alerts} />
           </div>
 
+          <UnassignedCostQueue items={assignmentQueue} repos={repoCandidates(repos)} />
+
           <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} />
+        </>
+      ) : null}
+
+      {view === "ai" ? (
+        <>
+          <section className="overview-hero" aria-label="AI costs">
+            <p>AI · subscriptions, APIs, and gateways</p>
+            <h1>
+              Is your AI spend paying off? <span className="hero-sub">plans, tokens, API value, and project signals</span>
+            </h1>
+          </section>
+
+          {aiTools.length ? (
+            <AiInsights tools={aiTools} expanded />
+          ) : (
+            <section className="ai-empty-state">
+              <div>
+                <p>AI cost cockpit</p>
+                <h2>Connect AI usage to compare subscriptions, APIs, and gateways</h2>
+                <span>Ambrium can read local Claude Code/Codex usage, OpenAI and Anthropic admin billing, Cursor team spend, and AI-like rows from custom providers such as OpenRouter, Gemini/Vertex AI, Cloudflare AI Gateway, and Vercel AI.</span>
+              </div>
+              <div className="demo-insights">
+                <article><Wallet aria-hidden /><strong>$20</strong><span>ChatGPT/Codex plan</span></article>
+                <article><TrendingUp aria-hidden /><strong>$48</strong><span>API-equivalent value</span></article>
+                <article><Gauge aria-hidden /><strong>2.4x</strong><span>subscription justified</span></article>
+              </div>
+              <a href="/dashboard?view=connect" className="command-button">Connect AI tools</a>
+            </section>
+          )}
+
+          <AiSyncPanel initialState={state} />
         </>
       ) : null}
 
@@ -2012,7 +2223,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const requestedRepo = Array.isArray(rawRepo) ? rawRepo[0] : rawRepo ?? null
   const rawView = Array.isArray(params.view) ? params.view[0] : params.view
   const view: ViewKey =
-    rawView === "limits" || rawView === "leaks" || rawView === "connect" || rawView === "projects"
+    rawView === "limits" || rawView === "leaks" || rawView === "ai" || rawView === "connect" || rawView === "projects"
       ? rawView
       : rawView === "repos"
         ? "projects"
