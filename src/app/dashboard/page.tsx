@@ -98,7 +98,8 @@ const PROVIDER_COLOR: Partial<Record<Provider, string>> = {
 // Providers tracked at the account level on the overview (hosting + AI tools).
 // Custom (user-defined) providers are listed separately by id.
 const AI_PROVIDERS: Provider[] = ["anthropic", "openai", "cursor"]
-const AI_ROW_PATTERN = /(ai|openai|anthropic|claude|chatgpt|codex|cursor|copilot|gemini|vertex ai|openrouter|workers ai|ai gateway|model|llm|token|prompt|inference|v0|lovable|bolt|replit)/i
+const AI_ROW_PATTERN = /\b(openai|anthropic|claude|chatgpt|codex|cursor|copilot|gemini|openrouter|llm|tokens?|prompts?|inference|lovable|bolt|replit)\b|\b(vertex\s+ai|workers\s+ai|ai\s+gateway|ai\s+sdk|vercel\s+ai|google\s+ai|model\s+usage)\b/i
+const AWS_AI_ROW_PATTERN = /\b(bedrock|sagemaker|amazon\s+q|q\s+developer|rekognition|comprehend|textract|transcribe|translate|polly|lex|kendra)\b/i
 
 function providerColor(provider: Provider) {
   return PROVIDER_COLOR[provider] ?? "#696459"
@@ -1409,12 +1410,14 @@ const AI_USAGE_URL: Partial<Record<Provider, string>> = {
 function isAiLikeRow(row: NormalizedCostRow) {
   if (AI_PROVIDERS.includes(row.provider)) return true
   const text = `${row.customLabel ?? ""} ${row.serviceName} ${row.resourceName ?? ""} ${row.resourceId ?? ""} ${row.attributionReason}`.toLowerCase()
+  if (row.provider === "aws") return AWS_AI_ROW_PATTERN.test(text)
   return AI_ROW_PATTERN.test(text)
 }
 
 function isAiLikeUsage(row: FreeTierUsageRow) {
   if (AI_PROVIDERS.includes(row.provider)) return true
   const text = `${row.customLabel ?? ""} ${row.service} ${row.planName} ${row.note}`.toLowerCase()
+  if (row.provider === "aws") return AWS_AI_ROW_PATTERN.test(text)
   return AI_ROW_PATTERN.test(text)
 }
 
