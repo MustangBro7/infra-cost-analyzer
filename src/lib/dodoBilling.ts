@@ -44,7 +44,7 @@ export async function dodoRuntimeEnv(): Promise<DodoRuntimeEnv> {
 }
 
 export function dodoConfigFromEnv(env: DodoRuntimeEnv): DodoConfig | null {
-  const apiKey = env.DODO_PAYMENTS_API_KEY?.trim()
+  const apiKey = normalizeApiKey(env.DODO_PAYMENTS_API_KEY)
   const productId = env.DODO_INDIE_PRODUCT_ID?.trim()
   if (!apiKey || !productId) return null
   return {
@@ -64,45 +64,53 @@ export async function createDodoCheckout(input: {
   returnUrl: string
   cancelUrl: string
 }): Promise<DodoCheckoutSession> {
-  const response = await fetch(`${baseUrl(input.config)}/checkouts`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${input.config.apiKey}`,
-      "Content-Type": "application/json",
+  const body = JSON.stringify({
+    product_cart: [{ product_id: input.config.productId, quantity: 1 }],
+    customer: { email: input.user.email, name: input.user.name },
+    metadata: {
+      app: "ambrium",
+      user_id: input.user.id,
+      plan: "indie",
     },
-    body: JSON.stringify({
-      product_cart: [{ product_id: input.config.productId, quantity: 1 }],
-      customer: { email: input.user.email, name: input.user.name },
-      metadata: {
-        app: "ambrium",
-        user_id: input.user.id,
-        plan: "indie",
-      },
-      return_url: input.returnUrl,
-      cancel_url: input.cancelUrl,
-      short_link: true,
-      customization: {
-        show_order_details: true,
-        theme: "dark",
-      },
-    }),
+    return_url: input.returnUrl,
+    cancel_url: input.cancelUrl,
+    short_link: true,
+    customization: {
+      show_order_details: true,
+      theme: "dark",
+    },
   })
 
-  const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null
-  if (!response.ok) {
-    const detail =
-      payload && typeof payload === "object"
-        ? JSON.stringify(payload)
-        : `${response.status} ${response.statusText}`
-    throw new Error(`Dodo checkout creation failed: ${detail}`)
+  const environments: Array<DodoConfig["environment"]> =
+    input.config.environment === "live" ? ["live", "test"] : ["test", "live"]
+  let lastFailure: { status: number; statusText: string; payload: Record<string, unknown> | null; environment: string } | null = null
+
+  for (const environment of environments) {
+    const response = await fetch(`${baseUrl({ ...input.config, environment })}/checkouts`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${input.config.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body,
+    })
+
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null
+    if (response.ok) {
+      const sessionId = stringValue(payload?.session_id)
+      const checkoutUrl = stringValue(payload?.checkout_url)
+      if (!sessionId || !checkoutUrl) {
+        throw new Error("Dodo checkout creation succeeded but did not return checkout_url.")
+      }
+      return { sessionId, checkoutUrl }
+    }
+
+    lastFailure = { status: response.status, statusText: response.statusText, payload, environment }
+    if (response.status !== 401 && response.status !== 403) break
   }
 
-  const sessionId = stringValue(payload?.session_id)
-  const checkoutUrl = stringValue(payload?.checkout_url)
-  if (!sessionId || !checkoutUrl) {
-    throw new Error("Dodo checkout creation succeeded but did not return checkout_url.")
-  }
-  return { sessionId, checkoutUrl }
+  const detail = lastFailure?.payload ? JSON.stringify(lastFailure.payload) : `${lastFailure?.status} ${lastFailure?.statusText}`
+  throw new Error(`Dodo checkout creation failed on ${lastFailure?.environment ?? input.config.environment}: ${detail}`)
 }
 
 export function verifyDodoWebhook(input: {
@@ -162,6 +170,12 @@ export function parseDodoWebhook(body: string): DodoWebhookUpdate {
 
 function baseUrl(config: DodoConfig) {
   return config.environment === "live" ? LIVE_BASE_URL : TEST_BASE_URL
+}
+
+function normalizeApiKey(value: string | undefined) {
+  const trimmed = value?.trim().replace(/^["']|["']$/g, "")
+  if (!trimmed) return null
+  return trimmed.replace(/^Bearer\s+/i, "").trim()
 }
 
 function decodeWebhookSecret(secret: string) {
