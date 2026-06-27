@@ -21,9 +21,15 @@ import { connectedProviderMap } from "./provider-state.mjs"
 import { collectAiUsage } from "./ai-usage.mjs"
 
 const API_BASE = (process.env.AMBRIUM_API || "http://localhost:3000").replace(/\/+$/, "")
-const AI_ONLY = process.argv.includes("--ai-only")
+const args = process.argv.slice(2)
+const command = args.find((arg) => !arg.startsWith("-")) ?? "connect"
+const AI_ONLY = args.includes("--ai-only")
+const JSON_OUTPUT = args.includes("--json")
+const QUIET = args.includes("--quiet")
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const log = (m) => process.stdout.write(`${m}\n`)
+const log = (m) => {
+  if (!QUIET && !JSON_OUTPUT) process.stdout.write(`${m}\n`)
+}
 
 // Persist the minted cliToken so re-runs (and scheduled --ai-only jobs) reuse it
 // until it expires instead of re-prompting for browser approval every time.
@@ -59,6 +65,151 @@ function has(cmd) {
     return true
   } catch {
     return false
+  }
+}
+
+function tryRun(cmd, args) {
+  try {
+    return { ok: true, output: run(cmd, args).trim() }
+  } catch (error) {
+    return {
+      ok: false,
+      output: "",
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+function providerDisplayName(provider) {
+  return {
+    aws: "AWS",
+    gcp: "Google Cloud",
+    cloudflare: "Cloudflare",
+    motherduck: "MotherDuck",
+    anthropic: "Claude",
+    openai: "OpenAI",
+    cursor: "Cursor",
+    vercel: "Vercel",
+    github: "GitHub",
+  }[provider] || provider
+}
+
+function readJsonFile(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"))
+  } catch {
+    return null
+  }
+}
+
+function detectLocalEnvironment() {
+  const awsVersion = tryRun("aws", ["--version"])
+  const awsIdentity = awsVersion.ok ? tryRun("aws", ["sts", "get-caller-identity", "--output", "json"]) : { ok: false }
+  const awsPayload = awsIdentity.ok ? JSON.parse(awsIdentity.output) : null
+
+  const gcloudVersion = tryRun("gcloud", ["--version"])
+  const gcloudProject = gcloudVersion.ok ? tryRun("gcloud", ["config", "get-value", "project"]) : { ok: false }
+  const gcloudToken = gcloudVersion.ok ? tryRun("gcloud", ["auth", "print-access-token"]) : { ok: false }
+
+  const wranglerVersion = tryRun("wrangler", ["--version"])
+  const wranglerWhoami = wranglerVersion.ok ? tryRun("wrangler", ["whoami"]) : { ok: false }
+  const cfToken = Boolean(process.env.CLOUDFLARE_API_TOKEN)
+
+  const vercelVersion = tryRun("vercel", ["--version"])
+  const vercelWhoami = vercelVersion.ok ? tryRun("vercel", ["whoami"]) : { ok: false }
+
+  const gitRemote = tryRun("git", ["remote", "get-url", "origin"])
+  const gitRoot = tryRun("git", ["rev-parse", "--show-toplevel"])
+
+  const ambriumCreds = readJsonFile(CRED_PATH)
+  const aiUsage = (() => {
+    try {
+      const payloads = collectAiUsage()
+      return {
+        ok: payloads.length > 0,
+        tools: payloads.map((payload) => ({
+          provider: payload.provider,
+          label: payload.toolLabel,
+          models: payload.models.length,
+          estimatedApiUsd: Number(payload.models.reduce((sum, model) => sum + model.estimatedApiUsd, 0).toFixed(2)),
+        })),
+      }
+    } catch (error) {
+      return { ok: false, tools: [], error: error instanceof Error ? error.message : String(error) }
+    }
+  })()
+
+  return {
+    api: API_BASE,
+    paired: Boolean(ambriumCreds?.api === API_BASE && ambriumCreds?.cliToken && ambriumCreds?.expiresAt > Date.now() + 30_000),
+    git: {
+      installed: has("git"),
+      repo: gitRoot.ok ? gitRoot.output : null,
+      remote: gitRemote.ok ? gitRemote.output : null,
+    },
+    providers: {
+      aws: {
+        cliInstalled: awsVersion.ok,
+        authenticated: awsIdentity.ok,
+        account: awsPayload?.Account ?? null,
+        arn: awsPayload?.Arn ?? null,
+        connectMode: awsIdentity.ok ? "automatic read-only IAM role" : "install/authenticate aws CLI first",
+      },
+      gcp: {
+        cliInstalled: gcloudVersion.ok,
+        authenticated: gcloudToken.ok,
+        project: gcloudProject.ok ? gcloudProject.output : null,
+        connectMode: gcloudToken.ok ? "automatic service account; billing export still needs approval" : "install/authenticate gcloud first",
+      },
+      cloudflare: {
+        cliInstalled: wranglerVersion.ok,
+        authenticated: wranglerWhoami.ok || cfToken,
+        tokenFromEnv: cfToken,
+        connectMode: cfToken ? "automatic from CLOUDFLARE_API_TOKEN" : "paste-assisted token with prefilled scopes",
+      },
+      vercel: {
+        cliInstalled: vercelVersion.ok,
+        authenticated: vercelWhoami.ok,
+        account: vercelWhoami.ok ? vercelWhoami.output.split("\n").at(-1) : null,
+        connectMode: "manual token today; agent can open token page",
+      },
+      motherduck: {
+        cliInstalled: false,
+        authenticated: Boolean(process.env.MOTHERDUCK_DATABASE_URL),
+        connectMode: process.env.MOTHERDUCK_DATABASE_URL ? "automatic from MOTHERDUCK_DATABASE_URL" : "paste PostgreSQL endpoint",
+      },
+    },
+    aiUsage,
+  }
+}
+
+function printDetection(detection) {
+  log(`\n◇ Local setup`)
+  log(`   Ambrium pairing: ${detection.paired ? "saved token found" : "not paired yet"}`)
+  log(`   Git repo: ${detection.git.repo ? detection.git.repo : "not detected"}`)
+  if (detection.git.remote) log(`   Git remote: ${detection.git.remote}`)
+
+  log(`\n◇ Provider readiness`)
+  for (const [provider, info] of Object.entries(detection.providers)) {
+    const ready = info.authenticated ? "✓" : info.cliInstalled ? "•" : "×"
+    const detail =
+      provider === "aws" && info.account
+        ? `account ${info.account}`
+        : provider === "gcp" && info.project
+          ? `project ${info.project}`
+          : provider === "vercel" && info.account
+            ? info.account
+            : info.connectMode
+    log(`   ${ready} ${providerDisplayName(provider).padEnd(13)} ${detail}`)
+  }
+
+  log(`\n◇ AI usage`)
+  if (detection.aiUsage.ok) {
+    for (const tool of detection.aiUsage.tools) {
+      log(`   ✓ ${tool.label}: ${tool.models} model${tool.models === 1 ? "" : "s"}, ~$${tool.estimatedApiUsd.toFixed(2)} API-equivalent`)
+    }
+  } else {
+    log(`   • no local Claude Code / Codex usage found for this month`)
   }
 }
 
@@ -306,7 +457,119 @@ async function pushAiUsage(cliToken) {
 }
 
 // ---- orchestration ----
-async function main() {
+async function printRemoteStatus({ pairIfNeeded = false } = {}) {
+  const saved = loadToken()
+  if (!saved && !pairIfNeeded) {
+    return { paired: false, connections: {} }
+  }
+  const cliToken = pairIfNeeded ? await getToken() : saved
+  if (!cliToken) return { paired: false, connections: {} }
+  const state = await api("/api/cli/status", { token: cliToken })
+  return { paired: true, connections: connectedProviderMap(state) }
+}
+
+async function statusCommand() {
+  const detection = detectLocalEnvironment()
+  let remote = { paired: false, connections: {} }
+  try {
+    remote = await printRemoteStatus()
+  } catch {
+    remote = { paired: false, connections: {} }
+  }
+  if (JSON_OUTPUT) {
+    process.stdout.write(JSON.stringify({ detection, remote }, null, 2) + "\n")
+    return
+  }
+  log(`Ambrium status → ${API_BASE}`)
+  printDetection(detection)
+  log(`\n◇ Ambrium workspace`)
+  if (!remote.paired) {
+    log(`   • not paired or saved token expired; run "ambrium-connect" to pair`)
+  } else {
+    const entries = Object.entries(remote.connections)
+    if (!entries.length) {
+      log(`   • paired, no providers connected yet`)
+    } else {
+      for (const [provider, connection] of entries) {
+        log(`   ✓ ${providerDisplayName(provider)}${connection.accountLabel ? ` (${connection.accountLabel})` : ""}`)
+      }
+    }
+  }
+}
+
+async function doctorCommand() {
+  const detection = detectLocalEnvironment()
+  let remote = { paired: false, connections: {} }
+  try {
+    remote = await printRemoteStatus()
+  } catch (error) {
+    remote = { paired: false, connections: {}, error: error instanceof Error ? error.message : String(error) }
+  }
+  const findings = []
+  if (!detection.paired) findings.push({ severity: "info", message: "No active Ambrium pairing token found. Run ambrium-connect to pair this machine." })
+  if (!detection.git.repo) findings.push({ severity: "warn", message: "No Git repository detected in the current directory. Run from a project repo for best attribution." })
+  if (!detection.providers.aws.authenticated) findings.push({ severity: "info", message: "AWS is not ready. Install/authenticate aws CLI if this project uses AWS." })
+  if (!detection.providers.gcp.authenticated) findings.push({ severity: "info", message: "Google Cloud is not ready. Install/authenticate gcloud if this project uses GCP." })
+  if (!detection.providers.cloudflare.authenticated) findings.push({ severity: "info", message: "Cloudflare needs either CLOUDFLARE_API_TOKEN or a pasted scoped token during connect." })
+  if (remote.error) findings.push({ severity: "warn", message: `Could not read Ambrium workspace status: ${remote.error}` })
+  if (remote.paired && Object.keys(remote.connections).length === 0) findings.push({ severity: "warn", message: "Ambrium is paired but no providers are connected yet." })
+
+  if (JSON_OUTPUT) {
+    process.stdout.write(JSON.stringify({ detection, remote, findings }, null, 2) + "\n")
+    return
+  }
+
+  log(`Ambrium doctor → ${API_BASE}`)
+  printDetection(detection)
+  log(`\n◇ Diagnosis`)
+  if (!findings.length) {
+    log(`   ✓ Local setup looks ready. Run "ambrium-connect" to refresh provider connections.`)
+  } else {
+    for (const finding of findings) {
+      const mark = finding.severity === "warn" ? "!" : "•"
+      log(`   ${mark} ${finding.message}`)
+    }
+  }
+  log(`\n◇ Useful commands`)
+  log(`   ambrium-connect                  Pair and connect available providers`)
+  log(`   ambrium-connect status           Show local/provider status`)
+  log(`   ambrium-connect --ai-only         Push local AI usage only`)
+  log(`   AMBRIUM_API=${API_BASE} ambrium-connect spec`)
+}
+
+async function specCommand() {
+  const spec = await api("/api/extend/spec")
+  if (JSON_OUTPUT) {
+    process.stdout.write(JSON.stringify(spec, null, 2) + "\n")
+    return
+  }
+  log(`Ambrium agent setup spec → ${API_BASE}/api/extend/spec`)
+  log(`\n${spec.agentSetup?.prompt ?? spec.summary}`)
+}
+
+function helpCommand() {
+  process.stdout.write(`Ambrium companion CLI
+
+Usage:
+  ambrium-connect                 Pair and connect available providers
+  ambrium-connect status          Show local and Ambrium workspace status
+  ambrium-connect doctor          Diagnose local setup and missing provider prerequisites
+  ambrium-connect spec            Print the agent-readable setup prompt/spec summary
+  ambrium-connect --ai-only       Push local Claude Code / Codex usage only
+
+Options:
+  --json                          Machine-readable output for status/doctor/spec
+  --quiet                         Reduce logs during connect
+
+Environment:
+  AMBRIUM_API                     Ambrium base URL, defaults to http://localhost:3000
+  CLOUDFLARE_API_TOKEN            Optional Cloudflare token for non-interactive connect
+  MOTHERDUCK_DATABASE_URL         Optional MotherDuck PostgreSQL endpoint
+
+`)
+}
+
+async function connectCommand() {
   log(`Ambrium connect → ${API_BASE}`)
   const cliToken = await getToken()
   log(`   ✓ paired`)
@@ -388,6 +651,31 @@ async function main() {
   if (providers.some(([provider]) => provider === "gcp")) {
     log(`Note: detailed GCP cost needs the BigQuery billing export enabled once in the console.`)
   }
+}
+
+async function main() {
+  if (command === "help" || args.includes("--help") || args.includes("-h")) {
+    helpCommand()
+    return
+  }
+  if (command === "status") {
+    await statusCommand()
+    return
+  }
+  if (command === "doctor") {
+    await doctorCommand()
+    return
+  }
+  if (command === "spec") {
+    await specCommand()
+    return
+  }
+  if (command !== "connect") {
+    // Backwards compatible: flags-only invocation still means connect, but an
+    // unknown positional command should fail clearly.
+    throw new Error(`Unknown command "${command}". Run "ambrium-connect help".`)
+  }
+  await connectCommand()
 }
 
 main().catch((error) => {

@@ -85,14 +85,16 @@ test("dashboard widget spans clamp and nudge one column at a time", () => {
 
 test("pointer movement remains stable on the same target", () => {
   const afterCloud = moveDashboardWidgetRelative(DEFAULT_DASHBOARD_LAYOUT, "attention", "cloud", true)
-  assert.deepEqual(afterCloud.slice(0, 2).map((entry) => entry.id), ["cloud", "attention"])
+  const cloudIndex = afterCloud.findIndex((entry) => entry.id === "cloud")
+  assert.deepEqual(afterCloud.slice(cloudIndex, cloudIndex + 2).map((entry) => entry.id), ["cloud", "attention"])
   assert.deepEqual(
     moveDashboardWidgetRelative(afterCloud, "attention", "cloud", true),
     afterCloud
   )
 
   const beforeCloud = moveDashboardWidgetRelative(DEFAULT_DASHBOARD_LAYOUT, "usage", "cloud", false)
-  assert.deepEqual(beforeCloud.slice(0, 3).map((entry) => entry.id), ["attention", "usage", "cloud"])
+  const beforeCloudIndex = beforeCloud.findIndex((entry) => entry.id === "usage")
+  assert.deepEqual(beforeCloud.slice(beforeCloudIndex, beforeCloudIndex + 2).map((entry) => entry.id), ["usage", "cloud"])
   assert.deepEqual(
     moveDashboardWidgetRelative(beforeCloud, "usage", "cloud", false),
     beforeCloud

@@ -1,10 +1,43 @@
-# Infra Cost Analyzer
+# Ambrium
 
-Standalone repository-aware infrastructure cost analyzer. This project lives inside the current workspace only as a temporary development location and does not import or depend on the GPay Cost Analyzer frontend, backend, domains, data model, or deployment configuration.
+Ambrium is a personal cost cockpit for indie developers. Connect GitHub repos,
+cloud providers, and AI tools, then see which side projects are costing money,
+which free tiers are close to limits, and which old projects are safe to shut
+down before a surprise bill lands.
+
+The main product question is:
+
+> I have projects across GitHub, Vercel, Cloudflare, AWS, GCP, and AI providers. What is each project costing me right now?
+
+Ambrium is intentionally project-first instead of account-first. Indie
+developers usually do not think in cost centers or chargeback; they think in
+repos, apps, free tiers, and subscriptions.
+
+## Product Shape
+
+- **Projects**: each GitHub repo/app with month-to-date cost, projected cost,
+  linked providers, stale activity, and shutdown candidates.
+- **Limits**: free-tier runway and usage thresholds across connected providers.
+- **Leaks**: unexpected spend, account-level rows that need assignment, inactive
+  projects still costing money, and missing provider connections.
+- **Connect**: guided setup for GitHub, Vercel, Cloudflare, AWS, GCP, MotherDuck,
+  and AI usage sources. The CLI is designed so Codex, Claude Code, or another
+  agent can help complete provider setup while the user approves sensitive steps.
+
+## Pricing
+
+- **Free**: 2 projects, 2 providers, monthly refresh.
+- **Indie**: $5/month for unlimited personal projects, daily refresh, alerts,
+  free-tier tracking, and AI/cloud cost surfaces.
+
+Clerk Billing is used for checkout. Enable Billing for users in Clerk, create a
+Free plan and an Indie `$5/month` plan, then set
+`NEXT_PUBLIC_CLERK_BILLING_ENABLED=true` for builds that should render Clerk's
+live pricing table.
 
 ## What Works Now
 
-- Scans a local repository path, defaulting to the parent folder of this project.
+- Scans local or GitHub repositories and maps provider evidence back to projects.
 - Runs as a local multi-tenant replica with email sign-in and session cookies.
 - Stores isolated per-user workspace state in `.data/tenant-store.json`.
 - Lets you test a GitHub connection locally without a GitHub App.
@@ -39,7 +72,11 @@ Standalone repository-aware infrastructure cost analyzer. This project lives ins
   free-tier consumption appears alongside the cost rows.
 - Exposes `GET /api/analyze` for JSON output (cached snapshot; `?refresh=1` to recompute).
 - Exposes `GET /api/providers` for supported provider setup metadata.
-- Ships a production dashboard that can be deployed independently.
+- Ships an indie-first dashboard with Projects, Limits, Leaks, and Connect views.
+- Surfaces both cloud costs and AI costs. Cloud cost rows come from providers
+  such as AWS, GCP, Vercel, Cloudflare, Azure, DigitalOcean, and MotherDuck. AI
+  costs are first-class via OpenAI, Anthropic, Cursor, Copilot, ChatGPT/Claude
+  subscription tracking, local usage detection, and custom provider rows.
 
 ## Local Development
 
@@ -49,6 +86,54 @@ npm run dev
 ```
 
 Open `http://localhost:3000`.
+
+For agent-assisted setup, run:
+
+```bash
+npx ambrium connect
+npx ambrium status
+npx ambrium doctor
+```
+
+The CLI detects the current Git repo, AWS CLI profiles, GCP projects,
+Cloudflare Wrangler auth, Vercel auth, MotherDuck configuration, and local AI
+tool usage where possible. Agents can use `npx ambrium spec` to get the setup
+contract and complete non-sensitive configuration while the user approves OAuth,
+IAM, billing exports, and token creation.
+
+### Clerk Billing
+
+Development Billing can be enabled from the linked Clerk app:
+
+```bash
+npx clerk enable billing --for users --yes --no-skills
+```
+
+Production Billing may require enabling Billing and payment setup in the Clerk
+Dashboard before the API accepts the feature flag. After the Free and Indie
+plans exist, set this at build/deploy time:
+
+```bash
+NEXT_PUBLIC_CLERK_BILLING_ENABLED=true
+```
+
+### Production application storage
+
+Cloudflare D1 is the application store. In the Workers runtime, application
+state is stored in normalized D1 tables for users, sessions, workspace settings,
+provider connections, GitHub repos, custom providers, events, and cached
+snapshots. Provider connection tokens and private metadata are encrypted before
+they are written to D1.
+
+Set a long random encryption key as a Worker secret before connecting providers:
+
+```bash
+openssl rand -base64 32
+npx wrangler secret put APP_ENCRYPTION_KEY
+```
+
+The app can still read and migrate the old `app_kv` JSON row on first startup,
+then deletes that legacy row after writing the normalized tables.
 
 ### MotherDuck analytics
 
@@ -241,39 +326,25 @@ This runs TypeScript checking, scanner/cost-engine tests, and a production Next 
 
 ## Deployment
 
-### Vercel
-
-This app is ready for Vercel as a standalone Next project:
+Ambrium deploys to Cloudflare Workers through OpenNext:
 
 ```bash
-vercel
-vercel --prod
+npm run deploy
 ```
 
-Set environment variables from `.env.example` in the Vercel project settings. In a hosted deployment, replace local filesystem scanning with GitHub App installation scans.
-
-### Docker
-
-Use the standalone Next output:
+Set production secrets before connecting real providers:
 
 ```bash
-npm run build
-npm run start
+npx wrangler secret put APP_ENCRYPTION_KEY
+npx wrangler secret put CLERK_SECRET_KEY
+npx wrangler secret put GITHUB_APP_PRIVATE_KEY
 ```
 
-For container deployment, run `npm ci`, `npm run build`, then `npm run start` with `PORT` configured by the host.
+Set provider secrets only for the integrations you operate centrally. Most
+provider connections are per-user and should be connected from the signed-in UI
+or the CLI.
 
-### Cloudflare
-
-The current implementation uses Node.js filesystem APIs for the local scanner and targets Vercel/Node first. To deploy the full app to Cloudflare Workers, split the scanner into:
-
-- GitHub API adapter for repo file reads.
-- Cloudflare-compatible backend routes without `node:fs`.
-- D1/R2 persistence for provider connections and cost snapshots.
-
-The product model and UI are already separated enough for that migration.
-
-## Production Connector Roadmap
+## Production Connector Coverage
 
 The current cost rows are deterministic estimates derived from repo evidence. Production exactness requires provider billing connections:
 
@@ -285,4 +356,5 @@ The current cost rows are deterministic estimates derived from repo evidence. Pr
 - Cloudflare: account inventory and billing usage where the account API has access.
 - DigitalOcean: billing history, invoices, balance, and project/resource inventory.
 
-Tokens and credentials should be encrypted before database storage. Do not store plaintext provider credentials in production.
+Provider tokens and private connection metadata are encrypted before D1 storage
+with `APP_ENCRYPTION_KEY`. Do not log or expose plaintext provider credentials.

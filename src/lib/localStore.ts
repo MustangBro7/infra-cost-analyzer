@@ -12,6 +12,7 @@ import type {
   Provider,
   StoredConnection,
   WorkspaceStore,
+  CliPairing,
 } from "./types"
 import { normalizeDashboardLayout } from "./dashboardLayout"
 import { CONNECTABLE_PROVIDERS } from "./repoLinks"
@@ -64,6 +65,7 @@ const STORE_KEY = "infra-cost-analyzer:app-store"
 interface D1PreparedStatementLike {
   bind(...values: unknown[]): D1PreparedStatementLike
   first<T = unknown>(column?: string): Promise<T | null>
+  all<T = unknown>(): Promise<{ results?: T[] }>
   run(): Promise<unknown>
 }
 
@@ -73,14 +75,213 @@ interface D1DatabaseLike {
 
 let d1TableReady = false
 
+type RuntimeEnv = {
+  DB?: D1DatabaseLike
+  APP_ENCRYPTION_KEY?: string
+}
+
+async function cloudflareRuntimeEnv(): Promise<RuntimeEnv | null> {
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare/cloudflare-context")
+    return getCloudflareContext().env as RuntimeEnv
+  } catch {
+    return null
+  }
+}
+
+async function runtimeEnv(): Promise<RuntimeEnv> {
+  return {
+    ...(process.env as RuntimeEnv),
+    ...((await cloudflareRuntimeEnv()) ?? {}),
+  }
+}
+
+async function requireEncryptionKey(): Promise<CryptoKey> {
+  const secret = (await runtimeEnv()).APP_ENCRYPTION_KEY
+  const keySecret =
+    secret ||
+    (process.env.NODE_ENV === "production"
+      ? null
+      : "ambrium-local-development-only-encryption-key")
+  if (!keySecret) {
+    throw new Error("APP_ENCRYPTION_KEY is required before storing provider credentials in D1.")
+  }
+  const keyMaterial = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(keySecret))
+  return crypto.subtle.importKey("raw", keyMaterial, "AES-GCM", false, ["encrypt", "decrypt"])
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  return Buffer.from(bytes).toString("base64")
+}
+
+function base64ToBytes(value: string) {
+  return new Uint8Array(Buffer.from(value, "base64"))
+}
+
+async function encryptJson(value: unknown): Promise<string> {
+  const iv = randomBytes(12)
+  const encoded = new TextEncoder().encode(JSON.stringify(value ?? null))
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await requireEncryptionKey(), encoded)
+  return `v1:${bytesToBase64(iv)}:${bytesToBase64(new Uint8Array(ciphertext))}`
+}
+
+async function decryptJson<T>(value: string | null | undefined, fallback: T): Promise<T> {
+  if (!value) return fallback
+  if (!value.startsWith("v1:")) return fallback
+  const [, iv, ciphertext] = value.split(":")
+  if (!iv || !ciphertext) return fallback
+  try {
+    const plaintext = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: base64ToBytes(iv) },
+      await requireEncryptionKey(),
+      base64ToBytes(ciphertext)
+    )
+    return JSON.parse(new TextDecoder().decode(plaintext)) as T
+  } catch {
+    return fallback
+  }
+}
+
+function parseJson<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return fallback
+  }
+}
+
+async function ensureD1Schema(db: D1DatabaseLike): Promise<void> {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS app_kv (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_signed_in_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_workspace_settings (
+      user_id TEXT PRIMARY KEY,
+      selected_repo_full_name TEXT,
+      synced_repo_full_names_json TEXT NOT NULL,
+      monthly_budget_usd REAL,
+      dashboard_layout_json TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_provider_connections (
+      user_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      status TEXT NOT NULL,
+      account_label TEXT,
+      installation_id INTEGER,
+      selected_repo_full_name TEXT,
+      connected_at TEXT NOT NULL,
+      last_verified_at TEXT,
+      last_error TEXT,
+      encrypted_private_json TEXT NOT NULL,
+      PRIMARY KEY (user_id, provider)
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_custom_connections (
+      user_id TEXT NOT NULL,
+      custom_provider_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      account_label TEXT,
+      connected_at TEXT NOT NULL,
+      last_verified_at TEXT,
+      last_error TEXT,
+      encrypted_private_json TEXT NOT NULL,
+      PRIMARY KEY (user_id, custom_provider_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_github_repos (
+      user_id TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      repo_id INTEGER NOT NULL,
+      owner TEXT NOT NULL,
+      name TEXT NOT NULL,
+      private INTEGER NOT NULL,
+      default_branch TEXT NOT NULL,
+      html_url TEXT NOT NULL,
+      pushed_at TEXT,
+      updated_at TEXT,
+      position INTEGER NOT NULL,
+      PRIMARY KEY (user_id, full_name)
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_repo_provider_links (
+      user_id TEXT NOT NULL,
+      repo_full_name TEXT NOT NULL,
+      providers_json TEXT NOT NULL,
+      PRIMARY KEY (user_id, repo_full_name)
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_cost_assignments (
+      user_id TEXT NOT NULL,
+      item_key TEXT NOT NULL,
+      target TEXT NOT NULL,
+      PRIMARY KEY (user_id, item_key)
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_custom_providers (
+      user_id TEXT NOT NULL,
+      id TEXT NOT NULL,
+      definition_json TEXT NOT NULL,
+      PRIMARY KEY (user_id, id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_events (
+      user_id TEXT NOT NULL,
+      id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      level TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      PRIMARY KEY (user_id, id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_analysis_snapshots (
+      user_id TEXT NOT NULL,
+      snapshot_key TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      computed_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, snapshot_key)
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_cli_pairings (
+      device_code TEXT PRIMARY KEY,
+      user_code TEXT NOT NULL,
+      user_id TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      cli_token TEXT,
+      cli_token_expires_at TEXT
+    )`,
+  ]
+  for (const statement of statements) {
+    await db.prepare(statement).run()
+  }
+  for (const statement of [
+    "ALTER TABLE app_github_repos ADD COLUMN pushed_at TEXT",
+    "ALTER TABLE app_github_repos ADD COLUMN updated_at TEXT",
+  ]) {
+    try {
+      await db.prepare(statement).run()
+    } catch {
+      // Existing deployments may already have these nullable columns.
+    }
+  }
+}
+
 async function d1Binding(): Promise<D1DatabaseLike | null> {
   if (testStorePath) return null
   try {
-    const { getCloudflareContext } = await import("@opennextjs/cloudflare/cloudflare-context")
-    const context = getCloudflareContext()
-    const db = (context.env as { DB?: D1DatabaseLike }).DB ?? null
+    const db = (await cloudflareRuntimeEnv())?.DB ?? null
     if (db && !d1TableReady) {
-      await db.prepare("CREATE TABLE IF NOT EXISTS app_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)").run()
+      await ensureD1Schema(db)
       d1TableReady = true
     }
     return db
@@ -93,16 +294,7 @@ async function d1Binding(): Promise<D1DatabaseLike | null> {
 async function loadRaw(): Promise<unknown> {
   const db = await d1Binding()
   if (db) {
-    const value = await db
-      .prepare("SELECT value FROM app_kv WHERE key = ?1")
-      .bind(STORE_KEY)
-      .first<string>("value")
-    if (!value) return null
-    try {
-      return JSON.parse(value)
-    } catch {
-      return null
-    }
+    return loadD1Store(db)
   }
   const filePath = storePath()
   if (!existsSync(/* turbopackIgnore: true */ filePath)) return null
@@ -116,16 +308,343 @@ async function loadRaw(): Promise<unknown> {
 async function persistRaw(store: AppStore) {
   const db = await d1Binding()
   if (db) {
-    await db
-      .prepare(
-        "INSERT INTO app_kv (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-      )
-      .bind(STORE_KEY, JSON.stringify(store))
-      .run()
+    await persistD1Store(db, store)
     return
   }
   mkdirSync(path.dirname(storePath()), { recursive: true })
   writeFileSync(storePath(), JSON.stringify(store, null, 2))
+}
+
+async function loadD1Store(db: D1DatabaseLike): Promise<AppStore> {
+  const legacyValue = await db
+    .prepare("SELECT value FROM app_kv WHERE key = ?1")
+    .bind(STORE_KEY)
+    .first<string>("value")
+  if (legacyValue) {
+    const migrated = parseJson<AppStore | null>(legacyValue, null)
+    if (migrated) {
+      await persistD1Store(db, migrated)
+      await db.prepare("DELETE FROM app_kv WHERE key = ?1").bind(STORE_KEY).run()
+      return migrated
+    }
+  }
+
+  const store: AppStore = {
+    users: {},
+    sessions: {},
+    workspaces: {},
+    cliPairings: {},
+  }
+
+  const users = (await db.prepare("SELECT * FROM app_users").all<Record<string, string>>()).results ?? []
+  for (const row of users) {
+    store.users[row.id] = {
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      createdAt: row.created_at,
+      lastSignedInAt: row.last_signed_in_at,
+    }
+  }
+
+  const sessions = (await db.prepare("SELECT * FROM app_sessions").all<Record<string, string>>()).results ?? []
+  for (const row of sessions) {
+    store.sessions[row.id] = {
+      id: row.id,
+      userId: row.user_id,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+    }
+  }
+
+  const settings = (await db.prepare("SELECT * FROM app_workspace_settings").all<Record<string, string | number | null>>()).results ?? []
+  for (const row of settings) {
+    store.workspaces[String(row.user_id)] = {
+      ...structuredClone(EMPTY_WORKSPACE),
+      selectedRepoFullName: row.selected_repo_full_name ? String(row.selected_repo_full_name) : null,
+      syncedRepoFullNames: parseJson(String(row.synced_repo_full_names_json ?? "[]"), []),
+      monthlyBudgetUsd: typeof row.monthly_budget_usd === "number" ? row.monthly_budget_usd : null,
+      dashboardLayout: parseJson(String(row.dashboard_layout_json ?? "[]"), []),
+    }
+  }
+
+  for (const userId of Object.keys(store.users)) {
+    store.workspaces[userId] = store.workspaces[userId] ?? structuredClone(EMPTY_WORKSPACE)
+  }
+
+  const connectionRows = (await db.prepare("SELECT * FROM app_provider_connections").all<Record<string, string | number | null>>()).results ?? []
+  for (const row of connectionRows) {
+    const userId = String(row.user_id)
+    const privatePayload = await decryptJson<{ accessToken?: string; metadata?: Record<string, unknown> }>(
+      row.encrypted_private_json ? String(row.encrypted_private_json) : null,
+      { metadata: {} }
+    )
+    const connection: StoredConnection = {
+      provider: String(row.provider) as Provider,
+      status: String(row.status) as StoredConnection["status"],
+      accountLabel: row.account_label ? String(row.account_label) : null,
+      accessToken: privatePayload.accessToken,
+      installationId: typeof row.installation_id === "number" ? row.installation_id : undefined,
+      selectedRepoFullName: row.selected_repo_full_name ? String(row.selected_repo_full_name) : undefined,
+      connectedAt: String(row.connected_at),
+      lastVerifiedAt: row.last_verified_at ? String(row.last_verified_at) : null,
+      lastError: row.last_error ? String(row.last_error) : null,
+      metadata: privatePayload.metadata ?? {},
+    }
+    store.workspaces[userId] = store.workspaces[userId] ?? structuredClone(EMPTY_WORKSPACE)
+    store.workspaces[userId].connections[connection.provider] = connection
+  }
+
+  const customConnectionRows = (await db.prepare("SELECT * FROM app_custom_connections").all<Record<string, string | null>>()).results ?? []
+  for (const row of customConnectionRows) {
+    const userId = String(row.user_id)
+    const privatePayload = await decryptJson<{ accessToken?: string; metadata?: Record<string, unknown> }>(
+      row.encrypted_private_json ? String(row.encrypted_private_json) : null,
+      { metadata: {} }
+    )
+    store.workspaces[userId] = store.workspaces[userId] ?? structuredClone(EMPTY_WORKSPACE)
+    store.workspaces[userId].customConnections[String(row.custom_provider_id)] = {
+      provider: "custom",
+      status: String(row.status) as StoredConnection["status"],
+      accountLabel: row.account_label ? String(row.account_label) : null,
+      accessToken: privatePayload.accessToken,
+      connectedAt: String(row.connected_at),
+      lastVerifiedAt: row.last_verified_at ? String(row.last_verified_at) : null,
+      lastError: row.last_error ? String(row.last_error) : null,
+      metadata: { ...(privatePayload.metadata ?? {}), customProviderId: String(row.custom_provider_id) },
+    }
+  }
+
+  const repos = (await db.prepare("SELECT * FROM app_github_repos ORDER BY user_id, position").all<Record<string, string | number>>()).results ?? []
+  for (const row of repos) {
+    const userId = String(row.user_id)
+    store.workspaces[userId] = store.workspaces[userId] ?? structuredClone(EMPTY_WORKSPACE)
+    store.workspaces[userId].githubRepos.push({
+      id: Number(row.repo_id),
+      owner: String(row.owner),
+      name: String(row.name),
+      fullName: String(row.full_name),
+      private: Number(row.private) === 1,
+      defaultBranch: String(row.default_branch),
+      htmlUrl: String(row.html_url),
+      pushedAt: row.pushed_at ? String(row.pushed_at) : null,
+      updatedAt: row.updated_at ? String(row.updated_at) : null,
+    })
+  }
+
+  const repoLinks = (await db.prepare("SELECT * FROM app_repo_provider_links").all<Record<string, string>>()).results ?? []
+  for (const row of repoLinks) {
+    const userId = row.user_id
+    store.workspaces[userId] = store.workspaces[userId] ?? structuredClone(EMPTY_WORKSPACE)
+    store.workspaces[userId].repoProviderLinks[row.repo_full_name] = parseJson(row.providers_json, [])
+  }
+
+  const assignments = (await db.prepare("SELECT * FROM app_cost_assignments").all<Record<string, string>>()).results ?? []
+  for (const row of assignments) {
+    store.workspaces[row.user_id] = store.workspaces[row.user_id] ?? structuredClone(EMPTY_WORKSPACE)
+    store.workspaces[row.user_id].costAssignments[row.item_key] = row.target
+  }
+
+  const customProviders = (await db.prepare("SELECT * FROM app_custom_providers").all<Record<string, string>>()).results ?? []
+  for (const row of customProviders) {
+    store.workspaces[row.user_id] = store.workspaces[row.user_id] ?? structuredClone(EMPTY_WORKSPACE)
+    const def = parseJson<CustomProviderDef | null>(row.definition_json, null)
+    if (def) store.workspaces[row.user_id].customProviders[row.id] = def
+  }
+
+  const events = (await db.prepare("SELECT * FROM app_events ORDER BY user_id, position").all<Record<string, string>>()).results ?? []
+  for (const row of events) {
+    store.workspaces[row.user_id] = store.workspaces[row.user_id] ?? structuredClone(EMPTY_WORKSPACE)
+    store.workspaces[row.user_id].events.push({
+      id: row.id,
+      provider: row.provider as Provider | "system",
+      level: row.level as ConnectionEvent["level"],
+      message: row.message,
+      createdAt: row.created_at,
+    })
+  }
+
+  const snapshots = (await db.prepare("SELECT * FROM app_analysis_snapshots").all<Record<string, string>>()).results ?? []
+  for (const row of snapshots) {
+    store.workspaces[row.user_id] = store.workspaces[row.user_id] ?? structuredClone(EMPTY_WORKSPACE)
+    const snapshot = parseJson<AnalysisSnapshot | null>(row.snapshot_json, null)
+    if (snapshot) store.workspaces[row.user_id].analysisSnapshots[row.snapshot_key] = snapshot
+  }
+
+  const pairings = (await db.prepare("SELECT * FROM app_cli_pairings").all<Record<string, string | null>>()).results ?? []
+  for (const row of pairings) {
+    store.cliPairings[String(row.device_code)] = {
+      deviceCode: String(row.device_code),
+      userCode: String(row.user_code),
+      userId: row.user_id ? String(row.user_id) : null,
+      status: String(row.status) as CliPairing["status"],
+      createdAt: String(row.created_at),
+      expiresAt: String(row.expires_at),
+      cliToken: row.cli_token ? String(row.cli_token) : null,
+      cliTokenExpiresAt: row.cli_token_expires_at ? String(row.cli_token_expires_at) : null,
+    }
+  }
+
+  return store
+}
+
+async function persistD1Store(db: D1DatabaseLike, store: AppStore): Promise<void> {
+  const tables = [
+    "app_users",
+    "app_sessions",
+    "app_workspace_settings",
+    "app_provider_connections",
+    "app_custom_connections",
+    "app_github_repos",
+    "app_repo_provider_links",
+    "app_cost_assignments",
+    "app_custom_providers",
+    "app_events",
+    "app_analysis_snapshots",
+    "app_cli_pairings",
+  ]
+  for (const table of tables) {
+    await db.prepare(`DELETE FROM ${table}`).run()
+  }
+
+  for (const user of Object.values(store.users)) {
+    await db.prepare(
+      `INSERT INTO app_users (id, email, name, created_at, last_signed_in_at)
+       VALUES (?1, ?2, ?3, ?4, ?5)`
+    ).bind(user.id, user.email, user.name, user.createdAt, user.lastSignedInAt).run()
+  }
+
+  for (const session of Object.values(store.sessions)) {
+    await db.prepare(
+      `INSERT INTO app_sessions (id, user_id, created_at, expires_at)
+       VALUES (?1, ?2, ?3, ?4)`
+    ).bind(session.id, session.userId, session.createdAt, session.expiresAt).run()
+  }
+
+  for (const [userId, rawWorkspace] of Object.entries(store.workspaces)) {
+    const workspace = normalizeWorkspace(rawWorkspace)
+    await db.prepare(
+      `INSERT INTO app_workspace_settings (
+        user_id, selected_repo_full_name, synced_repo_full_names_json, monthly_budget_usd, dashboard_layout_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5)`
+    ).bind(
+      userId,
+      workspace.selectedRepoFullName,
+      JSON.stringify(workspace.syncedRepoFullNames),
+      workspace.monthlyBudgetUsd ?? null,
+      JSON.stringify(normalizeDashboardLayout(workspace.dashboardLayout))
+    ).run()
+
+    for (const connection of Object.values(workspace.connections).filter((value): value is StoredConnection => Boolean(value))) {
+      await db.prepare(
+        `INSERT INTO app_provider_connections (
+          user_id, provider, status, account_label, installation_id, selected_repo_full_name,
+          connected_at, last_verified_at, last_error, encrypted_private_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+      ).bind(
+        userId,
+        connection.provider,
+        connection.status,
+        connection.accountLabel,
+        connection.installationId ?? null,
+        connection.selectedRepoFullName ?? null,
+        connection.connectedAt,
+        connection.lastVerifiedAt,
+        connection.lastError,
+        await encryptJson({ accessToken: connection.accessToken, metadata: connection.metadata ?? {} })
+      ).run()
+    }
+
+    for (const [id, connection] of Object.entries(workspace.customConnections)) {
+      await db.prepare(
+        `INSERT INTO app_custom_connections (
+          user_id, custom_provider_id, status, account_label, connected_at,
+          last_verified_at, last_error, encrypted_private_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+      ).bind(
+        userId,
+        id,
+        connection.status,
+        connection.accountLabel,
+        connection.connectedAt,
+        connection.lastVerifiedAt,
+        connection.lastError,
+        await encryptJson({ accessToken: connection.accessToken, metadata: connection.metadata ?? {} })
+      ).run()
+    }
+
+    for (const [position, repo] of workspace.githubRepos.entries()) {
+      await db.prepare(
+        `INSERT INTO app_github_repos (
+          user_id, full_name, repo_id, owner, name, private, default_branch, html_url, pushed_at, updated_at, position
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+      ).bind(
+        userId,
+        repo.fullName,
+        repo.id,
+        repo.owner,
+        repo.name,
+        repo.private ? 1 : 0,
+        repo.defaultBranch,
+        repo.htmlUrl,
+        repo.pushedAt ?? null,
+        repo.updatedAt ?? null,
+        position
+      ).run()
+    }
+
+    for (const [repoFullName, providers] of Object.entries(workspace.repoProviderLinks)) {
+      await db.prepare(
+        `INSERT INTO app_repo_provider_links (user_id, repo_full_name, providers_json)
+         VALUES (?1, ?2, ?3)`
+      ).bind(userId, repoFullName, JSON.stringify(providers)).run()
+    }
+
+    for (const [itemKey, target] of Object.entries(workspace.costAssignments)) {
+      await db.prepare(
+        `INSERT INTO app_cost_assignments (user_id, item_key, target)
+         VALUES (?1, ?2, ?3)`
+      ).bind(userId, itemKey, target).run()
+    }
+
+    for (const [id, def] of Object.entries(workspace.customProviders)) {
+      await db.prepare(
+        `INSERT INTO app_custom_providers (user_id, id, definition_json)
+         VALUES (?1, ?2, ?3)`
+      ).bind(userId, id, JSON.stringify(def)).run()
+    }
+
+    for (const [position, event] of workspace.events.slice(0, 50).entries()) {
+      await db.prepare(
+        `INSERT INTO app_events (user_id, id, provider, level, message, created_at, position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+      ).bind(userId, event.id, event.provider, event.level, event.message, event.createdAt, position).run()
+    }
+
+    for (const snapshot of Object.values(workspace.analysisSnapshots)) {
+      await db.prepare(
+        `INSERT INTO app_analysis_snapshots (user_id, snapshot_key, snapshot_json, computed_at)
+         VALUES (?1, ?2, ?3, ?4)`
+      ).bind(userId, snapshot.key, JSON.stringify(snapshot), snapshot.computedAt).run()
+    }
+  }
+
+  for (const pairing of Object.values(store.cliPairings)) {
+    await db.prepare(
+      `INSERT INTO app_cli_pairings (
+        device_code, user_code, user_id, status, created_at, expires_at, cli_token, cli_token_expires_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+    ).bind(
+      pairing.deviceCode,
+      pairing.userCode,
+      pairing.userId,
+      pairing.status,
+      pairing.createdAt,
+      pairing.expiresAt,
+      pairing.cliToken,
+      pairing.cliTokenExpiresAt
+    ).run()
+  }
 }
 
 // ---------- store API ----------
@@ -660,7 +1179,7 @@ function withEvent(
   return [
     {
       ...event,
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id: `${Date.now()}-${randomBytes(12).toString("base64url")}`,
       createdAt: new Date().toISOString(),
     },
     ...events,

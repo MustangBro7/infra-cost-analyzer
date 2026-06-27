@@ -73,7 +73,7 @@ function CopyButton({ value, label = "Copy" }: { value: string; label?: string }
 }
 
 function GitHubSetupGuide({ status }: { status: GitHubConnectStatus | null }) {
-  const callbackUrl = status?.callbackUrl ?? `${typeof window === "undefined" ? "" : window.location.origin}/api/github/callback`
+  const callbackUrl = status?.callbackUrl ?? "/api/github/callback"
   const setupUrl = status?.setupUrl ?? callbackUrl
   const commands = status?.setupCommands ?? [
     "npx wrangler secret put GITHUB_APP_ID",

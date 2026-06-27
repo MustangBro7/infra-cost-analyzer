@@ -10,6 +10,7 @@ import { appUrl } from "@/lib/appUrl";
 // because the user must be signed in to approve a pairing.
 const isPublicRoute = createRouteMatcher([
   "/",
+  "/pricing",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/cron(.*)",

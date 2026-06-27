@@ -61,6 +61,14 @@ function providerLabel(provider: Provider) {
   return provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
+function stableDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(value))
+}
+
 // Connect-card copy for the AI coding-tool providers (token-paste flow).
 const AI_PROVIDER_CARDS: Record<
   "anthropic" | "openai" | "cursor",
@@ -118,7 +126,7 @@ function ConnectedProviderState({
       <div>
         <strong>Connected to {connection.accountLabel || providerLabel(provider)}</strong>
         <span>{detail || "Live billing connection is saved for this workspace."}</span>
-        {connection.lastVerifiedAt ? <small>Verified {new Date(connection.lastVerifiedAt).toLocaleString()}</small> : null}
+        {connection.lastVerifiedAt ? <small>Verified {stableDateTime(connection.lastVerifiedAt)} UTC</small> : null}
       </div>
     </div>
   )
@@ -545,7 +553,7 @@ export function ProviderConnectPanel({
                           {(() => {
                             const last = (saved.metadata as { costExplorerLastFetchedAt?: string | null }).costExplorerLastFetchedAt
                             return last
-                              ? `Last pulled ${new Date(last).toLocaleString()}. Refreshes reuse this until the next scheduled pull.`
+                              ? `Last pulled ${stableDateTime(last)} UTC. Refreshes reuse this until the next scheduled pull.`
                               : "Not pulled yet — set a cadence or pull now. Between pulls, refreshes are free."
                           })()}
                         </small>

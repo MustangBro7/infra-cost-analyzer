@@ -2313,6 +2313,69 @@ th {
   white-space: nowrap;
 }
 
+.cli-setup-modes {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 12px;
+}
+
+.cli-mode-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 13px;
+  min-width: 0;
+}
+
+.cli-mode-card.primary {
+  border-color: var(--ink);
+}
+
+.cli-mode-card strong,
+.cli-mode-card span {
+  display: block;
+}
+
+.cli-mode-card > div > strong {
+  font-size: 15px;
+}
+
+.cli-mode-card > div > span {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cli-command.secondary {
+  border-color: var(--line);
+  background: var(--neutral);
+  color: var(--ink);
+}
+
+.agent-prompt {
+  max-height: 228px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--ink);
+  background: var(--neutral);
+  color: var(--ink);
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.cli-mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .cli-step-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2772,7 +2835,8 @@ th {
 
 @media (max-width: 1100px) {
   .dashboard-widgets,
-  .cli-step-grid {
+  .cli-step-grid,
+  .cli-setup-modes {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2813,7 +2877,8 @@ th {
 
 @media (max-width: 680px) {
   .dashboard-widgets,
-  .cli-step-grid {
+  .cli-step-grid,
+  .cli-setup-modes {
     grid-template-columns: 1fr;
   }
 
@@ -5180,12 +5245,388 @@ th {
   color: var(--muted);
 }
 
+/* ---- Indie project cockpit ---- */
+.project-cockpit,
+.runway-panel,
+.leak-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.project-cockpit-list,
+.runway-list,
+.leak-list {
+  display: grid;
+  gap: 8px;
+}
+
+.project-cockpit-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) auto minmax(92px, auto);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 10px 12px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.project-cockpit-row:hover {
+  border-color: var(--ink);
+}
+
+.project-cockpit-row.map {
+  border-color: var(--yellow);
+  background: var(--warn-soft);
+}
+
+.project-cockpit-row.watch {
+  border-color: var(--red);
+}
+
+.project-cockpit-row.stale {
+  border-color: var(--red);
+  background: var(--err-soft);
+}
+
+.project-cockpit-name,
+.project-cockpit-money {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.project-cockpit-name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-cockpit-name small,
+.project-cockpit-money small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.project-cockpit-money {
+  justify-items: end;
+  text-align: right;
+}
+
+.project-status {
+  border: 1px solid var(--line);
+  background: var(--neutral);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.project-status.active {
+  background: var(--ok-mid);
+}
+
+.project-status.free {
+  color: var(--muted);
+}
+
+.project-status.map,
+.project-status.watch,
+.project-status.stale {
+  background: var(--warn-mid);
+}
+
+.project-status.stale {
+  border-color: var(--red);
+}
+
+.runway-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.runway-summary article {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 10px;
+}
+
+.runway-summary strong,
+.runway-summary span {
+  display: block;
+}
+
+.runway-summary strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.runway-summary span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.runway-row,
+.leak-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 10px;
+}
+
+.leak-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.runway-row.warn,
+.leak-row.warn {
+  border-color: var(--yellow);
+  background: var(--warn-soft);
+}
+
+.runway-row.crit,
+.leak-row.crit {
+  border-color: var(--red);
+}
+
+.runway-row strong,
+.runway-row span,
+.leak-row strong,
+.leak-row span {
+  display: block;
+}
+
+.runway-row span,
+.leak-row span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.runway-row b,
+.leak-row b {
+  white-space: nowrap;
+}
+
+.attention-clear.compact {
+  min-height: 76px;
+}
+
+.two-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+/* ---- Pricing ---- */
+.pricing-page {
+  min-height: 100vh;
+  padding: 18px clamp(14px, 4vw, 54px) 54px;
+  background:
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    var(--bg);
+  background-size: 42px 42px;
+}
+
+.pricing-brand {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.pricing-hero {
+  display: grid;
+  gap: 10px;
+  max-width: 880px;
+  padding: clamp(38px, 8vw, 92px) 0 26px;
+}
+
+.pricing-hero h1,
+.pricing-hero span {
+  margin: 0;
+}
+
+.pricing-hero h1 {
+  max-width: 780px;
+  font-size: clamp(40px, 7vw, 84px);
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.pricing-hero span {
+  max-width: 680px;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.pricing-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 980px;
+  margin-bottom: 18px;
+}
+
+.pricing-plan {
+  display: grid;
+  gap: 18px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.pricing-plan.featured {
+  border-color: var(--ink);
+}
+
+.pricing-plan p,
+.pricing-plan h2,
+.pricing-plan small {
+  margin: 0;
+}
+
+.pricing-plan p {
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pricing-plan h2 {
+  margin-top: 8px;
+  font-size: 44px;
+  line-height: 1;
+}
+
+.pricing-plan h2 span {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pricing-plan small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.pricing-plan ul {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.pricing-plan li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.pricing-plan li svg {
+  width: 16px;
+  height: 16px;
+  color: var(--green);
+  flex: 0 0 auto;
+}
+
+.clerk-pricing-shell {
+  display: grid;
+  gap: 16px;
+  max-width: 980px;
+  border: 1px solid var(--ink);
+  background: var(--surface);
+  padding: 18px;
+}
+
+.clerk-pricing-shell p,
+.clerk-pricing-shell h2,
+.clerk-pricing-shell span {
+  margin: 0;
+}
+
+.clerk-pricing-shell p {
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.clerk-pricing-shell h2 {
+  margin-top: 4px;
+  font-size: 24px;
+}
+
+.clerk-pricing-shell span {
+  display: block;
+  max-width: 720px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.billing-disabled-note {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--yellow);
+  background: var(--warn-soft);
+  padding: 12px;
+}
+
+.billing-disabled-note strong,
+.billing-disabled-note span {
+  display: block;
+}
+
+.billing-disabled-note span {
+  margin: 0;
+}
+
+.billing-disabled-note code {
+  display: inline-block;
+  margin: 0 4px;
+  font-size: 0.78em;
+}
+
 @media (max-width: 560px) {
   .repo-rank-row {
     grid-template-columns: 1fr auto;
   }
   .repo-rank-bar {
     display: none;
+  }
+  .project-cockpit-row,
+  .leak-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+  .project-cockpit-money {
+    justify-items: start;
+    text-align: left;
+  }
+  .runway-summary {
+    grid-template-columns: 1fr;
+  }
+  .two-panel-grid,
+  .pricing-plan-grid {
+    grid-template-columns: 1fr;
   }
 }
 

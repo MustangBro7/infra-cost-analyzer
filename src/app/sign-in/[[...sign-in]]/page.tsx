@@ -14,10 +14,10 @@ export default function SignInPage() {
           <div className="signin-mark">
             <CloudCog aria-hidden />
           </div>
-          <p>Infrastructure Cost Analyzer</p>
-          <h1>Sign in to your workspace</h1>
+          <p>Ambrium</p>
+          <h1>Sign in to your project cockpit</h1>
           <span>
-            Connect repositories and cloud accounts to see where every infrastructure dollar goes.
+            See what each side project, cloud provider, and AI tool is costing before a surprise bill.
           </span>
           <div className="signin-status">
             <i aria-hidden />
@@ -28,7 +28,7 @@ export default function SignInPage() {
           <SignIn
             appearance={authAppearance}
             fallback={
-              <div className="signin-fallback" role="status">
+              <div key="signin-fallback" className="signin-fallback" role="status">
                 <span>Loading secure sign-in…</span>
                 <a href="https://accounts.ambrium.io/sign-in">Open sign-in directly</a>
               </div>

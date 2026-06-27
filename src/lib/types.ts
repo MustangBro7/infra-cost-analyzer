@@ -185,6 +185,8 @@ export interface GitHubRepoSummary {
   private: boolean
   defaultBranch: string
   htmlUrl: string
+  pushedAt?: string | null
+  updatedAt?: string | null
 }
 
 export interface StoredConnection {

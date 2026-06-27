@@ -72,6 +72,8 @@ export async function listInstallationRepos(installationToken: string): Promise<
       private: boolean
       default_branch: string
       html_url: string
+      pushed_at?: string | null
+      updated_at?: string | null
       owner: { login: string }
     }>
   }>("/installation/repositories?per_page=100", installationToken)
@@ -84,6 +86,8 @@ export async function listInstallationRepos(installationToken: string): Promise<
     private: repo.private,
     defaultBranch: repo.default_branch,
     htmlUrl: repo.html_url,
+    pushedAt: repo.pushed_at ?? null,
+    updatedAt: repo.updated_at ?? null,
   }))
 }
 

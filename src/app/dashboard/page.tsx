@@ -37,7 +37,6 @@ import { SignOutButton } from "../SignOutButton"
 import { ThemeToggle } from "../ThemeToggle"
 import { HistoricalAnalyticsPanel } from "../HistoricalAnalyticsPanel"
 import { RepoHomeCard } from "../RepoHomeCard"
-import { DashboardGrid, type DashboardWidgetDefinition } from "../DashboardGrid"
 import { getOrCreateAnalysisSnapshot, snapshotKeyForRepo } from "@/lib/analysisService"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore, readDashboardStore } from "@/lib/localStore"
@@ -50,10 +49,9 @@ import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCos
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// The overview is split into three sections, selected by ?view=. Dashboards is
-// the default (cost now; richer widgets later), Repos manages synced repos, and
-// Credentials manages provider connections.
-type ViewKey = "dashboards" | "repos" | "credentials"
+// Indie-first app sections, selected by ?view=. Projects is the default product
+// surface; old query values are accepted as aliases below for existing links.
+type ViewKey = "projects" | "limits" | "leaks" | "connect"
 
 function money(value: number) {
   const abs = Math.abs(value)
@@ -194,6 +192,328 @@ type AccountEntry = {
   accountLabel: string | null
   cost: number
   hasUsage: boolean
+}
+
+type IndieProjectRow = {
+  repo: GitHubRepoSummary
+  cost: number
+  projected: number
+  dailyRate: number
+  linked: Provider[]
+  signalCount: number
+  rowCount: number
+  lastActivityAt: string | null
+  inactiveDays: number | null
+  status: "active" | "free" | "map" | "watch" | "stale"
+  statusLabel: string
+  detail: string
+}
+
+function daysSinceIso(value: string | null | undefined): number | null {
+  if (!value) return null
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) return null
+  return Math.max(Math.floor((Date.now() - time) / 86_400_000), 0)
+}
+
+function projectCostRows(input: {
+  repo: GitHubRepoSummary
+  repoAnalysis: AnalysisResult | undefined
+  accountAnalysis: AnalysisResult
+  assignments: Record<string, string>
+}): NormalizedCostRow[] {
+  const repoShortName = input.repo.name.toLowerCase()
+  const candidateRows = [...(input.repoAnalysis?.costRows ?? []), ...input.accountAnalysis.costRows]
+  const uniqueRows = [...new Map(candidateRows.map((row) => [costItemKey(row), row])).values()]
+  return uniqueRows.filter((row) => isAssignedHere(row, input.assignments, input.repo.fullName, repoShortName))
+}
+
+function buildIndieProjects(input: {
+  repos: GitHubRepoSummary[]
+  analysis: AnalysisResult
+  repoAnalyses: Record<string, AnalysisResult>
+  connectedProviders: Provider[]
+  state: Awaited<ReturnType<typeof publicStore>>
+  elapsedDays: number
+  totalDays: number
+}): IndieProjectRow[] {
+  return input.repos.map((repo) => {
+    const repoAnalysis = input.repoAnalyses[repo.fullName]
+    const detectedProviders = [...new Set((repoAnalysis?.signals ?? []).map((signal) => signal.provider))]
+    const linked = resolveLinkedProviders({
+      explicit: input.state.repoProviderLinks[repo.fullName],
+      detected: detectedProviders,
+      connected: input.connectedProviders,
+    })
+    const rows = projectCostRows({
+      repo,
+      repoAnalysis,
+      accountAnalysis: input.analysis,
+      assignments: input.state.costAssignments,
+    })
+    const cost = sumCost(rows)
+    const dailyRate = input.elapsedDays > 0 ? cost / input.elapsedDays : 0
+    const projected = dailyRate * input.totalDays
+    const signalCount = repoAnalysis?.signals.length ?? 0
+    const lastActivityAt = repo.pushedAt ?? repo.updatedAt ?? null
+    const inactiveDays = daysSinceIso(lastActivityAt)
+    const status: IndieProjectRow["status"] =
+      cost > 0.005 && inactiveDays !== null && inactiveDays >= 45
+        ? "stale"
+        : cost > 0.005 && linked.length === 0
+        ? "map"
+        : projected >= 10 && projected > cost * 1.8
+          ? "watch"
+          : cost > 0.005
+            ? "active"
+            : "free"
+    const statusLabel =
+      status === "stale"
+        ? "Shutdown?"
+        : status === "map"
+          ? "Map accounts"
+          : status === "watch"
+            ? "Watch spend"
+            : status === "active"
+              ? "Costing now"
+              : "Free/quiet"
+    const detail =
+      linked.length > 0
+        ? `${linked.length} ${linked.length === 1 ? "account" : "accounts"} linked · ${inactiveDays !== null ? `${inactiveDays}d since push` : `${signalCount} ${signalCount === 1 ? "signal" : "signals"}`}`
+        : signalCount > 0
+          ? `${signalCount} ${signalCount === 1 ? "signal" : "signals"} found · pick accounts`
+          : cost > 0.005
+            ? "Assigned spend with no repo evidence"
+            : "No assigned spend this month"
+    return { repo, cost, projected, dailyRate, linked, signalCount, rowCount: rows.length, lastActivityAt, inactiveDays, status, statusLabel, detail }
+  }).sort((a, b) => b.cost - a.cost || b.signalCount - a.signalCount || a.repo.name.localeCompare(b.repo.name))
+}
+
+function ProjectCostCockpit({ projects }: { projects: IndieProjectRow[] }) {
+  const costing = projects.filter((project) => project.cost > 0.005)
+  const total = costing.reduce((sum, project) => sum + project.cost, 0)
+  const top = projects.slice(0, 6)
+
+  return (
+    <section className="project-cockpit" aria-label="Project costs">
+      <div className="insight-panel-head">
+        <div>
+          <p>Projects</p>
+          <h2>{projects.length ? `${projects.length} project${projects.length === 1 ? "" : "s"}` : "No projects yet"}</h2>
+          <span>{costing.length ? `${money(total)} assigned this month across ${costing.length} costing project${costing.length === 1 ? "" : "s"}.` : "Connect GitHub and providers to see what each app or side project costs."}</span>
+        </div>
+        <FolderGit2 aria-hidden />
+      </div>
+
+      {top.length ? (
+        <div className="project-cockpit-list">
+          {top.map((project) => (
+            <Link key={project.repo.fullName} href={`/dashboard?repo=${encodeURIComponent(project.repo.fullName)}`} prefetch={false} className={`project-cockpit-row ${project.status}`}>
+              <span className="project-cockpit-name">
+                <strong title={project.repo.fullName}>{project.repo.name}</strong>
+                <small>{project.detail}</small>
+              </span>
+              <span className={`project-status ${project.status}`}>{project.statusLabel}</span>
+              <span className="project-cockpit-money">
+                <strong>{money(project.cost)}</strong>
+                <small>{project.projected > project.cost + 0.005 ? `${money(project.projected)} projected` : `${project.rowCount} ${project.rowCount === 1 ? "row" : "rows"}`}</small>
+              </span>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="cost-overview-empty">
+          <FolderGit2 aria-hidden />
+          <span>No synced projects yet. Use the CLI or GitHub connection to map repos to running infrastructure.</span>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function FreeTierRunwayPanel({ rows }: { rows: FreeTierUsageRow[] }) {
+  const measured = rows.filter((row) => row.source === "measured")
+  const risky = measured
+    .filter((row) => row.limit !== null && row.percentUsed !== null)
+    .sort((a, b) => (b.percentUsed ?? 0) - (a.percentUsed ?? 0))
+    .slice(0, 6)
+  const unknownLimit = measured.filter((row) => row.limit === null).length
+  const safe = measured.length - risky.filter((row) => (row.percentUsed ?? 0) >= 80).length
+
+  return (
+    <section className="runway-panel" aria-label="Free-tier runway">
+      <div className="insight-panel-head">
+        <div>
+          <p>Limits</p>
+          <h2>Free-tier runway</h2>
+          <span>{measured.length ? `${measured.length} live usage metric${measured.length === 1 ? "" : "s"} checked across connected providers.` : "Connect providers to see usage before it becomes spend."}</span>
+        </div>
+        <Gauge aria-hidden />
+      </div>
+
+      <div className="runway-summary">
+        <article>
+          <strong>{risky.filter((row) => (row.percentUsed ?? 0) >= 80).length}</strong>
+          <span>near limit</span>
+        </article>
+        <article>
+          <strong>{safe}</strong>
+          <span>with headroom</span>
+        </article>
+        <article>
+          <strong>{unknownLimit}</strong>
+          <span>usage only</span>
+        </article>
+      </div>
+
+      {risky.length ? (
+        <div className="runway-list">
+          {risky.map((row) => {
+            const pct = Math.round(row.percentUsed ?? 0)
+            const tone = pct >= 95 ? "crit" : pct >= 80 ? "warn" : "ok"
+            return (
+              <article key={`${row.provider}-${row.service}`} className={`runway-row ${tone}`}>
+                <div>
+                  <strong>{providerName(row.provider)} · {row.service}</strong>
+                  <span>{quantity(row.used ?? 0)} of {quantity(row.limit ?? 0)} {row.unit} used</span>
+                </div>
+                <b>{pct}%</b>
+              </article>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="attention-clear compact">
+          <CheckCircle2 aria-hidden />
+          <span>{measured.length ? "Measured free-tier metrics have headroom." : "No measured free-tier usage yet."}</span>
+        </div>
+      )}
+    </section>
+  )
+}
+
+interface LeakCandidate {
+  id: string
+  severity: "crit" | "warn" | "info"
+  title: string
+  detail: string
+  amount?: number
+}
+
+function buildLeakCandidates(input: {
+  analysis: AnalysisResult
+  projects: IndieProjectRow[]
+  assignments: Record<string, string>
+  syncedRepoFullNames: string[]
+  latestMs: number | null
+}): LeakCandidate[] {
+  const leaks: LeakCandidate[] = []
+  const synced = new Set(input.syncedRepoFullNames)
+  const accountLevelRows = input.analysis.costRows.filter((row) => {
+    const assigned = input.assignments[costItemKey(row)]
+    if (assigned && synced.has(assigned)) return false
+    return !row.attributedRepo && row.cost > 0.005
+  })
+  const accountLevelTotal = sumCost(accountLevelRows)
+  if (accountLevelTotal > 0.005) {
+    leaks.push({
+      id: "account-level",
+      severity: "warn",
+      title: "Spend is not mapped to a project",
+      detail: `${accountLevelRows.length} billing ${accountLevelRows.length === 1 ? "row is" : "rows are"} still account-level. Assign these to a repo or mark them shared.`,
+      amount: accountLevelTotal,
+    })
+  }
+
+  const inferred = input.analysis.costRows.filter((row) => row.attribution === "inferred" && row.cost > 0.005)
+  const inferredTotal = sumCost(inferred)
+  if (inferredTotal > 0.005) {
+    leaks.push({
+      id: "inferred",
+      severity: "info",
+      title: "Some spend is inferred",
+      detail: `${inferred.length} ${inferred.length === 1 ? "row needs" : "rows need"} confirmation so project totals stay trustworthy.`,
+      amount: inferredTotal,
+    })
+  }
+
+  for (const sync of input.analysis.liveSync.filter((entry) => entry.status === "error")) {
+    leaks.push({
+      id: `sync-${sync.provider}`,
+      severity: "warn",
+      title: `${providerName(sync.provider)} could not refresh`,
+      detail: sync.message || "Run ambrium-connect doctor or reconnect the provider.",
+    })
+  }
+
+  if (input.latestMs !== null && input.latestMs > 26 * 3_600_000) {
+    leaks.push({
+      id: "stale",
+      severity: "info",
+      title: "Cost data is getting stale",
+      detail: `Last successful refresh was ${shortAge(new Date(Date.now() - input.latestMs).toISOString())}. Refresh or run the CLI from your project machine.`,
+    })
+  }
+
+  for (const project of input.projects.filter((entry) => entry.cost > 0.005 && entry.linked.length === 0).slice(0, 3)) {
+    leaks.push({
+      id: `project-map-${project.repo.fullName}`,
+      severity: "warn",
+      title: `${project.repo.name} has spend but no linked account`,
+      detail: "Link the provider account so Ambrium can keep this project total accurate.",
+      amount: project.cost,
+    })
+  }
+
+  for (const project of input.projects.filter((entry) => entry.status === "stale").slice(0, 4)) {
+    leaks.push({
+      id: `stale-project-${project.repo.fullName}`,
+      severity: "warn",
+      title: `${project.repo.name} may be safe to shut down`,
+      detail: `${project.inactiveDays} days since the last GitHub push, but it still has assigned spend this month.`,
+      amount: project.cost,
+    })
+  }
+
+  const rank = { crit: 0, warn: 1, info: 2 }
+  return leaks.sort((a, b) => rank[a.severity] - rank[b.severity] || (b.amount ?? 0) - (a.amount ?? 0)).slice(0, 6)
+}
+
+function CostLeakPanel({ leaks }: { leaks: LeakCandidate[] }) {
+  return (
+    <section className="leak-panel" aria-label="Cost leak candidates">
+      <div className="insight-panel-head">
+        <div>
+          <p>Leaks</p>
+          <h2>Cost leak candidates</h2>
+          <span>Places where spend is unmapped, inferred, stale, or blocked by a provider connection issue.</span>
+        </div>
+        <ShieldAlert aria-hidden />
+      </div>
+
+      {leaks.length ? (
+        <div className="leak-list">
+          {leaks.map((leak) => (
+            <article key={leak.id} className={`leak-row ${leak.severity}`}>
+              <span className="attention-icon" aria-hidden>
+                {leak.severity === "warn" || leak.severity === "crit" ? <AlertTriangle /> : <ShieldAlert />}
+              </span>
+              <div>
+                <strong>{leak.title}</strong>
+                <span>{leak.detail}</span>
+              </div>
+              {leak.amount != null ? <b>{money(leak.amount)}</b> : null}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="attention-clear compact">
+          <CheckCircle2 aria-hidden />
+          <span>No obvious leaks. Spend is mapped, refreshes are clean, and inferred rows are under control.</span>
+        </div>
+      )}
+    </section>
+  )
 }
 
 // Every connected account shown on the overview: built-in hosting + AI tools
@@ -461,6 +781,9 @@ function Header({ subtitle }: { subtitle: string }) {
         </div>
       </div>
       <div className="top-actions">
+        <a href="/pricing" className="link-button">
+          Pricing <ArrowUpRight aria-hidden />
+        </a>
         <a href="/api/analyze" className="link-button">
           API JSON <ArrowUpRight aria-hidden />
         </a>
@@ -476,9 +799,10 @@ function Header({ subtitle }: { subtitle: string }) {
 
 function ViewTabs({ view }: { view: ViewKey }) {
   const tabs: Array<{ key: ViewKey; label: string; icon: typeof Gauge; href: string }> = [
-    { key: "dashboards", label: "Dashboards", icon: Gauge, href: "/dashboard" },
-    { key: "repos", label: "Repos", icon: FolderGit2, href: "/dashboard?view=repos" },
-    { key: "credentials", label: "Credentials", icon: ShieldAlert, href: "/dashboard?view=credentials" },
+    { key: "projects", label: "Projects", icon: FolderGit2, href: "/dashboard" },
+    { key: "limits", label: "Limits", icon: Gauge, href: "/dashboard?view=limits" },
+    { key: "leaks", label: "Leaks", icon: ShieldAlert, href: "/dashboard?view=leaks" },
+    { key: "connect", label: "Connect", icon: TerminalSquare, href: "/dashboard?view=connect" },
   ]
   return (
     <nav className="view-tabs" aria-label="Sections">
@@ -901,29 +1225,71 @@ function AttentionPanel({ alerts }: { alerts: DashAlert[] }) {
 }
 
 function CliConnectionGuide() {
+  const agentPrompt = `Use the Ambrium CLI to connect this machine's cloud and AI provider accounts to my Ambrium workspace.
+
+Rules:
+- Only create or use read-only credentials.
+- Never print secrets into chat.
+- Prefer existing local CLI sessions where available.
+- Ask me before opening provider dashboards or approving OAuth/IAM changes.
+- After each provider, verify the connection and summarize what was connected.
+
+Start with:
+AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer doctor
+
+Then run:
+AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer`
   return (
     <section className="cli-connect-guide" aria-label="Connect accounts with the CLI">
       <div className="cli-guide-head">
         <div>
           <p>Recommended setup</p>
-          <h2>Connect every local cloud account from one command</h2>
-          <span>The CLI pairs to this signed-in workspace, provisions read-only access, verifies each account, and starts the first data refresh.</span>
+          <h2>Connect your projects with one command, or let your coding agent drive it</h2>
+          <span>The CLI pairs to this signed-in workspace, detects local cloud and AI tooling, prepares read-only access, verifies each account, and keeps human approval at the provider consent steps.</span>
         </div>
         <TerminalSquare aria-hidden />
       </div>
-      <div className="cli-command">
-        <span>Run from your terminal</span>
-        <code>AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer</code>
+
+      <div className="cli-setup-modes">
+        <article className="cli-mode-card primary">
+          <div>
+            <strong>One-command setup</strong>
+            <span>Best when you are in the project repo and already use local CLIs like <code>aws</code>, <code>gcloud</code>, or <code>wrangler</code>.</span>
+          </div>
+          <div className="cli-command">
+            <span>Run from your terminal</span>
+            <code>AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer</code>
+          </div>
+          <div className="cli-command secondary">
+            <span>Diagnose first</span>
+            <code>AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer doctor</code>
+          </div>
+        </article>
+
+        <article className="cli-mode-card">
+          <div>
+            <strong>Connect with Codex or Claude Code</strong>
+            <span>Paste this prompt into your coding agent. It can run diagnostics, use the CLI, and stop for your approval when provider access is required.</span>
+          </div>
+          <pre className="agent-prompt">{agentPrompt}</pre>
+          <div className="cli-mode-actions">
+            <a className="ghost-button" href="/api/extend/spec" target="_blank" rel="noreferrer">
+              <ArrowUpRight aria-hidden />
+              Agent setup spec
+            </a>
+          </div>
+        </article>
       </div>
+
       <div className="cli-step-grid">
-        <article><b>1</b><div><strong>Sign in to local CLIs</strong><span>Use <code>aws login</code>, <code>gcloud auth login</code>, and keep your Cloudflare/MotherDuck tokens ready.</span></div></article>
-        <article><b>2</b><div><strong>Approve pairing</strong><span>The command opens Ambrium. Confirm the displayed device code while signed in.</span></div></article>
-        <article><b>3</b><div><strong>Review read-only access</strong><span>AWS gets a scoped IAM role; GCP gets a billing-reader service account; Cloudflare and MotherDuck use tokens you provide.</span></div></article>
-        <article><b>4</b><div><strong>Verify data</strong><span>Return here after the command finishes. Connected cards turn green and the dashboard refreshes cost and usage.</span></div></article>
+        <article><b>1</b><div><strong>Detect local context</strong><span>The CLI checks Git, AWS, Google Cloud, Cloudflare, Vercel, MotherDuck, and local AI usage.</span></div></article>
+        <article><b>2</b><div><strong>Pair to Ambrium</strong><span>The command opens Ambrium. Confirm the displayed device code while signed in.</span></div></article>
+        <article><b>3</b><div><strong>Approve read-only access</strong><span>Your agent can prepare setup, but you approve OAuth, IAM, service accounts, billing exports, and token creation.</span></div></article>
+        <article><b>4</b><div><strong>Verify coverage</strong><span>Run <code>ambrium-connect status</code> or <code>doctor</code>. Cards below show cost live, usage only, partial, or blocked states.</span></div></article>
       </div>
       <div className="cli-prereqs">
         <strong>Provider notes</strong>
-        <span>AWS Cost Explorer is opt-in because AWS charges per request. GCP detailed cost still requires Billing Export. MotherDuck shows verified storage usage only because its actual invoice is available only in MotherDuck Billing. The CLI also reads your local Claude Code &amp; Codex logs to track AI usage for flat personal plans (Claude Pro/Max, ChatGPT Plus/Pro) — the only place that data exists.</span>
+        <span>AWS Cost Explorer is opt-in because AWS charges per request. GCP detailed cost still requires Billing Export. Cloudflare may require a scoped token paste. The CLI also reads your local Claude Code &amp; Codex logs to track AI usage for flat personal plans — the only place that data exists.</span>
       </div>
     </section>
   )
@@ -1021,7 +1387,6 @@ function RepositoryDashboard({
 }) {
   const connectedProviders = CONNECTABLE_PROVIDERS.filter((provider) => state.connections[provider]?.status === "connected")
   const accounts = accountEntries(analysis, state)
-  const measuredUsageCount = analysis.freeTier.filter((row) => row.source === "measured").length
   const totalCost = sumCost(analysis.costRows)
   const { elapsedDays, totalDays } = periodProgress(analysis.period)
   const forecast = {
@@ -1053,50 +1418,36 @@ function RepositoryDashboard({
     elapsedDays: forecast.elapsedDays,
     totalDays: forecast.totalDays,
   })
+  const indieProjects = buildIndieProjects({
+    repos,
+    analysis,
+    repoAnalyses,
+    connectedProviders,
+    state,
+    elapsedDays: forecast.elapsedDays,
+    totalDays: forecast.totalDays,
+  })
+  const leaks = buildLeakCandidates({
+    analysis,
+    projects: indieProjects,
+    assignments: state.costAssignments,
+    syncedRepoFullNames: state.syncedRepoFullNames,
+    latestMs,
+  })
   const accountUsageRows = analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider))
   const aiTools = buildAiTools(analysis, state)
-  const dashboardWidgets: DashboardWidgetDefinition[] = [
-    { id: "attention", title: "Needs attention", content: <AttentionPanel alerts={alerts} /> },
-    { id: "cloud", title: "Cloud cost", content: <CloudProviderReportPanel reports={cloudReports} /> },
-    { id: "usage", title: "Account usage", content: <AccountWideUsagePanel rows={accountUsageRows} /> },
-    {
-      id: "spend",
-      title: "Spend & budget",
-      content: (
-        <div className="spend-widget-stack">
-          <CostOverview
-            eyebrow={`All Accounts · ${monthLabel(analysis.period)}`}
-            rows={analysis.costRows}
-            measuredUsageCount={measuredUsageCount}
-            emptyNote="No billed spend across your connected accounts this month."
-          />
-          <BudgetForecast
-            spent={totalCost}
-            projected={forecast.projected}
-            dailyRate={forecast.dailyRate}
-            elapsedDays={forecast.elapsedDays}
-            totalDays={forecast.totalDays}
-            budget={state.monthlyBudgetUsd ?? null}
-            monthLabel={monthLabel(analysis.period)}
-          />
-        </div>
-      ),
-    },
-    { id: "ai", title: "AI usage", content: <AiInsights tools={aiTools} /> },
-    { id: "history", title: "Cost history", content: <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} /> },
-  ]
 
   return (
     <>
       <ViewTabs view={view} />
 
-      {view === "dashboards" ? (
+      {view === "projects" ? (
         <>
           <section className="overview-hero" aria-label="Cost dashboard">
-            <p>Dashboards · {monthLabel(analysis.period)}</p>
+            <p>Projects · {monthLabel(analysis.period)}</p>
             <h1>
-              Cost &amp; usage overview{" "}
-              <span className="hero-sub">across {accounts.length} {accounts.length === 1 ? "account" : "accounts"}</span>
+              What each project costs{" "}
+              <span className="hero-sub">before the bill surprises you</span>
             </h1>
           </section>
 
@@ -1112,35 +1463,13 @@ function RepositoryDashboard({
             alertCount={alerts.length}
           />
 
-          <DashboardGrid initialLayout={state.dashboardLayout} widgets={dashboardWidgets} />
-        </>
-      ) : null}
-
-      {view === "repos" ? (
-        <>
-          <section className="overview-hero" aria-label="Repositories">
-            <p>Repos</p>
-            <h1>
-              {repos.length} {repos.length === 1 ? "repo" : "repos"} <span className="hero-sub">synced</span>
-            </h1>
-          </section>
+          <ProjectCostCockpit projects={indieProjects} />
 
           {repos.length > 0 ? (() => {
-            const repoCosts = repos.map((repo) => {
+            const repoCosts = indieProjects.map((project) => {
+              const repo = project.repo
               const repoAnalysis = repoAnalyses[repo.fullName]
-              const detectedProviders = [...new Set((repoAnalysis?.signals ?? []).map((signal) => signal.provider))]
-              const linked = resolveLinkedProviders({
-                explicit: state.repoProviderLinks[repo.fullName],
-                detected: detectedProviders,
-                connected: connectedProviders,
-              })
-              const repoShortName = repo.name.toLowerCase()
-              const candidateRows = [...(repoAnalysis?.costRows ?? []), ...analysis.costRows]
-              const uniqueRows = [...new Map(candidateRows.map((row) => [costItemKey(row), row])).values()]
-              const cost = sumCost(
-                uniqueRows.filter((row) => isAssignedHere(row, state.costAssignments, repo.fullName, repoShortName))
-              )
-              return { repo, repoAnalysis, linked, cost }
+              return { repo, repoAnalysis, linked: project.linked, cost: project.cost }
             })
             const ranked = repoCosts.filter((entry) => entry.cost > 0.005).sort((a, b) => b.cost - a.cost)
             const rankMax = Math.max(...ranked.map((entry) => entry.cost), 0.01)
@@ -1204,12 +1533,58 @@ function RepositoryDashboard({
         </>
       ) : null}
 
-      {view === "credentials" ? (
+      {view === "limits" ? (
         <>
-          <section className="overview-hero" aria-label="Credentials">
-            <p>Credentials</p>
+          <section className="overview-hero" aria-label="Limits">
+            <p>Limits · {monthLabel(analysis.period)}</p>
             <h1>
-              {accounts.length} {accounts.length === 1 ? "account" : "accounts"} <span className="hero-sub">connected</span>
+              Know when free stops being free <span className="hero-sub">budgets, usage, and runway</span>
+            </h1>
+          </section>
+
+          <div className="two-panel-grid">
+            <FreeTierRunwayPanel rows={accountUsageRows} />
+            <BudgetForecast
+              spent={totalCost}
+              projected={forecast.projected}
+              dailyRate={forecast.dailyRate}
+              elapsedDays={forecast.elapsedDays}
+              totalDays={forecast.totalDays}
+              budget={state.monthlyBudgetUsd ?? null}
+              monthLabel={monthLabel(analysis.period)}
+            />
+          </div>
+
+          <AccountWideUsagePanel rows={accountUsageRows} />
+
+          <CloudProviderReportPanel reports={cloudReports} />
+        </>
+      ) : null}
+
+      {view === "leaks" ? (
+        <>
+          <section className="overview-hero" aria-label="Leaks">
+            <p>Leaks</p>
+            <h1>
+              What changed or looks wasteful <span className="hero-sub">unmapped, stale, inferred, or failing</span>
+            </h1>
+          </section>
+
+          <div className="two-panel-grid">
+            <CostLeakPanel leaks={leaks} />
+            <AttentionPanel alerts={alerts} />
+          </div>
+
+          <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} />
+        </>
+      ) : null}
+
+      {view === "connect" ? (
+        <>
+          <section className="overview-hero" aria-label="Connect">
+            <p>Connect</p>
+            <h1>
+              Run one command, see project costs <span className="hero-sub">{accounts.length} {accounts.length === 1 ? "account" : "accounts"} connected</span>
             </h1>
           </section>
 
@@ -1636,7 +2011,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const rawRepo = params.repo
   const requestedRepo = Array.isArray(rawRepo) ? rawRepo[0] : rawRepo ?? null
   const rawView = Array.isArray(params.view) ? params.view[0] : params.view
-  const view: ViewKey = rawView === "repos" || rawView === "credentials" ? rawView : "dashboards"
+  const view: ViewKey =
+    rawView === "limits" || rawView === "leaks" || rawView === "connect" || rawView === "projects"
+      ? rawView
+      : rawView === "repos"
+        ? "projects"
+        : rawView === "credentials"
+          ? "connect"
+          : "projects"
   const dashboardStore = await readDashboardStore(user.id)
   const state = { user, ...dashboardStore.publicState }
   const workspace = dashboardStore.workspace

@@ -105,6 +105,7 @@ test("local store tracks multiple synced GitHub repositories", async () => {
 test("local store persists normalized dashboard layout per workspace", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "infra-cost-layout-"))
   const storePath = path.join(root, "tenant-store.json")
+  const { DEFAULT_DASHBOARD_LAYOUT } = await import("../src/lib/dashboardLayout")
   const { createClerkUser, publicStore, setDashboardLayout, setStorePathForTests } = await import("../src/lib/localStore")
   setStorePathForTests(storePath)
   try {
@@ -118,7 +119,7 @@ test("local store persists normalized dashboard layout per workspace", async () 
       { id: "ai", span: 3 },
       { id: "usage", span: 8 },
     ])
-    assert.equal(state.dashboardLayout.length, 6)
+    assert.equal(state.dashboardLayout.length, DEFAULT_DASHBOARD_LAYOUT.length)
   } finally {
     setStorePathForTests(null)
     rmSync(root, { recursive: true, force: true })

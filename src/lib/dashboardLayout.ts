@@ -1,4 +1,4 @@
-export const DASHBOARD_WIDGET_IDS = ["attention", "cloud", "usage", "spend", "ai", "history"] as const
+export const DASHBOARD_WIDGET_IDS = ["projects", "runway", "leaks", "attention", "cloud", "usage", "spend", "ai", "history"] as const
 export type DashboardWidgetId = (typeof DASHBOARD_WIDGET_IDS)[number]
 export const DASHBOARD_WIDGET_SIZES = ["compact", "medium", "wide", "full"] as const
 export type DashboardWidgetSize = (typeof DASHBOARD_WIDGET_SIZES)[number]
@@ -11,6 +11,9 @@ export interface DashboardWidgetLayout {
 }
 
 export const DEFAULT_DASHBOARD_LAYOUT: DashboardWidgetLayout[] = [
+  { id: "projects", span: 12 },
+  { id: "runway", span: 6 },
+  { id: "leaks", span: 6 },
   { id: "attention", span: 12 },
   { id: "cloud", span: 12 },
   { id: "usage", span: 6 },

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 import { readStore, writeStore } from "./localStore"
 import type { CliPairing } from "./types"
 
@@ -32,6 +32,13 @@ function isExpired(pairing: CliPairing, now: number) {
   const tokenExp = pairing.cliTokenExpiresAt ? Date.parse(pairing.cliTokenExpiresAt) : 0
   const latest = Math.max(Date.parse(pairing.expiresAt), tokenExp)
   return now > latest
+}
+
+function secretMatches(a: string | null | undefined, b: string | null | undefined) {
+  if (!a || !b) return false
+  const aDigest = createHash("sha256").update(a).digest()
+  const bDigest = createHash("sha256").update(b).digest()
+  return timingSafeEqual(aDigest, bDigest)
 }
 
 // Drops fully-expired pairings so the store stays small. Mutates the map.
@@ -118,7 +125,7 @@ export async function userIdFromCliToken(cliToken: string): Promise<string | nul
   if (!cliToken) return null
   const store = await readStore()
   const now = Date.now()
-  const pairing = Object.values(store.cliPairings).find((entry) => entry.cliToken === cliToken)
+  const pairing = Object.values(store.cliPairings).find((entry) => secretMatches(entry.cliToken, cliToken))
   if (!pairing || pairing.status !== "authorized" || !pairing.userId) return null
   if (!pairing.cliTokenExpiresAt || now > Date.parse(pairing.cliTokenExpiresAt)) return null
   return pairing.userId

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "bin": {
+    "ambrium": "./cli/connect.mjs",
     "ambrium-connect": "./cli/connect.mjs"
   },
   "description": "Repository-aware infrastructure cost analyzer for GitHub projects.",

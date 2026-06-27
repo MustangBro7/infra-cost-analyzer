@@ -19,12 +19,28 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url)
     const provided = request.headers.get("x-cron-secret") ?? url.searchParams.get("secret")
-    if (!env.CRON_SECRET || provided !== env.CRON_SECRET) {
+    if (!(await secretMatches(provided, env.CRON_SECRET))) {
       return new Response("Unauthorized", { status: 401 })
     }
     const result = await runRefresh(env)
     return Response.json(result)
   },
+}
+
+async function secretMatches(provided, expected) {
+  if (!provided || !expected) return false
+  const encoder = new TextEncoder()
+  const [providedDigest, expectedDigest] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ])
+  const a = new Uint8Array(providedDigest)
+  const b = new Uint8Array(expectedDigest)
+  let diff = a.length ^ b.length
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    diff |= (a[i] ?? 0) ^ (b[i] ?? 0)
+  }
+  return diff === 0
 }
 
 async function runRefresh(env) {

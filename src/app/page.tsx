@@ -25,17 +25,17 @@ const STEPS: Array<{ icon: typeof Gauge; title: string; body: string }> = [
   {
     icon: TerminalSquare,
     title: "1 · Connect",
-    body: "Run one command — npx @ambrium/connect — or click connect. Ambrium provisions scoped, read-only access. Your keys never leave your account.",
+    body: "Run one command — npx @ambrium/connect — or let Codex/Claude Code drive it. You approve the read-only provider steps.",
   },
   {
     icon: GitBranch,
     title: "2 · Detect",
-    body: "Ambrium scans your GitHub repos to find which providers each one uses, and links them to your accounts automatically.",
+    body: "Ambrium maps GitHub repos, Vercel projects, Cloudflare apps, AWS/GCP usage, and AI-tool spend into project costs.",
   },
   {
     icon: Gauge,
     title: "3 · Understand",
-    body: "See your spend split per repo and your free-tier usage, live — so you catch waste long before the bill arrives.",
+    body: "See which project costs money, which free tier is close to breaking, and which old project may be safe to shut down.",
   },
 ]
 
@@ -51,6 +51,9 @@ export default function Landing() {
           <strong>Ambrium</strong>
         </div>
         <nav className="landing-nav-actions">
+          <Link href="/pricing" className="link-button">
+            Pricing
+          </Link>
           <Link href="/sign-in" className="link-button">
             Sign in
           </Link>
@@ -62,13 +65,13 @@ export default function Landing() {
 
       <section className="landing-hero">
         <div className="landing-hero-copy">
-          <p className="landing-eyebrow">Cloud cost, mapped to your code</p>
+          <p className="landing-eyebrow">Personal cost cockpit for indie developers</p>
           <h1>
-            See exactly where your <span className="hl">cloud spend</span> goes.
+            See what every <span className="hl">side project</span> costs.
           </h1>
           <p className="landing-lede">
-            Ambrium connects your cloud accounts — AWS, Google Cloud, Cloudflare, Vercel — and your GitHub repos, then
-            shows which repo is driving which cost. No spreadsheets, no guesswork.
+            Ambrium connects your GitHub repos, cloud providers, and AI tools, then shows which app is costing money,
+            which free tiers are close to limits, and what you can shut down before a surprise bill.
           </p>
           <div className="landing-cta">
             <Link href="/sign-up" className="command-button lg">
@@ -79,7 +82,7 @@ export default function Landing() {
             </Link>
           </div>
           <p className="landing-note">
-            Connect everything with one command: <code>npx @ambrium/connect</code>
+            Run one command, see what your projects cost: <code>npx @ambrium/connect</code>
           </p>
         </div>
 
@@ -120,7 +123,7 @@ export default function Landing() {
 
       <section className="landing-providers">
         <span>Works with</span>
-        <div className="landing-provider-row">AWS · Google Cloud · Cloudflare · Vercel · GitHub</div>
+        <div className="landing-provider-row">GitHub · Vercel · Cloudflare · AWS · Google Cloud · OpenAI · Claude · Cursor</div>
       </section>
 
       <section className="landing-trust">
@@ -135,7 +138,7 @@ export default function Landing() {
       </section>
 
       <section className="landing-footer-cta">
-        <h2>Stop guessing what your infrastructure costs.</h2>
+        <h2>Stop wondering which side project is still billing you.</h2>
         <Link href="/sign-up" className="command-button lg">
           Get started <ArrowRight aria-hidden />
         </Link>
