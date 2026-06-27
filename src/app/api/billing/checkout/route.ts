@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic"
 export async function POST(request: NextRequest) {
   try {
     const user = await requireUserFromRequest(request)
-    const config = dodoConfig()
+    const config = await dodoConfig()
     if (!config) {
       return NextResponse.json(
         { error: "Dodo billing is not configured. Set DODO_PAYMENTS_API_KEY and DODO_INDIE_PRODUCT_ID." },

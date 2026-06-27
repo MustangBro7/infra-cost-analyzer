@@ -113,10 +113,11 @@ Set runtime secrets in Cloudflare:
 ```bash
 npx wrangler secret put DODO_PAYMENTS_API_KEY
 npx wrangler secret put DODO_PAYMENTS_WEBHOOK_KEY
+npx wrangler secret put DODO_INDIE_PRODUCT_ID
 ```
 
-Set `DODO_PAYMENTS_ENVIRONMENT=live` and `DODO_INDIE_PRODUCT_ID=...` in the
-deployment environment. The webhook endpoint is:
+Set `DODO_PAYMENTS_ENVIRONMENT=live` in the deployment environment. The webhook
+endpoint is:
 
 ```text
 https://ambrium.io/api/billing/webhook/dodo

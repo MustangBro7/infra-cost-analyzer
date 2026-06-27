@@ -25,7 +25,25 @@ export interface DodoWebhookUpdate {
   currentPeriodEnd: string | null
 }
 
-export function dodoConfig(env: Record<string, string | undefined> = process.env): DodoConfig | null {
+type DodoRuntimeEnv = Record<string, string | undefined> & {
+  DODO_PAYMENTS_API_KEY?: string
+  DODO_INDIE_PRODUCT_ID?: string
+  DODO_PAYMENTS_ENVIRONMENT?: string
+  DODO_PAYMENTS_WEBHOOK_KEY?: string
+}
+
+export async function dodoRuntimeEnv(): Promise<DodoRuntimeEnv> {
+  let cloudflareEnv: DodoRuntimeEnv = {}
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare/cloudflare-context")
+    cloudflareEnv = getCloudflareContext().env as unknown as DodoRuntimeEnv
+  } catch {
+    cloudflareEnv = {}
+  }
+  return { ...(process.env as DodoRuntimeEnv), ...cloudflareEnv }
+}
+
+export function dodoConfigFromEnv(env: DodoRuntimeEnv): DodoConfig | null {
   const apiKey = env.DODO_PAYMENTS_API_KEY?.trim()
   const productId = env.DODO_INDIE_PRODUCT_ID?.trim()
   if (!apiKey || !productId) return null
@@ -34,6 +52,10 @@ export function dodoConfig(env: Record<string, string | undefined> = process.env
     productId,
     environment: env.DODO_PAYMENTS_ENVIRONMENT === "live" ? "live" : "test",
   }
+}
+
+export async function dodoConfig(): Promise<DodoConfig | null> {
+  return dodoConfigFromEnv(await dodoRuntimeEnv())
 }
 
 export async function createDodoCheckout(input: {

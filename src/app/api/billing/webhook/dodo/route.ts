@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { parseDodoWebhook, verifyDodoWebhook } from "@/lib/dodoBilling"
+import { dodoRuntimeEnv, parseDodoWebhook, verifyDodoWebhook } from "@/lib/dodoBilling"
 import { markBillingWebhookProcessed, upsertBillingSubscription } from "@/lib/localStore"
 
 export const runtime = "nodejs"
@@ -8,8 +8,9 @@ export const dynamic = "force-dynamic"
 export async function POST(request: NextRequest) {
   const body = await request.text()
   const webhookId = request.headers.get("webhook-id") ?? ""
+  const env = await dodoRuntimeEnv()
 
-  if (!verifyDodoWebhook({ body, headers: request.headers, secret: process.env.DODO_PAYMENTS_WEBHOOK_KEY })) {
+  if (!verifyDodoWebhook({ body, headers: request.headers, secret: env.DODO_PAYMENTS_WEBHOOK_KEY })) {
     return NextResponse.json({ error: "Invalid webhook signature." }, { status: 401 })
   }
 
