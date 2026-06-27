@@ -13,7 +13,7 @@ import type {
   StoredConnection,
   WorkspaceStore,
 } from "./types"
-import { normalizeDashboardLayout, type DashboardWidgetLayout } from "./dashboardLayout"
+import { normalizeDashboardLayout } from "./dashboardLayout"
 import { CONNECTABLE_PROVIDERS } from "./repoLinks"
 
 const EMPTY_WORKSPACE: WorkspaceStore = {
@@ -507,7 +507,7 @@ export async function setMonthlyBudget(userId: string, amount: number | null) {
   return workspace.monthlyBudgetUsd
 }
 
-export async function setDashboardLayout(userId: string, layout: DashboardWidgetLayout[]) {
+export async function setDashboardLayout(userId: string, layout: unknown) {
   const workspace = await readWorkspace(userId)
   workspace.dashboardLayout = normalizeDashboardLayout(layout)
   await writeWorkspace(userId, workspace)

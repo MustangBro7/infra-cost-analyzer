@@ -115,8 +115,8 @@ test("local store persists normalized dashboard layout per workspace", async () 
     ])
     const state = await publicStore("usr_layout")
     assert.deepEqual(state.dashboardLayout.slice(0, 2), [
-      { id: "ai", size: "compact" },
-      { id: "usage", size: "wide" },
+      { id: "ai", span: 3 },
+      { id: "usage", span: 8 },
     ])
     assert.equal(state.dashboardLayout.length, 6)
   } finally {

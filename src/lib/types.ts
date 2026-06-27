@@ -1,3 +1,5 @@
+import type { DashboardWidgetId, DashboardWidgetLayout, DashboardWidgetSize } from "./dashboardLayout"
+
 export type Provider =
   | "github"
   | "vercel"
@@ -281,10 +283,7 @@ export interface WorkspaceStore {
   // spend against. null/undefined = no budget set.
   monthlyBudgetUsd?: number | null
   // User-controlled dashboard widget order and widths.
-  dashboardLayout?: Array<{
-    id: "attention" | "cloud" | "usage" | "spend" | "ai" | "history"
-    size: "compact" | "medium" | "wide" | "full"
-  }>
+  dashboardLayout?: Array<DashboardWidgetLayout | { id: DashboardWidgetId; size: DashboardWidgetSize }>
   // User-defined provider connectors registered via the extension API, keyed by
   // CustomProviderDef.id.
   customProviders: Record<string, CustomProviderDef>
