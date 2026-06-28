@@ -73,6 +73,9 @@ interface D1PreparedStatementLike {
 
 interface D1DatabaseLike {
   prepare(sql: string): D1PreparedStatementLike
+  // Real D1 runs a batch as one implicit transaction (all-or-nothing). Optional
+  // so the in-memory/file test doubles (which only implement prepare) still type.
+  batch?(statements: D1PreparedStatementLike[]): Promise<unknown>
 }
 
 let d1TableReady = false
@@ -296,17 +299,22 @@ async function ensureD1Schema(db: D1DatabaseLike): Promise<void> {
 
 async function d1Binding(): Promise<D1DatabaseLike | null> {
   if (testStorePath) return null
-  try {
-    const db = (await cloudflareRuntimeEnv())?.DB ?? null
-    if (db && !d1TableReady) {
-      await ensureD1Schema(db)
-      d1TableReady = true
-    }
-    return db
-  } catch {
-    // Not running inside the Cloudflare adapter (plain node, tests, CI).
-    return null
+  // Only `null` when we are genuinely NOT in the Cloudflare runtime (plain node,
+  // tests, CI) — i.e. the cloudflare-context import throws. Inside the Worker we
+  // must NOT swallow a missing binding or a schema error and fall back to the
+  // (empty) file store, because a later write would then DELETE the real D1 data
+  // and reinsert nothing. Fail loudly so the read aborts and no write happens.
+  const env = await cloudflareRuntimeEnv()
+  if (!env) return null
+  const db = env.DB ?? null
+  if (!db) {
+    throw new Error("localStore: env.DB (D1) binding is unavailable in the Cloudflare runtime.")
   }
+  if (!d1TableReady) {
+    await ensureD1Schema(db)
+    d1TableReady = true
+  }
+  return db
 }
 
 async function loadRaw(): Promise<unknown> {
@@ -526,6 +534,19 @@ async function loadD1Store(db: D1DatabaseLike): Promise<AppStore> {
   return store
 }
 
+// Runs a set of writes as one all-or-nothing unit. Real D1 exposes batch(),
+// which is an implicit transaction — critical here because persistD1Store first
+// DELETEs every table; without atomicity an interrupted/failed write would leave
+// the store wiped. Falls back to sequential runs only for non-D1 test doubles.
+async function runAtomic(db: D1DatabaseLike, statements: D1PreparedStatementLike[]): Promise<void> {
+  if (statements.length === 0) return
+  if (typeof db.batch === "function") {
+    await db.batch(statements)
+    return
+  }
+  for (const statement of statements) await statement.run()
+}
+
 async function persistD1Store(db: D1DatabaseLike, store: AppStore): Promise<void> {
   const tables = [
     "app_users",
@@ -543,176 +564,251 @@ async function persistD1Store(db: D1DatabaseLike, store: AppStore): Promise<void
     "app_billing_subscriptions",
     "app_billing_webhooks",
   ]
+
+  // SAFETY GUARD: this rewrites the whole store (DELETE every table, reinsert).
+  // A transient empty/partial in-memory store (e.g. a read that fell back to
+  // EMPTY_STORE) must never be allowed to delete real data, so refuse to persist
+  // fewer users than already exist in D1. This is what stops the catastrophic
+  // "all my connected data disappeared" wipe.
+  const existingUsers = Number(
+    (await db.prepare("SELECT COUNT(*) AS n FROM app_users").first<number>("n")) ?? 0
+  )
+  const incomingUsers = Object.keys(store.users).length
+  if (incomingUsers < existingUsers) {
+    throw new Error(
+      `localStore: refusing to persist ${incomingUsers} user(s) over ${existingUsers} already in D1 — aborting to prevent data loss.`
+    )
+  }
+
+  const statements: D1PreparedStatementLike[] = []
   for (const table of tables) {
-    await db.prepare(`DELETE FROM ${table}`).run()
+    statements.push(db.prepare(`DELETE FROM ${table}`))
   }
 
   for (const user of Object.values(store.users)) {
-    await db.prepare(
-      `INSERT INTO app_users (id, email, name, created_at, last_signed_in_at)
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_users (id, email, name, created_at, last_signed_in_at)
        VALUES (?1, ?2, ?3, ?4, ?5)`
-    ).bind(user.id, user.email, user.name, user.createdAt, user.lastSignedInAt).run()
+        )
+        .bind(user.id, user.email, user.name, user.createdAt, user.lastSignedInAt)
+    )
   }
 
   for (const session of Object.values(store.sessions)) {
-    await db.prepare(
-      `INSERT INTO app_sessions (id, user_id, created_at, expires_at)
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_sessions (id, user_id, created_at, expires_at)
        VALUES (?1, ?2, ?3, ?4)`
-    ).bind(session.id, session.userId, session.createdAt, session.expiresAt).run()
+        )
+        .bind(session.id, session.userId, session.createdAt, session.expiresAt)
+    )
   }
 
   for (const [userId, rawWorkspace] of Object.entries(store.workspaces)) {
     const workspace = normalizeWorkspace(rawWorkspace)
-    await db.prepare(
-      `INSERT INTO app_workspace_settings (
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_workspace_settings (
         user_id, selected_repo_full_name, synced_repo_full_names_json, monthly_budget_usd, dashboard_layout_json
       ) VALUES (?1, ?2, ?3, ?4, ?5)`
-    ).bind(
-      userId,
-      workspace.selectedRepoFullName,
-      JSON.stringify(workspace.syncedRepoFullNames),
-      workspace.monthlyBudgetUsd ?? null,
-      JSON.stringify(normalizeDashboardLayout(workspace.dashboardLayout))
-    ).run()
+        )
+        .bind(
+          userId,
+          workspace.selectedRepoFullName,
+          JSON.stringify(workspace.syncedRepoFullNames),
+          workspace.monthlyBudgetUsd ?? null,
+          JSON.stringify(normalizeDashboardLayout(workspace.dashboardLayout))
+        )
+    )
 
     for (const connection of Object.values(workspace.connections).filter((value): value is StoredConnection => Boolean(value))) {
-      await db.prepare(
-        `INSERT INTO app_provider_connections (
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO app_provider_connections (
           user_id, provider, status, account_label, installation_id, selected_repo_full_name,
           connected_at, last_verified_at, last_error, encrypted_private_json
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
-      ).bind(
-        userId,
-        connection.provider,
-        connection.status,
-        connection.accountLabel,
-        connection.installationId ?? null,
-        connection.selectedRepoFullName ?? null,
-        connection.connectedAt,
-        connection.lastVerifiedAt,
-        connection.lastError,
-        await encryptJson({ accessToken: connection.accessToken, metadata: connection.metadata ?? {} })
-      ).run()
+          )
+          .bind(
+            userId,
+            connection.provider,
+            connection.status,
+            connection.accountLabel,
+            connection.installationId ?? null,
+            connection.selectedRepoFullName ?? null,
+            connection.connectedAt,
+            connection.lastVerifiedAt,
+            connection.lastError,
+            await encryptJson({ accessToken: connection.accessToken, metadata: connection.metadata ?? {} })
+          )
+      )
     }
 
     for (const [id, connection] of Object.entries(workspace.customConnections)) {
-      await db.prepare(
-        `INSERT INTO app_custom_connections (
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO app_custom_connections (
           user_id, custom_provider_id, status, account_label, connected_at,
           last_verified_at, last_error, encrypted_private_json
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
-      ).bind(
-        userId,
-        id,
-        connection.status,
-        connection.accountLabel,
-        connection.connectedAt,
-        connection.lastVerifiedAt,
-        connection.lastError,
-        await encryptJson({ accessToken: connection.accessToken, metadata: connection.metadata ?? {} })
-      ).run()
+          )
+          .bind(
+            userId,
+            id,
+            connection.status,
+            connection.accountLabel,
+            connection.connectedAt,
+            connection.lastVerifiedAt,
+            connection.lastError,
+            await encryptJson({ accessToken: connection.accessToken, metadata: connection.metadata ?? {} })
+          )
+      )
     }
 
     for (const [position, repo] of workspace.githubRepos.entries()) {
-      await db.prepare(
-        `INSERT INTO app_github_repos (
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO app_github_repos (
           user_id, full_name, repo_id, owner, name, private, default_branch, html_url, pushed_at, updated_at, position
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
-      ).bind(
-        userId,
-        repo.fullName,
-        repo.id,
-        repo.owner,
-        repo.name,
-        repo.private ? 1 : 0,
-        repo.defaultBranch,
-        repo.htmlUrl,
-        repo.pushedAt ?? null,
-        repo.updatedAt ?? null,
-        position
-      ).run()
+          )
+          .bind(
+            userId,
+            repo.fullName,
+            repo.id,
+            repo.owner,
+            repo.name,
+            repo.private ? 1 : 0,
+            repo.defaultBranch,
+            repo.htmlUrl,
+            repo.pushedAt ?? null,
+            repo.updatedAt ?? null,
+            position
+          )
+      )
     }
 
     for (const [repoFullName, providers] of Object.entries(workspace.repoProviderLinks)) {
-      await db.prepare(
-        `INSERT INTO app_repo_provider_links (user_id, repo_full_name, providers_json)
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO app_repo_provider_links (user_id, repo_full_name, providers_json)
          VALUES (?1, ?2, ?3)`
-      ).bind(userId, repoFullName, JSON.stringify(providers)).run()
+          )
+          .bind(userId, repoFullName, JSON.stringify(providers))
+      )
     }
 
     for (const [itemKey, target] of Object.entries(workspace.costAssignments)) {
-      await db.prepare(
-        `INSERT INTO app_cost_assignments (user_id, item_key, target)
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO app_cost_assignments (user_id, item_key, target)
          VALUES (?1, ?2, ?3)`
-      ).bind(userId, itemKey, target).run()
+          )
+          .bind(userId, itemKey, target)
+      )
     }
 
     for (const [id, def] of Object.entries(workspace.customProviders)) {
-      await db.prepare(
-        `INSERT INTO app_custom_providers (user_id, id, definition_json)
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO app_custom_providers (user_id, id, definition_json)
          VALUES (?1, ?2, ?3)`
-      ).bind(userId, id, JSON.stringify(def)).run()
+          )
+          .bind(userId, id, JSON.stringify(def))
+      )
     }
 
     for (const [position, event] of workspace.events.slice(0, 50).entries()) {
-      await db.prepare(
-        `INSERT INTO app_events (user_id, id, provider, level, message, created_at, position)
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO app_events (user_id, id, provider, level, message, created_at, position)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
-      ).bind(userId, event.id, event.provider, event.level, event.message, event.createdAt, position).run()
+          )
+          .bind(userId, event.id, event.provider, event.level, event.message, event.createdAt, position)
+      )
     }
 
     for (const snapshot of Object.values(workspace.analysisSnapshots)) {
-      await db.prepare(
-        `INSERT INTO app_analysis_snapshots (user_id, snapshot_key, snapshot_json, computed_at)
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO app_analysis_snapshots (user_id, snapshot_key, snapshot_json, computed_at)
          VALUES (?1, ?2, ?3, ?4)`
-      ).bind(userId, snapshot.key, JSON.stringify(snapshot), snapshot.computedAt).run()
+          )
+          .bind(userId, snapshot.key, JSON.stringify(snapshot), snapshot.computedAt)
+      )
     }
 
     if (workspace.billingSubscription) {
       const subscription = workspace.billingSubscription
-      await db.prepare(
-        `INSERT INTO app_billing_subscriptions (
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO app_billing_subscriptions (
           user_id, provider, plan, status, customer_id, subscription_id, checkout_session_id,
           product_id, current_period_end, updated_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
-      ).bind(
-        userId,
-        subscription.provider,
-        subscription.plan,
-        subscription.status,
-        subscription.customerId,
-        subscription.subscriptionId,
-        subscription.checkoutSessionId,
-        subscription.productId,
-        subscription.currentPeriodEnd,
-        subscription.updatedAt
-      ).run()
+          )
+          .bind(
+            userId,
+            subscription.provider,
+            subscription.plan,
+            subscription.status,
+            subscription.customerId,
+            subscription.subscriptionId,
+            subscription.checkoutSessionId,
+            subscription.productId,
+            subscription.currentPeriodEnd,
+            subscription.updatedAt
+          )
+      )
     }
   }
 
   for (const pairing of Object.values(store.cliPairings)) {
-    await db.prepare(
-      `INSERT INTO app_cli_pairings (
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_cli_pairings (
         device_code, user_code, user_id, status, created_at, expires_at, cli_token, cli_token_expires_at
       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
-    ).bind(
-      pairing.deviceCode,
-      pairing.userCode,
-      pairing.userId,
-      pairing.status,
-      pairing.createdAt,
-      pairing.expiresAt,
-      pairing.cliToken,
-      pairing.cliTokenExpiresAt
-    ).run()
+        )
+        .bind(
+          pairing.deviceCode,
+          pairing.userCode,
+          pairing.userId,
+          pairing.status,
+          pairing.createdAt,
+          pairing.expiresAt,
+          pairing.cliToken,
+          pairing.cliTokenExpiresAt
+        )
+    )
   }
 
   for (const [webhookId, processedAt] of Object.entries(store.processedBillingWebhookIds ?? {})) {
-    await db.prepare(
-      `INSERT INTO app_billing_webhooks (webhook_id, processed_at)
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_billing_webhooks (webhook_id, processed_at)
        VALUES (?1, ?2)`
-    ).bind(webhookId, processedAt).run()
+        )
+        .bind(webhookId, processedAt)
+    )
   }
+
+  await runAtomic(db, statements)
 }
 
 // ---------- store API ----------
