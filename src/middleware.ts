@@ -32,6 +32,12 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
+  // Local preview (AMBRIUM_DEV_PREVIEW=1, non-production): bypass auth entirely so
+  // /dashboard renders the seeded fixture with no Clerk session. Inlined here to
+  // avoid bundling the preview fixture into the edge middleware.
+  if (process.env.AMBRIUM_DEV_PREVIEW === "1" && process.env.NODE_ENV !== "production") {
+    return NextResponse.next();
+  }
   // The workers.dev route exists only as an infrastructure fallback. Browser
   // traffic must stay on ambrium.io so Clerk session cookies and third-party
   // callbacks always share one origin.

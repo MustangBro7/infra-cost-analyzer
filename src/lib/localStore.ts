@@ -16,6 +16,7 @@ import type {
 } from "./types"
 import { normalizeDashboardLayout } from "./dashboardLayout"
 import { CONNECTABLE_PROVIDERS } from "./repoLinks"
+import { DEV_PREVIEW_USER, devPreviewWorkspace, isDevPreview } from "./devPreview"
 
 const EMPTY_WORKSPACE: WorkspaceStore = {
   connections: {},
@@ -812,6 +813,7 @@ export async function createOrUpdateUserSession(input: { email: string; name?: s
 }
 
 export async function getUserById(id: string | undefined | null): Promise<LocalUser | null> {
+  if (isDevPreview()) return DEV_PREVIEW_USER
   if (!id) return null
   const store = await readStore()
   return store.users[id] ?? null
@@ -864,6 +866,8 @@ export async function deleteSession(sessionId: string | undefined | null) {
 }
 
 export async function readWorkspace(userId: string): Promise<WorkspaceStore> {
+  // Local preview: serve the seeded fixture so no Postgres connection is needed.
+  if (isDevPreview()) return normalizeWorkspace(devPreviewWorkspace())
   const store = await readStore()
   return normalizeWorkspace(store.workspaces[userId])
 }

@@ -10,6 +10,7 @@ import { analyticsPayloadFromSnapshot } from "./analytics/payload"
 import type { AnalyticsWriteResult } from "./analytics/types"
 import { writeAnalyticsPayload } from "./analytics/writer"
 import { autoConnectFromEnv } from "./connectors"
+import { devPreviewSnapshot, isDevPreview } from "./devPreview"
 
 export const OVERVIEW_SNAPSHOT_KEY = "__overview__"
 export type RefreshedAnalysisSnapshot = AnalysisSnapshot & { analytics: AnalyticsWriteResult }
@@ -98,6 +99,8 @@ export async function getOrCreateAnalysisSnapshot(input: {
   requestedRepo?: string | null
   githubRepos: GitHubRepoSummary[]
 }): Promise<AnalysisSnapshot> {
+  // Local preview: never touch live providers / DB — serve the seeded snapshot.
+  if (isDevPreview()) return devPreviewSnapshot(snapshotKeyForRepo(input.requestedRepo))
   const existing = await readAnalysisSnapshot(input.userId, snapshotKeyForRepo(input.requestedRepo))
   if (existing) return existing
   return refreshAnalysisSnapshot(input)

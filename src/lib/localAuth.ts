@@ -3,6 +3,7 @@ import { auth, currentUser } from "@clerk/nextjs/server"
 import { appendEvent, createClerkUser, getUserById } from "./localStore"
 import { userIdFromCliToken } from "./cliPairing"
 import { autoConnectFromEnv } from "./connectors"
+import { DEV_PREVIEW_USER, isDevPreview } from "./devPreview"
 import type { LocalUser } from "./types"
 
 /**
@@ -20,6 +21,8 @@ import type { LocalUser } from "./types"
  * zero-click provider auto-connect that used to live in the sign-in route.
  */
 async function resolveCurrentUser(): Promise<LocalUser | null> {
+  // Local preview: skip Clerk entirely and act as a fixed demo user.
+  if (isDevPreview()) return DEV_PREVIEW_USER
   const { userId } = await auth()
   if (!userId) return null
 

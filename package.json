@@ -9,6 +9,7 @@
   "description": "Repository-aware infrastructure cost analyzer for GitHub projects.",
   "scripts": {
     "dev": "next dev",
+    "dev:preview": "AMBRIUM_DEV_PREVIEW=1 next dev",
     "build": "next build",
     "postbuild": "node scripts/copy-standalone-assets.mjs",
     "start": "next start",

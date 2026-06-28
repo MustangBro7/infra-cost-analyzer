@@ -1,4 +1,5 @@
 import { analyticsRuntimeFlags, withAnalyticsClient } from "./connection"
+import { devPreviewAnalyticsDashboard, devPreviewTrends, isDevPreview } from "../devPreview"
 import type { AnalyticsDashboardResult, AnalyticsServicesResult, AnalyticsTrendsResult } from "./types"
 
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -82,6 +83,38 @@ export async function getAnalyticsTrends(input: {
   })
 }
 
+/**
+ * Real monthly cost totals per repo over a window, in one query, for the
+ * Projects table sparklines. Returns {} when historical reads are disabled or
+ * unavailable so the caller renders no trend rather than fabricating one.
+ */
+export async function getMonthlyTotalsByRepo(input: {
+  userId: string
+  from: string
+  to: string
+}): Promise<Record<string, Array<{ month: string; total: number }>>> {
+  validateMonthRange(input.from, input.to)
+  if (isDevPreview()) return devPreviewTrends()
+  const flags = await analyticsRuntimeFlags()
+  if (!flags.reads) return {}
+  return withAnalyticsClient(async (client) => {
+    const result = await client.query(
+      `SELECT repo_full_name AS repo, strftime(month, '%Y-%m') AS month, SUM(total)::DOUBLE AS total
+       FROM monthly_cost_summary
+       WHERE user_id = $1 AND month >= $2::DATE AND month <= $3::DATE AND repo_full_name IS NOT NULL
+       GROUP BY repo_full_name, month
+       ORDER BY month`,
+      [input.userId, `${input.from}-01`, `${input.to}-01`]
+    )
+    const out: Record<string, Array<{ month: string; total: number }>> = {}
+    for (const row of result.rows) {
+      const repo = String(row.repo)
+      ;(out[repo] ??= []).push({ month: String(row.month), total: Number(row.total) })
+    }
+    return out
+  })
+}
+
 export async function getAnalyticsServices(input: {
   userId: string
   month: string
@@ -130,6 +163,7 @@ export async function getAnalyticsDashboard(input: {
 }): Promise<AnalyticsDashboardResult> {
   validateMonthRange(input.from, input.to)
   validateMonth(input.month)
+  if (isDevPreview()) return devPreviewAnalyticsDashboard({ from: input.from, to: input.to, month: input.month })
   const flags = await analyticsRuntimeFlags()
   if (!flags.reads) throw new Error("Historical analytics are disabled.")
 

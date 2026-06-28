@@ -1,12 +1,8 @@
 import {
-  Activity,
-  AlertTriangle,
   ArrowLeft,
-  ArrowUpRight,
   Boxes,
   CheckCircle2,
   ChevronDown,
-  CloudCog,
   Coins,
   DatabaseZap,
   FolderGit2,
@@ -15,8 +11,6 @@ import {
   RefreshCw,
   ShieldAlert,
   Signal,
-  TerminalSquare,
-  TrendingUp,
   Wallet,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -26,7 +20,7 @@ import { RepoSyncPanel } from "../RepoSyncPanel"
 import { ProviderConnectPanel } from "../ProviderConnectPanel"
 import { CustomProviderPanel } from "../CustomProviderPanel"
 import { AiSyncPanel } from "../AiSyncPanel"
-import { AiInsights, type AiToolData } from "../AiInsights"
+import { type AiToolData } from "../AiInsights"
 import { BudgetForecast } from "../BudgetForecast"
 import { RepoAccountPicker } from "../RepoAccountPicker"
 import { ProviderCostPanel } from "../ProviderCostPanel"
@@ -34,17 +28,17 @@ import { ProviderResourcePanel } from "../ProviderResourcePanel"
 import { AnalysisRefresher } from "../AnalysisRefresher"
 import { ProviderLogo } from "../ProviderLogo"
 import { SignOutButton } from "../SignOutButton"
-import { ThemeToggle } from "../ThemeToggle"
 import { HistoricalAnalyticsPanel } from "../HistoricalAnalyticsPanel"
-import { RepoHomeCard } from "../RepoHomeCard"
 import { UnassignedCostQueue, type AssignmentQueueItem } from "../UnassignedCostQueue"
+import { ProjectsTable, type ProjectRowVM } from "./ProjectsTable"
+import { CopyButton } from "./CopyButton"
 import { getOrCreateAnalysisSnapshot, snapshotKeyForRepo } from "@/lib/analysisService"
+import { getMonthlyTotalsByRepo } from "@/lib/analytics/queries"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore, readDashboardStore } from "@/lib/localStore"
 import { CONNECTABLE_PROVIDERS, resolveLinkedProviders } from "@/lib/repoLinks"
 import { ACCOUNT_SENTINEL, costItemKey, isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
 import { resourceMetricService, resourceUsageRows } from "@/lib/freeTier"
-import { buildCloudProviderReports, type CloudProviderReport } from "@/lib/cloudReporting"
 import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
 export const runtime = "nodejs"
@@ -52,7 +46,7 @@ export const dynamic = "force-dynamic"
 
 // Indie-first app sections, selected by ?view=. Projects is the default product
 // surface; old query values are accepted as aliases below for existing links.
-type ViewKey = "projects" | "limits" | "leaks" | "ai" | "connect"
+type ViewKey = "projects" | "limits" | "leaks" | "ai" | "insights" | "connect"
 
 function money(value: number) {
   const abs = Math.abs(value)
@@ -105,6 +99,54 @@ function providerColor(provider: Provider) {
   return PROVIDER_COLOR[provider] ?? "#696459"
 }
 
+// Brand color + single-letter monogram for the redesigned UI's compact provider
+// chips (the small squares in project stacks, breakdowns, and connect cards).
+// Mirrors the palette from the Ambrium Dashboard design source.
+const DESIGN_PROV: Partial<Record<Provider, { color: string; m: string }>> = {
+  vercel: { color: "#7C3AED", m: "V" },
+  cloudflare: { color: "#F6821F", m: "C" },
+  aws: { color: "#E8920C", m: "A" },
+  gcp: { color: "#3B82F6", m: "G" },
+  azure: { color: "#0078D4", m: "A" },
+  openai: { color: "#0E9E76", m: "O" },
+  anthropic: { color: "#CC785C", m: "A" },
+  cursor: { color: "#52525B", m: "C" },
+  motherduck: { color: "#D69E00", m: "M" },
+  github: { color: "#24292F", m: "G" },
+  digitalocean: { color: "#0080FF", m: "D" },
+  docker: { color: "#2496ED", m: "D" },
+}
+
+function provMono(provider: Provider, label?: string) {
+  const known = DESIGN_PROV[provider]
+  if (known) return known
+  return { color: "#6E40C9", m: (label ?? provider).charAt(0).toUpperCase() }
+}
+
+const CONF_CHIP: Record<IndieProjectRow["confidence"], { label: string; color: string }> = {
+  verified: { label: "Verified", color: "#0F9D63" },
+  confirmed: { label: "Confirmed", color: "#C77B0A" },
+  inferred: { label: "Inferred", color: "#9B9BA6" },
+}
+
+// Builds the design's 60×18 sparkline polyline from a real value series. Returns
+// null below two points so the trend cell stays empty rather than faking a line.
+function buildSparkline(values: number[]): string | null {
+  if (values.length < 2) return null
+  const w = 60
+  const h = 18
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  return values
+    .map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(h - ((v - min) / range) * h).toFixed(1)}`)
+    .join(" ")
+}
+
+// The real companion-CLI entrypoint — used by the Connect view's command boxes
+// so the copy buttons hand back a working command.
+const CLI_BASE = "AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer"
+
 function sumCost(rows: NormalizedCostRow[]) {
   return rows.reduce((sum, row) => sum + row.cost, 0)
 }
@@ -128,21 +170,6 @@ function breakdownByProvider(rows: NormalizedCostRow[]) {
     const existing = totals.get(key)
     if (existing) existing.total += row.cost
     else totals.set(key, { key, provider: row.provider, label: seriesLabel(row), total: row.cost })
-  }
-  return [...totals.values()]
-    .filter((entry) => entry.total > 0.005)
-    .sort((a, b) => b.total - a.total)
-}
-
-// Roll cost rows up to one entry per provider+service so the dashboard can rank
-// "where the money goes" without double-counting individual line items.
-function breakdownByService(rows: NormalizedCostRow[]) {
-  const totals = new Map<string, { provider: Provider; serviceName: string; total: number }>()
-  for (const row of rows) {
-    const key = `${row.provider}:${row.serviceName}`
-    const existing = totals.get(key)
-    if (existing) existing.total += row.cost
-    else totals.set(key, { provider: row.provider, serviceName: row.serviceName, total: row.cost })
   }
   return [...totals.values()]
     .filter((entry) => entry.total > 0.005)
@@ -210,6 +237,12 @@ type IndieProjectRow = {
   status: "active" | "free" | "map" | "watch" | "stale"
   statusLabel: string
   detail: string
+  breakdown: Array<{ provider: Provider; label: string; total: number }>
+  stackProviders: Provider[]
+  // Mapping confidence shown as a chip in the design: an explicit user-set
+  // repo→account link is "confirmed"; an auto-resolved link (detected + a
+  // connected account) is "verified"; signals only, no link, is "inferred".
+  confidence: "verified" | "confirmed" | "inferred"
 }
 
 function daysSinceIso(value: string | null | undefined): number | null {
@@ -243,8 +276,9 @@ function buildIndieProjects(input: {
   return input.repos.map((repo) => {
     const repoAnalysis = input.repoAnalyses[repo.fullName]
     const detectedProviders = [...new Set((repoAnalysis?.signals ?? []).map((signal) => signal.provider))]
+    const explicitLinks = input.state.repoProviderLinks[repo.fullName]
     const linked = resolveLinkedProviders({
-      explicit: input.state.repoProviderLinks[repo.fullName],
+      explicit: explicitLinks,
       detected: detectedProviders,
       connected: input.connectedProviders,
     })
@@ -255,6 +289,13 @@ function buildIndieProjects(input: {
       assignments: input.state.costAssignments,
     })
     const cost = sumCost(rows)
+    const breakdown = breakdownByProvider(rows).map((entry) => ({ provider: entry.provider, label: entry.label, total: entry.total }))
+    const stackProviders =
+      breakdown.length > 0
+        ? [...new Set(breakdown.map((entry) => entry.provider))]
+        : linked.length > 0
+          ? linked
+          : detectedProviders
     const dailyRate = input.elapsedDays > 0 ? cost / input.elapsedDays : 0
     const projected = dailyRate * input.totalDays
     const signalCount = repoAnalysis?.signals.length ?? 0
@@ -288,111 +329,14 @@ function buildIndieProjects(input: {
           : cost > 0.005
             ? "Assigned spend with no repo evidence"
             : "No assigned spend this month"
-    return { repo, cost, projected, dailyRate, linked, signalCount, rowCount: rows.length, lastActivityAt, inactiveDays, status, statusLabel, detail }
+    const confidence: IndieProjectRow["confidence"] =
+      Array.isArray(explicitLinks) && explicitLinks.length > 0
+        ? "confirmed"
+        : linked.length > 0
+          ? "verified"
+          : "inferred"
+    return { repo, cost, projected, dailyRate, linked, signalCount, rowCount: rows.length, lastActivityAt, inactiveDays, status, statusLabel, detail, breakdown, stackProviders, confidence }
   }).sort((a, b) => b.cost - a.cost || b.signalCount - a.signalCount || a.repo.name.localeCompare(b.repo.name))
-}
-
-function ProjectCostCockpit({ projects }: { projects: IndieProjectRow[] }) {
-  const costing = projects.filter((project) => project.cost > 0.005)
-  const total = costing.reduce((sum, project) => sum + project.cost, 0)
-  const top = projects.slice(0, 6)
-
-  return (
-    <section className="project-cockpit" aria-label="Project costs">
-      <div className="insight-panel-head">
-        <div>
-          <p>Projects</p>
-          <h2>{projects.length ? `${projects.length} project${projects.length === 1 ? "" : "s"}` : "No projects yet"}</h2>
-          <span>{costing.length ? `${money(total)} assigned this month across ${costing.length} costing project${costing.length === 1 ? "" : "s"}.` : "Connect GitHub and providers to see what each app or side project costs."}</span>
-        </div>
-        <FolderGit2 aria-hidden />
-      </div>
-
-      {top.length ? (
-        <div className="project-cockpit-list">
-          {top.map((project) => (
-            <Link key={project.repo.fullName} href={`/dashboard?repo=${encodeURIComponent(project.repo.fullName)}`} prefetch={false} className={`project-cockpit-row ${project.status}`}>
-              <span className="project-cockpit-name">
-                <strong title={project.repo.fullName}>{project.repo.name}</strong>
-                <small>{project.detail}</small>
-              </span>
-              <span className={`project-status ${project.status}`}>{project.statusLabel}</span>
-              <span className="project-cockpit-money">
-                <strong>{money(project.cost)}</strong>
-                <small>{project.projected > project.cost + 0.005 ? `${money(project.projected)} projected` : `${project.rowCount} ${project.rowCount === 1 ? "row" : "rows"}`}</small>
-              </span>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <div className="cost-overview-empty">
-          <FolderGit2 aria-hidden />
-          <span>No synced projects yet. Use the CLI or GitHub connection to map repos to running infrastructure.</span>
-        </div>
-      )}
-    </section>
-  )
-}
-
-function FreeTierRunwayPanel({ rows }: { rows: FreeTierUsageRow[] }) {
-  const measured = rows.filter((row) => row.source === "measured")
-  const risky = measured
-    .filter((row) => row.limit !== null && row.percentUsed !== null)
-    .sort((a, b) => (b.percentUsed ?? 0) - (a.percentUsed ?? 0))
-    .slice(0, 6)
-  const unknownLimit = measured.filter((row) => row.limit === null).length
-  const safe = measured.length - risky.filter((row) => (row.percentUsed ?? 0) >= 80).length
-
-  return (
-    <section className="runway-panel" aria-label="Free-tier runway">
-      <div className="insight-panel-head">
-        <div>
-          <p>Limits</p>
-          <h2>Free-tier runway</h2>
-          <span>{measured.length ? `${measured.length} live usage metric${measured.length === 1 ? "" : "s"} checked across connected providers.` : "Connect providers to see usage before it becomes spend."}</span>
-        </div>
-        <Gauge aria-hidden />
-      </div>
-
-      <div className="runway-summary">
-        <article>
-          <strong>{risky.filter((row) => (row.percentUsed ?? 0) >= 80).length}</strong>
-          <span>near limit</span>
-        </article>
-        <article>
-          <strong>{safe}</strong>
-          <span>with headroom</span>
-        </article>
-        <article>
-          <strong>{unknownLimit}</strong>
-          <span>usage only</span>
-        </article>
-      </div>
-
-      {risky.length ? (
-        <div className="runway-list">
-          {risky.map((row) => {
-            const pct = Math.round(row.percentUsed ?? 0)
-            const tone = pct >= 95 ? "crit" : pct >= 80 ? "warn" : "ok"
-            return (
-              <article key={`${row.provider}-${row.service}`} className={`runway-row ${tone}`}>
-                <div>
-                  <strong>{providerName(row.provider)} · {row.service}</strong>
-                  <span>{quantity(row.used ?? 0)} of {quantity(row.limit ?? 0)} {row.unit} used</span>
-                </div>
-                <b>{pct}%</b>
-              </article>
-            )
-          })}
-        </div>
-      ) : (
-        <div className="attention-clear compact">
-          <CheckCircle2 aria-hidden />
-          <span>{measured.length ? "Measured free-tier metrics have headroom." : "No measured free-tier usage yet."}</span>
-        </div>
-      )}
-    </section>
-  )
 }
 
 interface LeakCandidate {
@@ -480,142 +424,6 @@ function buildLeakCandidates(input: {
 
   const rank = { crit: 0, warn: 1, info: 2 }
   return leaks.sort((a, b) => rank[a.severity] - rank[b.severity] || (b.amount ?? 0) - (a.amount ?? 0)).slice(0, 6)
-}
-
-function repoCandidates(repos: GitHubRepoSummary[]) {
-  return repos.map((repo) => ({ fullName: repo.fullName, name: repo.name }))
-}
-
-function suggestedReposForRow(row: NormalizedCostRow, repos: GitHubRepoSummary[]) {
-  const haystack = `${row.serviceName} ${row.resourceName ?? ""} ${row.resourceId ?? ""} ${row.attributionReason}`.toLowerCase()
-  const matches = repos.filter((repo) => haystack.includes(repo.name.toLowerCase()))
-  return (matches.length ? matches : repos).slice(0, 3).map((repo) => ({ fullName: repo.fullName, name: repo.name }))
-}
-
-function buildAssignmentQueue(input: {
-  analysis: AnalysisResult
-  repos: GitHubRepoSummary[]
-  assignments: Record<string, string>
-}): AssignmentQueueItem[] {
-  if (input.repos.length === 0) return []
-  const seen = new Set<string>()
-  const rows = input.analysis.costRows
-    .filter((row) => row.cost > 0.005)
-    .map((row) => {
-      const itemKey = costItemKey(row)
-      if (seen.has(itemKey)) return null
-      seen.add(itemKey)
-      const manual = input.assignments[itemKey]
-      const needsReview =
-        !manual && !row.attributedRepo ||
-        !manual && row.attribution === "inferred" ||
-        manual === ACCOUNT_SENTINEL
-      if (!needsReview) return null
-      const confidence: AssignmentQueueItem["confidence"] =
-        manual === ACCOUNT_SENTINEL ? "manual" : row.attribution === "inferred" ? "inferred" : "unassigned"
-      return {
-        itemKey,
-        providerLabel: seriesLabel(row),
-        serviceName: row.serviceName,
-        resourceName: row.resourceName ?? row.resourceId ?? "Account-level spend",
-        cost: row.cost,
-        currency: row.currency,
-        reason:
-          manual === ACCOUNT_SENTINEL
-            ? "Marked shared/account-level. Reassign it if this should belong to a project."
-            : row.attribution === "inferred"
-              ? row.attributionReason || "This row was inferred from naming or repo evidence."
-              : "No repo matched this provider billing row.",
-        confidence,
-        suggestedRepos: suggestedReposForRow(row, input.repos),
-      }
-    })
-    .filter((row): row is AssignmentQueueItem => Boolean(row))
-
-  return rows.sort((a, b) => b.cost - a.cost).slice(0, 20)
-}
-
-function DemoWorkspacePreview() {
-  const rows = [
-    { project: "my-saas", now: "$18.42", projected: "$27.10", status: "OK", tone: "ok" },
-    { project: "ai-bot", now: "$4.30", projected: "$31.00", status: "OpenAI spike", tone: "warn" },
-    { project: "old-demo", now: "$7.80", projected: "$7.80", status: "No recent activity", tone: "stale" },
-    { project: "portfolio", now: "$0.00", projected: "$0.00", status: "Free tier", tone: "free" },
-  ]
-  return (
-    <section className="demo-workspace" aria-label="Demo workspace preview">
-      <div className="insight-panel-head">
-        <div>
-          <p>Sample workspace</p>
-          <h2>See the value before connecting accounts</h2>
-          <span>This is the target five-minute outcome: projects, runway, leaks, and AI spend in one readable cockpit.</span>
-        </div>
-        <DatabaseZap aria-hidden />
-      </div>
-      <div className="demo-table">
-        <div className="demo-table-head">
-          <span>Project</span>
-          <span>This month</span>
-          <span>Projected</span>
-          <span>Status</span>
-        </div>
-        {rows.map((row) => (
-          <article key={row.project} className={`demo-row ${row.tone}`}>
-            <strong>{row.project}</strong>
-            <span>{row.now}</span>
-            <span>{row.projected}</span>
-            <b>{row.status}</b>
-          </article>
-        ))}
-      </div>
-      <div className="demo-insights">
-        <article><Gauge aria-hidden /><strong>72%</strong><span>Cloudflare Workers free requests used</span></article>
-        <article><ShieldAlert aria-hidden /><strong>$7.80</strong><span>stale project still billing</span></article>
-        <article><Boxes aria-hidden /><strong>2.4x</strong><span>Claude plan value at API rates</span></article>
-      </div>
-      <div className="demo-actions">
-        <a href="/dashboard?view=connect" className="command-button">Connect my workspace</a>
-        <a href="/dashboard?view=ai" className="ghost-button">View AI analysis</a>
-      </div>
-    </section>
-  )
-}
-
-function CostLeakPanel({ leaks }: { leaks: LeakCandidate[] }) {
-  return (
-    <section className="leak-panel" aria-label="Cost leak candidates">
-      <div className="insight-panel-head">
-        <div>
-          <p>Leaks</p>
-          <h2>Cost leak candidates</h2>
-          <span>Places where spend is unmapped, inferred, stale, or blocked by a provider connection issue.</span>
-        </div>
-        <ShieldAlert aria-hidden />
-      </div>
-
-      {leaks.length ? (
-        <div className="leak-list">
-          {leaks.map((leak) => (
-            <article key={leak.id} className={`leak-row ${leak.severity}`}>
-              <span className="attention-icon" aria-hidden>
-                {leak.severity === "warn" || leak.severity === "crit" ? <AlertTriangle /> : <ShieldAlert />}
-              </span>
-              <div>
-                <strong>{leak.title}</strong>
-                <span>{leak.detail}</span>
-              </div>
-              {leak.amount != null ? <b>{money(leak.amount)}</b> : null}
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className="attention-clear compact">
-          <CheckCircle2 aria-hidden />
-          <span>No obvious leaks. Spend is mapped, refreshes are clean, and inferred rows are under control.</span>
-        </div>
-      )}
-    </section>
-  )
 }
 
 // Every connected account shown on the overview: built-in hosting + AI tools
@@ -867,97 +675,194 @@ function statusText(connection: ProviderConnection) {
   return "Not detected"
 }
 
-// Bumped every deploy — a visible marker so it's obvious which build is live.
-const BUILD_TAG = "build jun25·direct-layout"
+// Per-view header copy (title + one-line subtitle), mirrored from the design.
+const VIEW_META: Record<ViewKey, { title: string; sub: string }> = {
+  projects: { title: "Projects", sub: "What each app and side project is costing you this month" },
+  limits: { title: "Free-tier runway", sub: "Measured usage vs. published limits on every $0 provider" },
+  leaks: { title: "Leaks", sub: "Unmapped spend, inactive projects, and broken connections" },
+  ai: { title: "AI spend", sub: "Model usage and subscriptions, broken out by tool" },
+  insights: { title: "Insights", sub: "Budget, forecast, history, and account-wide usage" },
+  connect: { title: "Connect", sub: "Read-only access to your providers — see costs, never touch infra" },
+}
 
-function Header({ subtitle }: { subtitle: string }) {
+const NAV_ITEMS: Array<{ key: ViewKey; label: string; href: string; icon: ReactNode }> = [
+  {
+    key: "projects",
+    label: "Projects",
+    href: "/dashboard",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="1.8" y="1.8" width="5" height="5" rx="1.2" />
+        <rect x="9.2" y="1.8" width="5" height="5" rx="1.2" />
+        <rect x="1.8" y="9.2" width="5" height="5" rx="1.2" />
+        <rect x="9.2" y="9.2" width="5" height="5" rx="1.2" />
+      </svg>
+    ),
+  },
+  {
+    key: "limits",
+    label: "Limits",
+    href: "/dashboard?view=limits",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="1.8" y="5" width="12.4" height="6" rx="2" />
+        <line x1="10.5" y1="3.4" x2="10.5" y2="12.6" />
+      </svg>
+    ),
+  },
+  {
+    key: "leaks",
+    label: "Leaks",
+    href: "/dashboard?view=leaks",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M8 2 L14.5 13.5 L1.5 13.5 Z" strokeLinejoin="round" />
+        <line x1="8" y1="6.2" x2="8" y2="9.4" />
+        <circle cx="8" cy="11.4" r=".4" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    key: "ai",
+    label: "AI",
+    href: "/dashboard?view=ai",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path d="M8 1.6 L9.4 6.6 L14.4 8 L9.4 9.4 L8 14.4 L6.6 9.4 L1.6 8 L6.6 6.6 Z" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    key: "insights",
+    label: "Insights",
+    href: "/dashboard?view=insights",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <line x1="2" y1="14" x2="14" y2="14" />
+        <rect x="3" y="8" width="2.6" height="4" rx="0.6" />
+        <rect x="6.8" y="5" width="2.6" height="7" rx="0.6" />
+        <rect x="10.6" y="2.6" width="2.6" height="9.4" rx="0.6" />
+      </svg>
+    ),
+  },
+  {
+    key: "connect",
+    label: "Connect",
+    href: "/dashboard?view=connect",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <circle cx="4.4" cy="8" r="2.4" />
+        <circle cx="11.6" cy="8" r="2.4" />
+        <line x1="6.8" y1="8" x2="9.2" y2="8" />
+      </svg>
+    ),
+  },
+]
+
+function displayNameFromEmail(email: string) {
+  const local = email.split("@")[0] ?? email
+  const cleaned = local.replace(/[._-]+/g, " ").trim()
+  return cleaned
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || email
+}
+
+function Sidebar({
+  view,
+  leakCount,
+  email,
+  updatedLabel,
+}: {
+  view: ViewKey
+  leakCount: number
+  email: string
+  updatedLabel: string
+}) {
+  const name = displayNameFromEmail(email)
+  const initial = (name.charAt(0) || "A").toUpperCase()
   return (
-    <header className="topbar clean">
-      <div className="brand">
-        <span className="brand-mark">
-          <CloudCog aria-hidden />
-        </span>
-        <div>
-          <strong>Ambrium <span className="build-tag" title="deployed build">{BUILD_TAG}</span></strong>
-          <small>{subtitle}</small>
-        </div>
+    <aside className="amb-sidebar">
+      <div className="amb-brand">
+        <span className="amb-brand-mark" aria-hidden />
+        <span className="amb-brand-name">Ambrium</span>
+        <span className="amb-brand-beta">BETA</span>
       </div>
-      <div className="top-actions">
-        <a href="/pricing" className="link-button">
-          Pricing <ArrowUpRight aria-hidden />
-        </a>
-        <a href="/api/analyze" className="link-button">
-          API JSON <ArrowUpRight aria-hidden />
-        </a>
-        <a href="/dashboard" className="icon-button" aria-label="Refresh">
-          <RefreshCw aria-hidden />
-        </a>
-        <ThemeToggle />
+
+      <button type="button" className="amb-workspace">
+        <span className="amb-workspace-avatar">{initial}</span>
+        <span className="amb-workspace-name">My workspace</span>
+        <span className="amb-workspace-caret">&#9662;</span>
+      </button>
+
+      <nav className="amb-nav" aria-label="Sections">
+        {NAV_ITEMS.map((item) => (
+          <Link
+            key={item.key}
+            href={item.href}
+            prefetch={false}
+            className={view === item.key ? "amb-nav-item active" : "amb-nav-item"}
+            aria-current={view === item.key ? "page" : undefined}
+          >
+            {item.icon}
+            <span className="amb-nav-label">{item.label}</span>
+            {item.key === "leaks" && leakCount > 0 ? <span className="amb-nav-badge">{leakCount}</span> : null}
+          </Link>
+        ))}
+      </nav>
+
+      <div className="amb-sidebar-foot">
+        <div className="amb-sync-status">
+          <span className="amb-sync-dot" aria-hidden />
+          {updatedLabel}
+        </div>
+        <div className="amb-plan-card">
+          <div className="amb-plan-card-head">
+            <strong>Indie plan</strong>
+            <span>$5/mo</span>
+          </div>
+          <p>Unlimited projects, daily refresh, alerts.</p>
+        </div>
+        <div className="amb-user">
+          <span className="amb-user-avatar">{initial}</span>
+          <span className="amb-user-id">
+            <strong>{name}</strong>
+            <small>{email}</small>
+          </span>
+        </div>
         <SignOutButton />
       </div>
-    </header>
+    </aside>
   )
 }
 
-function ViewTabs({ view }: { view: ViewKey }) {
-  const tabs: Array<{ key: ViewKey; label: string; icon: typeof Gauge; href: string }> = [
-    { key: "projects", label: "Projects", icon: FolderGit2, href: "/dashboard" },
-    { key: "limits", label: "Limits", icon: Gauge, href: "/dashboard?view=limits" },
-    { key: "leaks", label: "Leaks", icon: ShieldAlert, href: "/dashboard?view=leaks" },
-    { key: "ai", label: "AI", icon: Boxes, href: "/dashboard?view=ai" },
-    { key: "connect", label: "Connect", icon: TerminalSquare, href: "/dashboard?view=connect" },
-  ]
+function AppHeader({
+  view,
+  month,
+  refreshHref,
+}: {
+  view: ViewKey
+  month: string
+  refreshHref: string
+}) {
+  const meta = VIEW_META[view]
   return (
-    <nav className="view-tabs" aria-label="Sections">
-      {tabs.map(({ key, label, icon: Icon, href }) => (
-        <Link
-          key={key}
-          href={href}
-          prefetch={false}
-          className={view === key ? "view-tab active" : "view-tab"}
-          aria-current={view === key ? "page" : undefined}
-        >
-          <Icon aria-hidden />
-          {label}
-        </Link>
-      ))}
-    </nav>
-  )
-}
-
-function AccountsBoard({ accounts }: { accounts: AccountEntry[] }) {
-  if (accounts.length === 0) {
-    return (
-      <section className="accounts-board empty" aria-label="Connected accounts">
-        <ShieldAlert aria-hidden />
+    <header className="amb-header">
+      <div className="amb-header-inner">
         <div>
-          <strong>Connect a provider account to begin</strong>
-          <span>Cost and usage are pulled from your provider accounts. Connect at least one below, then link repos to it.</span>
+          <h1>{meta.title}</h1>
+          <p>{meta.sub}</p>
         </div>
-      </section>
-    )
-  }
-  return (
-    <section className="accounts-board" aria-label="Connected accounts">
-      <h3>Connected accounts</h3>
-      <div className="accounts-board-list">
-        {accounts.map((entry) => (
-          <div key={entry.key} className="account-board-row">
-            <span className="cost-legend-dot" style={{ background: providerColor(entry.provider) }} aria-hidden />
-            <ProviderLogo provider={entry.provider} />
-            <span className="account-board-id">
-              <strong>{entry.label}</strong>
-              <small>{entry.accountLabel ?? "Connected"}</small>
-            </span>
-            {entry.cost > 0.005 ? (
-              <b>{money(entry.cost)}</b>
-            ) : (
-              <span className={`amount-tag ${entry.hasUsage ? "ok" : "muted"}`}>{entry.hasUsage ? "Usage tracked" : "No cost"}</span>
-            )}
-          </div>
-        ))}
+        <div className="amb-header-actions">
+          <span className="amb-chip">{month}</span>
+          <a href={refreshHref} className="amb-btn-dark">
+            <RefreshCw aria-hidden width={14} height={14} />
+            Refresh
+          </a>
+        </div>
       </div>
-    </section>
+    </header>
   )
 }
 
@@ -968,434 +873,6 @@ function shortAge(value: string | null) {
   if (age < 3_600_000) return `${Math.max(Math.round(age / 60_000), 1)}m ago`
   if (age < 86_400_000) return `${Math.round(age / 3_600_000)}h ago`
   return `${Math.round(age / 86_400_000)}d ago`
-}
-
-// Provider-level operating view for regular cloud accounts. Each card combines
-// actual spend, run-rate projection, the biggest billed service, measured usage,
-// resource inventory, and source freshness so cost and usage are read together.
-function CloudProviderReportPanel({ reports }: { reports: CloudProviderReport[] }) {
-  if (!reports.length) return null
-  const complete = reports.filter((report) => report.coverageTone === "complete").length
-  const measured = reports.reduce((sum, report) => sum + report.measuredMetrics, 0)
-  const resources = reports.reduce((sum, report) => sum + report.resourceCount, 0)
-
-  return (
-    <section className="cloud-report-panel" aria-label="Cloud provider cost and usage reports">
-      <div className="insight-panel-head cloud-report-head">
-        <div>
-          <p>Cloud operations</p>
-          <h2>Provider cost &amp; usage reports</h2>
-          <span>Actual month-to-date billing paired with the usage and resources each provider exposes.</span>
-        </div>
-        <div className="cloud-report-summary">
-          <strong>{complete}/{reports.length}</strong>
-          <span>full cost coverage</span>
-          <small>{measured} metrics · {resources} resources</small>
-        </div>
-      </div>
-
-      <div className="cloud-report-grid">
-        {reports.map((report) => {
-          const usageTone =
-            report.highestUsagePercent != null && report.highestUsagePercent >= 90
-              ? "crit"
-              : report.highestUsagePercent != null && report.highestUsagePercent >= 80
-                ? "warn"
-                : "ok"
-          return (
-            <details className={`cloud-report-card coverage-${report.coverageTone}`} key={report.provider}>
-              <summary>
-                <ProviderLogo provider={report.provider} />
-                <span className="cloud-report-summary-id">
-                  <strong>{providerName(report.provider)}</strong>
-                  <small>{report.coverageLabel}</small>
-                </span>
-                <span className="cloud-report-summary-cost">
-                  <strong>{money(report.cost)}</strong>
-                  <small>{Math.round(report.share)}% of cloud spend</small>
-                </span>
-                <span className={`cloud-report-usage-pulse ${usageTone}`}>
-                  {report.highestUsagePercent == null ? `${report.measuredMetrics} metrics` : `${Math.round(report.highestUsagePercent)}% peak`}
-                </span>
-                <ChevronDown aria-hidden />
-              </summary>
-              <div className="cloud-report-detail">
-                <div className="cloud-report-money">
-                  <div>
-                    <span>Month to date</span>
-                    <strong>{money(report.cost)}</strong>
-                    <small>{Math.round(report.share)}% of cloud spend</small>
-                  </div>
-                  <div>
-                    <span>Projected</span>
-                    <strong>{money(report.projected)}</strong>
-                    <small>at current run rate</small>
-                  </div>
-                </div>
-
-                <div className="cloud-report-driver">
-                  <span>Top billed service</span>
-                  <strong>{report.topService ?? "No billed service"}</strong>
-                  <b>{report.topService ? money(report.topServiceCost) : "—"}</b>
-                </div>
-
-                <div className="cloud-report-signals">
-                  <div><Gauge aria-hidden /><span>Usage</span><strong>{report.measuredMetrics}<small> metrics</small></strong><em className={usageTone}>{report.highestUsagePercent == null ? "no limit data" : `${Math.round(report.highestUsagePercent)}% highest`}</em></div>
-                  <div><Boxes aria-hidden /><span>Resources</span><strong>{report.resourceCount}</strong><em>{report.resourceCount ? "inventory live" : "not exposed"}</em></div>
-                  <div><RefreshCw aria-hidden /><span>Freshness</span><strong>{shortAge(report.syncedAt)}</strong><em>{report.syncStatus === "success" ? "responding" : report.syncStatus.replace("_", " ")}</em></div>
-                </div>
-
-                <footer><DatabaseZap aria-hidden /><span>{report.coverageDetail}</span></footer>
-              </div>
-            </details>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-type AccountUsageGroup = {
-  key: string
-  provider: Provider
-  label: string
-  planName: string
-  rows: FreeTierUsageRow[]
-}
-
-function accountUsageGroups(rows: FreeTierUsageRow[]): AccountUsageGroup[] {
-  const groups = new Map<string, AccountUsageGroup>()
-  for (const row of rows) {
-    const key = row.provider === "custom" && row.customProviderId ? `custom:${row.customProviderId}` : row.provider
-    const existing = groups.get(key)
-    if (existing) {
-      existing.rows.push(row)
-      continue
-    }
-    groups.set(key, {
-      key,
-      provider: row.provider,
-      label: row.customLabel ?? providerName(row.provider),
-      planName: row.planName,
-      rows: [row],
-    })
-  }
-  return [...groups.values()].sort((a, b) => {
-    const aMeasured = a.rows.filter((row) => row.source === "measured").length
-    const bMeasured = b.rows.filter((row) => row.source === "measured").length
-    return bMeasured - aMeasured || a.label.localeCompare(b.label)
-  })
-}
-
-// Full account-wide usage is intentionally visible without opening a modal.
-// This restores the operational view across every regular/custom cloud source;
-// the compact headroom widget below remains a prioritized risk summary.
-function AccountWideUsagePanel({ rows }: { rows: FreeTierUsageRow[] }) {
-  const groups = accountUsageGroups(rows)
-  if (!groups.length) return null
-  const measured = rows.filter((row) => row.source === "measured").length
-  const nearLimit = rows.filter((row) => (row.percentUsed ?? 0) >= 80).length
-
-  return (
-    <section className="account-usage-panel" aria-label="Account-wide provider usage">
-      <div className="insight-panel-head account-usage-head">
-        <div>
-          <p>Account-wide usage</p>
-          <h2>Every provider metric</h2>
-          <span>Live consumption and published allowances for the full connected account, independent of repo assignment.</span>
-        </div>
-        <div className="account-usage-summary">
-          <strong>{measured}</strong>
-          <span>measured</span>
-          <small>{groups.length} providers · {nearLimit} near limit</small>
-        </div>
-      </div>
-      <div className="account-usage-grid">
-        {groups.map((group) => {
-          const measuredRows = group.rows.filter((row) => row.source === "measured")
-          const highest = Math.max(...measuredRows.map((row) => row.percentUsed ?? 0), 0)
-          return (
-          <details className="account-usage-provider" key={group.key}>
-            <summary>
-              <ProviderLogo provider={group.provider} />
-              <div>
-                <strong>{group.label}</strong>
-                <span>{group.planName} · {group.rows.length} metric{group.rows.length === 1 ? "" : "s"}</span>
-              </div>
-              <b>{highest > 0 ? `${Math.round(highest)}% peak` : `${measuredRows.length} measured`}</b>
-              <ChevronDown aria-hidden />
-            </summary>
-            <div className="account-usage-detail">
-              <FreeTierUsage
-                rows={group.rows}
-                hasCost={false}
-                heading="Account-wide usage"
-                subtext="Usage for the whole connected provider account."
-              />
-            </div>
-          </details>
-        )})}
-      </div>
-    </section>
-  )
-}
-
-type AlertSeverity = "crit" | "warn"
-
-interface DashAlert {
-  id: string
-  severity: AlertSeverity
-  title: string
-  detail: string
-}
-
-// Consolidates every actionable signal across the non-AI surface into one
-// prioritized list: forecast vs budget, free-tier metrics near their limit,
-// failed provider syncs, and stale data. Pure derivation from the snapshot so
-// both the KPI band ("needs attention" count) and the panel share one source.
-function dashboardAlerts({
-  freeTier,
-  liveSync,
-  projected,
-  budget,
-  latestMs,
-}: {
-  freeTier: FreeTierUsageRow[]
-  liveSync: AnalysisResult["liveSync"]
-  projected: number
-  budget: number | null
-  latestMs: number | null
-}): DashAlert[] {
-  const alerts: DashAlert[] = []
-
-  if (budget != null && budget > 0 && projected > 0) {
-    if (projected > budget) {
-      const over = projected - budget
-      alerts.push({
-        id: "budget-over",
-        severity: "crit",
-        title: "Forecast over budget",
-        detail: `Projected ${money(projected)} is ${money(over)} (${Math.round((over / budget) * 100)}%) above your ${money(budget)} budget.`,
-      })
-    } else if (projected > budget * 0.9) {
-      alerts.push({
-        id: "budget-near",
-        severity: "warn",
-        title: "Approaching budget",
-        detail: `Projected ${money(projected)} is ${Math.round((projected / budget) * 100)}% of your ${money(budget)} budget.`,
-      })
-    }
-  }
-
-  const nearLimit = freeTier
-    .filter((row) => row.source === "measured" && row.percentUsed !== null && row.limit !== null && (row.percentUsed ?? 0) >= 80)
-    .sort((a, b) => (b.percentUsed ?? 0) - (a.percentUsed ?? 0))
-    .slice(0, 4)
-  for (const row of nearLimit) {
-    const pct = Math.round(row.percentUsed ?? 0)
-    alerts.push({
-      id: `usage-${row.customProviderId ?? row.provider}-${row.service}`,
-      severity: pct >= 95 ? "crit" : "warn",
-      title: `${providerName(row.provider)} · ${row.service} near free-tier limit`,
-      detail: `${pct}% used — ${quantity(row.used ?? 0)} of ${quantity(row.limit ?? 0)} ${row.unit}, ${quantity(row.remaining ?? 0)} ${row.unit} left.`,
-    })
-  }
-
-  for (const [index, sync] of liveSync.filter((entry) => entry.status === "error").entries()) {
-    alerts.push({
-      id: `sync-${sync.provider}-${index}`,
-      severity: "warn",
-      title: `${providerName(sync.provider)} sync failed`,
-      detail: sync.message || "The last refresh could not read this account. Re-check its connection under Credentials.",
-    })
-  }
-
-  if (latestMs !== null && latestMs > 26 * 3_600_000) {
-    const days = Math.round(latestMs / (24 * 3_600_000))
-    alerts.push({
-      id: "stale",
-      severity: "warn",
-      title: "Data may be stale",
-      detail: `Last successful refresh was about ${days === 1 ? "a day" : `${days} days`} ago. Use “Refresh now” to update cost and usage.`,
-    })
-  }
-
-  const rank: Record<AlertSeverity, number> = { crit: 0, warn: 1 }
-  return alerts.sort((a, b) => rank[a.severity] - rank[b.severity])
-}
-
-// Executive KPI band at the top of the Dashboards view: the four numbers that
-// answer "how much, where it's heading, how fast, and is anything wrong" — so
-// the rest of the page is detail rather than the first read.
-function OverviewKpis({
-  total,
-  projected,
-  dailyRate,
-  elapsedDays,
-  totalDays,
-  accountCount,
-  serviceCount,
-  budget,
-  alertCount,
-}: {
-  total: number
-  projected: number
-  dailyRate: number
-  elapsedDays: number
-  totalDays: number
-  accountCount: number
-  serviceCount: number
-  budget: number | null
-  alertCount: number
-}) {
-  const overBudget = budget != null && budget > 0 && projected > budget
-  const daysLeft = Math.max(totalDays - elapsedDays, 0)
-  return (
-    <div className="ai-kpis overview-kpis">
-      <article>
-        <Coins aria-hidden />
-        <span>Month to date</span>
-        <strong>{money(total)}</strong>
-        <small>
-          {accountCount} {accountCount === 1 ? "account" : "accounts"}
-          {serviceCount > 0 ? ` · ${serviceCount} ${serviceCount === 1 ? "service" : "services"}` : ""}
-        </small>
-      </article>
-      <article className={overBudget ? "kpi-warn" : undefined}>
-        <TrendingUp aria-hidden />
-        <span>Projected month-end</span>
-        <strong>{money(projected)}</strong>
-        <small>
-          {budget != null && budget > 0
-            ? `${Math.round((projected / budget) * 100)}% of ${money(budget)} budget`
-            : "at current run rate"}
-        </small>
-      </article>
-      <article>
-        <Activity aria-hidden />
-        <span>Daily run rate</span>
-        <strong>{money(dailyRate)}</strong>
-        <small>{daysLeft} {daysLeft === 1 ? "day" : "days"} left of {totalDays}</small>
-      </article>
-      <article className={alertCount > 0 ? "kpi-warn" : "kpi-ok"}>
-        {alertCount > 0 ? <AlertTriangle aria-hidden /> : <CheckCircle2 aria-hidden />}
-        <span>Needs attention</span>
-        <strong>{alertCount}</strong>
-        <small>{alertCount > 0 ? `${alertCount === 1 ? "item" : "items"} to review below` : "all clear"}</small>
-      </article>
-    </div>
-  )
-}
-
-// Consolidated, prioritized alerts surface. Shows the highest-severity issues
-// first; a clean state is an explicit "all clear" rather than a hidden panel so
-// the user can trust the absence of warnings.
-function AttentionPanel({ alerts }: { alerts: DashAlert[] }) {
-  const crit = alerts.filter((alert) => alert.severity === "crit").length
-  return (
-    <section className="insight-panel attention-panel" aria-label="Needs attention">
-      <div className="insight-panel-head">
-        <div>
-          <p>Status</p>
-          <h2>Needs attention</h2>
-        </div>
-        <span className={alerts.length === 0 ? "attention-flag ok" : crit > 0 ? "attention-flag crit" : "attention-flag warn"}>
-          {alerts.length === 0 ? "All clear" : crit > 0 ? `${crit} urgent` : `${alerts.length} to review`}
-        </span>
-      </div>
-      {alerts.length === 0 ? (
-        <div className="attention-clear">
-          <CheckCircle2 aria-hidden />
-          <span>Nothing needs attention. Spend is within budget, free-tier usage has headroom, and every account synced cleanly.</span>
-        </div>
-      ) : (
-        <div className="attention-list">
-          {alerts.map((alert) => (
-            <article key={alert.id} className={`attention-row ${alert.severity}`}>
-              <span className="attention-icon" aria-hidden>
-                {alert.severity === "crit" ? <AlertTriangle /> : <ShieldAlert />}
-              </span>
-              <div>
-                <strong>{alert.title}</strong>
-                <span>{alert.detail}</span>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function CliConnectionGuide() {
-  const agentPrompt = `Use the Ambrium CLI to connect this machine's cloud and AI provider accounts to my Ambrium workspace.
-
-Rules:
-- Only create or use read-only credentials.
-- Never print secrets into chat.
-- Prefer existing local CLI sessions where available.
-- Ask me before opening provider dashboards or approving OAuth/IAM changes.
-- After each provider, verify the connection and summarize what was connected.
-
-Start with:
-AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer doctor
-
-Then run:
-AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer`
-  return (
-    <section className="cli-connect-guide" aria-label="Connect accounts with the CLI">
-      <div className="cli-guide-head">
-        <div>
-          <p>Recommended setup</p>
-          <h2>Connect your projects with one command, or let your coding agent drive it</h2>
-          <span>The CLI pairs to this signed-in workspace, detects local cloud and AI tooling, prepares read-only access, verifies each account, and keeps human approval at the provider consent steps.</span>
-        </div>
-        <TerminalSquare aria-hidden />
-      </div>
-
-      <div className="cli-setup-modes">
-        <article className="cli-mode-card primary">
-          <div>
-            <strong>One-command setup</strong>
-            <span>Best when you are in the project repo and already use local CLIs like <code>aws</code>, <code>gcloud</code>, or <code>wrangler</code>.</span>
-          </div>
-          <div className="cli-command">
-            <span>Run from your terminal</span>
-            <code>AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer</code>
-          </div>
-          <div className="cli-command secondary">
-            <span>Diagnose first</span>
-            <code>AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer doctor</code>
-          </div>
-        </article>
-
-        <article className="cli-mode-card">
-          <div>
-            <strong>Connect with Codex or Claude Code</strong>
-            <span>Paste this prompt into your coding agent. It can run diagnostics, use the CLI, and stop for your approval when provider access is required.</span>
-          </div>
-          <pre className="agent-prompt">{agentPrompt}</pre>
-          <div className="cli-mode-actions">
-            <a className="ghost-button" href="/api/extend/spec" target="_blank" rel="noreferrer">
-              <ArrowUpRight aria-hidden />
-              Agent setup spec
-            </a>
-          </div>
-        </article>
-      </div>
-
-      <div className="cli-step-grid">
-        <article><b>1</b><div><strong>Detect local context</strong><span>The CLI checks Git, AWS, Google Cloud, Cloudflare, Vercel, MotherDuck, and local AI usage.</span></div></article>
-        <article><b>2</b><div><strong>Pair to Ambrium</strong><span>The command opens Ambrium. Confirm the displayed device code while signed in.</span></div></article>
-        <article><b>3</b><div><strong>Approve read-only access</strong><span>Your agent can prepare setup, but you approve OAuth, IAM, service accounts, billing exports, and token creation.</span></div></article>
-        <article><b>4</b><div><strong>Verify coverage</strong><span>Run <code>ambrium-connect status</code> or <code>doctor</code>. Cards below show cost live, usage only, partial, or blocked states.</span></div></article>
-      </div>
-      <div className="cli-prereqs">
-        <strong>Provider notes</strong>
-        <span>AWS Cost Explorer is opt-in because AWS charges per request. GCP detailed cost still requires Billing Export. Cloudflare may require a scoped token paste. The CLI also reads your local Claude Code &amp; Codex logs to track AI usage for flat personal plans — the only place that data exists.</span>
-      </div>
-    </section>
-  )
 }
 
 const AI_USAGE_URL: Partial<Record<Provider, string>> = {
@@ -1543,13 +1020,153 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
   return tools.sort((a, b) => b.totalCost - a.totalCost)
 }
 
+function repoCandidates(repos: GitHubRepoSummary[]) {
+  return repos.map((repo) => ({ fullName: repo.fullName, name: repo.name }))
+}
+
+function suggestedReposForRow(row: NormalizedCostRow, repos: GitHubRepoSummary[]) {
+  const haystack = `${row.serviceName} ${row.resourceName ?? ""} ${row.resourceId ?? ""} ${row.attributionReason}`.toLowerCase()
+  const matches = repos.filter((repo) => haystack.includes(repo.name.toLowerCase()))
+  return (matches.length ? matches : repos).slice(0, 3).map((repo) => ({ fullName: repo.fullName, name: repo.name }))
+}
+
+// Unmapped / inferred / shared cost rows that need a human to attach them to a
+// project. Surfaced inside the Leaks view so they can be assigned in place.
+function buildAssignmentQueue(input: {
+  analysis: AnalysisResult
+  repos: GitHubRepoSummary[]
+  assignments: Record<string, string>
+}): AssignmentQueueItem[] {
+  if (input.repos.length === 0) return []
+  const seen = new Set<string>()
+  const rows = input.analysis.costRows
+    .filter((row) => row.cost > 0.005)
+    .map((row) => {
+      const itemKey = costItemKey(row)
+      if (seen.has(itemKey)) return null
+      seen.add(itemKey)
+      const manual = input.assignments[itemKey]
+      const needsReview =
+        !manual && !row.attributedRepo ||
+        !manual && row.attribution === "inferred" ||
+        manual === ACCOUNT_SENTINEL
+      if (!needsReview) return null
+      const confidence: AssignmentQueueItem["confidence"] =
+        manual === ACCOUNT_SENTINEL ? "manual" : row.attribution === "inferred" ? "inferred" : "unassigned"
+      return {
+        itemKey,
+        providerLabel: seriesLabel(row),
+        serviceName: row.serviceName,
+        resourceName: row.resourceName ?? row.resourceId ?? "Account-level spend",
+        cost: row.cost,
+        currency: row.currency,
+        reason:
+          manual === ACCOUNT_SENTINEL
+            ? "Marked shared/account-level. Reassign it if this should belong to a project."
+            : row.attribution === "inferred"
+              ? row.attributionReason || "This row was inferred from naming or repo evidence."
+              : "No repo matched this provider billing row.",
+        confidence,
+        suggestedRepos: suggestedReposForRow(row, input.repos),
+      }
+    })
+    .filter((row): row is AssignmentQueueItem => Boolean(row))
+
+  return rows.sort((a, b) => b.cost - a.cost).slice(0, 20)
+}
+
+type AccountUsageGroup = {
+  key: string
+  provider: Provider
+  label: string
+  planName: string
+  rows: FreeTierUsageRow[]
+}
+
+function accountUsageGroups(rows: FreeTierUsageRow[]): AccountUsageGroup[] {
+  const groups = new Map<string, AccountUsageGroup>()
+  for (const row of rows) {
+    const key = row.provider === "custom" && row.customProviderId ? `custom:${row.customProviderId}` : row.provider
+    const existing = groups.get(key)
+    if (existing) {
+      existing.rows.push(row)
+      continue
+    }
+    groups.set(key, {
+      key,
+      provider: row.provider,
+      label: row.customLabel ?? providerName(row.provider),
+      planName: row.planName,
+      rows: [row],
+    })
+  }
+  return [...groups.values()].sort((a, b) => {
+    const aMeasured = a.rows.filter((row) => row.source === "measured").length
+    const bMeasured = b.rows.filter((row) => row.source === "measured").length
+    return bMeasured - aMeasured || a.label.localeCompare(b.label)
+  })
+}
+
+// Full account-wide usage across every regular/custom cloud source, shown on the
+// Insights view alongside budget/forecast/history.
+function AccountWideUsagePanel({ rows }: { rows: FreeTierUsageRow[] }) {
+  const groups = accountUsageGroups(rows)
+  if (!groups.length) return null
+  const measured = rows.filter((row) => row.source === "measured").length
+  const nearLimit = rows.filter((row) => (row.percentUsed ?? 0) >= 80).length
+
+  return (
+    <section className="account-usage-panel" aria-label="Account-wide provider usage">
+      <div className="insight-panel-head account-usage-head">
+        <div>
+          <p>Account-wide usage</p>
+          <h2>Every provider metric</h2>
+          <span>Live consumption and published allowances for the full connected account, independent of repo assignment.</span>
+        </div>
+        <div className="account-usage-summary">
+          <strong>{measured}</strong>
+          <span>measured</span>
+          <small>{groups.length} providers · {nearLimit} near limit</small>
+        </div>
+      </div>
+      <div className="account-usage-grid">
+        {groups.map((group) => {
+          const measuredRows = group.rows.filter((row) => row.source === "measured")
+          const highest = Math.max(...measuredRows.map((row) => row.percentUsed ?? 0), 0)
+          return (
+            <details className="account-usage-provider" key={group.key}>
+              <summary>
+                <ProviderLogo provider={group.provider} />
+                <div>
+                  <strong>{group.label}</strong>
+                  <span>{group.planName} · {group.rows.length} metric{group.rows.length === 1 ? "" : "s"}</span>
+                </div>
+                <b>{highest > 0 ? `${Math.round(highest)}% peak` : `${measuredRows.length} measured`}</b>
+                <ChevronDown aria-hidden />
+              </summary>
+              <div className="account-usage-detail">
+                <FreeTierUsage
+                  rows={group.rows}
+                  hasCost={false}
+                  heading="Account-wide usage"
+                  subtext="Usage for the whole connected provider account."
+                />
+              </div>
+            </details>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function RepositoryDashboard({
   analysis,
   repos,
-  selectedRepo,
   state,
   repoAnalyses,
   view,
+  repoTrends,
 }: {
   analysis: AnalysisResult
   repos: GitHubRepoSummary[]
@@ -1557,6 +1174,9 @@ function RepositoryDashboard({
   state: Awaited<ReturnType<typeof publicStore>>
   repoAnalyses: Record<string, AnalysisResult>
   view: ViewKey
+  // Real monthly cost-per-repo history for sparklines; {} when historical
+  // analytics reads are disabled or empty (we then render no trend, not a fake).
+  repoTrends: Record<string, Array<{ month: string; total: number }>>
 }) {
   const connectedProviders = CONNECTABLE_PROVIDERS.filter((provider) => state.connections[provider]?.status === "connected")
   const accounts = accountEntries(analysis, state)
@@ -1568,7 +1188,6 @@ function RepositoryDashboard({
     dailyRate: elapsedDays > 0 ? totalCost / elapsedDays : 0,
     projected: (elapsedDays > 0 ? totalCost / elapsedDays : 0) * totalDays,
   }
-  const serviceCount = breakdownByService(analysis.costRows).length
   const latestSync = analysis.liveSync
     .filter((entry) => entry.status === "success")
     .map((entry) => entry.syncedAt)
@@ -1577,20 +1196,6 @@ function RepositoryDashboard({
     .at(-1)
   const latestSyncTime = latestSync ? new Date(latestSync).getTime() : Number.NaN
   const latestMs = Number.isFinite(latestSyncTime) ? Math.max(Date.now() - latestSyncTime, 0) : null
-  // Non-AI alerts only: drop AI providers from the free-tier feed feeding alerts.
-  const alerts = dashboardAlerts({
-    freeTier: analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider)),
-    liveSync: analysis.liveSync.filter((entry) => !AI_PROVIDERS.includes(entry.provider)),
-    projected: forecast.projected,
-    budget: state.monthlyBudgetUsd ?? null,
-    latestMs,
-  })
-  const cloudReports = buildCloudProviderReports({
-    analysis,
-    connections: state.connections,
-    elapsedDays: forecast.elapsedDays,
-    totalDays: forecast.totalDays,
-  })
   const indieProjects = buildIndieProjects({
     repos,
     analysis,
@@ -1607,210 +1212,547 @@ function RepositoryDashboard({
     syncedRepoFullNames: state.syncedRepoFullNames,
     latestMs,
   })
-  const assignmentQueue = buildAssignmentQueue({
-    analysis,
-    repos,
-    assignments: state.costAssignments,
-  })
   const accountUsageRows = analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider))
+  // Unmapped/inferred/shared cost rows to attach to a repo from the Leaks view.
+  const assignmentQueue = buildAssignmentQueue({ analysis, repos, assignments: state.costAssignments })
   const aiTools = buildAiTools(analysis, state)
   const emptyWorkspace = repos.length === 0 && accounts.length === 0 && totalCost <= 0.005
 
+  const aiTotal = aiTools.reduce((sum, tool) => sum + tool.totalCost, 0)
+  const recoverable = leaks.reduce((sum, leak) => sum + (leak.amount ?? 0), 0)
+  const pacePct = totalCost > 0.005 ? Math.round(((forecast.projected - totalCost) / totalCost) * 100) : 0
+
+  // Repo display name keyed by its lowercased short name (cost rows attribute by
+  // short name) so AI/limit attribution can show the project's real name.
+  const repoNameByShort = new Map(repos.map((repo) => [repo.name.toLowerCase(), repo.name]))
+
+  // Which repos link each provider — drives "N projects" on Connect cards and
+  // single-project attribution for limit metrics.
+  const reposByProvider = new Map<Provider, Set<string>>()
+  for (const project of indieProjects) {
+    for (const provider of project.linked) {
+      if (!reposByProvider.has(provider)) reposByProvider.set(provider, new Set())
+      reposByProvider.get(provider)!.add(project.repo.name)
+    }
+  }
+  const singleRepoFor = (provider: Provider) => {
+    const set = reposByProvider.get(provider)
+    return set && set.size === 1 ? [...set][0] : null
+  }
+
+  // --- Projects view-model -------------------------------------------------
+  // Bars are scaled to the largest project's projected spend so widths are
+  // comparable across rows (matching the design's fixed-scale stacked bars).
+  const projectScale = Math.max(...indieProjects.map((p) => Math.max(p.projected, p.cost)), 1)
+  const usageByProvider = new Map<Provider, FreeTierUsageRow>()
+  for (const row of accountUsageRows) {
+    if (row.source !== "measured" || row.limit === null || row.percentUsed === null) continue
+    const current = usageByProvider.get(row.provider)
+    if (!current || (row.percentUsed ?? 0) > (current.percentUsed ?? 0)) usageByProvider.set(row.provider, row)
+  }
+  const projectVMs: ProjectRowVM[] = indieProjects.map((p) => {
+    const free = p.cost <= 0.005
+    const conf = CONF_CHIP[p.confidence]
+    const dots = p.stackProviders.slice(0, 4).map((prov) => {
+      const d = provMono(prov)
+      return { color: d.color, monogram: d.m, name: providerName(prov) }
+    })
+    const segments = p.breakdown.map((b) => {
+      const d = provMono(b.provider, b.label)
+      return { color: d.color, width: `${((b.total / projectScale) * 100).toFixed(2)}%` }
+    })
+    // Real sparkline: historical monthly totals for this repo + current MTD as
+    // the latest point. No history → no points → empty trend cell (not faked).
+    const series = [...(repoTrends[p.repo.fullName]?.map((t) => t.total) ?? []), p.cost]
+    const sparkPoints = buildSparkline(series)
+    const sparkUp = series.length >= 2 && series[series.length - 1] >= series[0]
+    let runwayLabel = "On free tier"
+    let runwayPctLabel = ""
+    let runwayFill = "0%"
+    let runwayColor = "#0F9D63"
+    if (free) {
+      let best: FreeTierUsageRow | undefined
+      for (const prov of p.stackProviders) {
+        const u = usageByProvider.get(prov)
+        if (u && (!best || (u.percentUsed ?? 0) > (best.percentUsed ?? 0))) best = u
+      }
+      if (best) {
+        const pct = Math.round(best.percentUsed ?? 0)
+        runwayLabel = `${providerName(best.provider)} · ${best.service}`
+        runwayPctLabel = `${pct}%`
+        runwayFill = `${Math.max(pct, 2)}%`
+        runwayColor = pct >= 80 ? "#DC2B3F" : pct >= 55 ? "#C77B0A" : "#0F9D63"
+      }
+    }
+    const breakdown = p.breakdown.map((b) => {
+      const d = provMono(b.provider, b.label)
+      return {
+        name: b.label,
+        color: d.color,
+        monogram: d.m,
+        cost: money(b.total),
+        width: `${p.cost > 0 ? Math.max((b.total / p.cost) * 100, 2) : 0}%`,
+      }
+    })
+    const evidence =
+      p.signalCount > 0
+        ? `Detected via ${p.signalCount} repo signal${p.signalCount === 1 ? "" : "s"}`
+        : p.linked.length > 0
+          ? `Detected via ${p.linked.length} linked account${p.linked.length === 1 ? "" : "s"}`
+          : "No repo evidence yet"
+    return {
+      id: p.repo.name,
+      repo: p.repo.fullName,
+      href: `/dashboard?repo=${encodeURIComponent(p.repo.fullName)}`,
+      free,
+      mtdValue: p.cost,
+      mtdLabel: free ? "Free tier" : money(p.cost),
+      mtdColor: free ? "#0F9D63" : "#19191D",
+      projDisplay: free ? "on free tier" : `proj ${money(p.projected)}`,
+      confLabel: conf.label,
+      confColor: conf.color,
+      dots,
+      segments,
+      projMarker: `${Math.min((p.projected / projectScale) * 100, 100).toFixed(2)}%`,
+      sparkPoints,
+      sparkColor: sparkUp ? "#C77B0A" : "#0F9D63",
+      runwayLabel,
+      runwayPctLabel,
+      runwayFill,
+      runwayColor,
+      desc: p.detail,
+      evidence,
+      breakdown,
+    }
+  })
+
+  // --- Limits view-model ---------------------------------------------------
+  const measuredUsage = accountUsageRows.filter((row) => row.source === "measured")
+  const limitRows = measuredUsage
+    .filter((row) => row.limit !== null && row.percentUsed !== null)
+    .sort((a, b) => (b.percentUsed ?? 0) - (a.percentUsed ?? 0))
+  const nearingCount = limitRows.filter((row) => (row.percentUsed ?? 0) >= 80).length
+  const comfortableCount = limitRows.filter((row) => (row.percentUsed ?? 0) < 55).length
+
+  // --- Leaks view-model ----------------------------------------------------
+  const leakVMs = leaks.map((leak) => {
+    const sev = leak.severity === "crit" ? "#DC2B3F" : leak.severity === "warn" ? "#C77B0A" : "#9B9BA6"
+    const tag = leak.severity === "crit" ? "High" : leak.severity === "warn" ? "Medium" : "Info"
+    const t = leak.title.toLowerCase()
+    const action = /shut down|safe to shut|inactive|no traffic/.test(t)
+      ? "Shut down"
+      : /map|assign|unmapped|not mapped/.test(t)
+        ? "Assign"
+        : /sync|refresh|reconnect|expire|connection/.test(t)
+          ? "Reconnect"
+          : /export|connect/.test(t)
+            ? "Connect"
+            : "Review"
+    return {
+      id: leak.id,
+      sev,
+      tag,
+      title: leak.title,
+      detail: leak.detail,
+      amount: leak.amount != null ? `${money(leak.amount)} / mo` : "—",
+      action,
+    }
+  })
+
+  // --- AI view-model -------------------------------------------------------
+  const aiSubscription = aiTools.reduce((sum, tool) => sum + tool.subscriptionCost, 0)
+  const aiUsage = aiTools.reduce((sum, tool) => sum + tool.apiCost, 0)
+  const aiShare = totalCost > 0.005 ? Math.round((aiTotal / totalCost) * 100) : 0
+  const aiStack = aiTools
+    .filter((tool) => tool.totalCost > 0)
+    .map((tool) => {
+      const d = provMono(tool.provider, tool.label)
+      return { width: `${aiTotal > 0 ? (tool.totalCost / aiTotal) * 100 : 0}%`, color: d.color }
+    })
+  const aiMax = Math.max(...aiTools.map((tool) => tool.totalCost), 0.01)
+  // Real per-tool project list from AI-attributed cost rows.
+  const aiReposByProvider = new Map<Provider, Set<string>>()
+  for (const row of analysis.costRows) {
+    if (!isAiLikeRow(row) || !row.attributedRepo) continue
+    if (!aiReposByProvider.has(row.provider)) aiReposByProvider.set(row.provider, new Set())
+    aiReposByProvider.get(row.provider)!.add(repoNameByShort.get(row.attributedRepo) ?? row.attributedRepo)
+  }
+  const aiBarVMs = aiTools.map((tool) => {
+    const d = provMono(tool.provider, tool.label)
+    const projects = [...(aiReposByProvider.get(tool.provider) ?? [])]
+    return {
+      id: tool.id,
+      color: d.color,
+      monogram: d.m,
+      name: tool.label,
+      sub: projects.length > 0 ? projects.join(", ") : tool.accountLabel ?? tool.planLabel ?? providerName(tool.provider),
+      kind: tool.category === "subscription" ? "Flat" : "Usage",
+      width: `${Math.max((tool.totalCost / aiMax) * 100, 2)}%`,
+      cost: money(tool.totalCost),
+    }
+  })
+
+  // --- Connect view-model --------------------------------------------------
+  const connectedVMs = accounts.map((account) => {
+    const d = provMono(account.provider, account.label)
+    const connection = account.provider === "custom" ? undefined : state.connections[account.provider]
+    const synced = connection?.lastVerifiedAt ?? null
+    const projectCount = account.provider === "custom" ? 0 : reposByProvider.get(account.provider)?.size ?? 0
+    const base = projectCount > 0 ? `${projectCount} project${projectCount === 1 ? "" : "s"}` : account.accountLabel ?? "Connected"
+    const warn = Boolean(connection?.lastError)
+    return {
+      key: account.key,
+      color: d.color,
+      monogram: d.m,
+      name: account.label,
+      detail: synced ? `${base} · synced ${shortAge(synced)}` : base,
+      warn,
+    }
+  })
+  const pendingConnections = analysis.providerConnections.filter(
+    (connection) => connection.status !== "connected" && (connection.detected || connection.status === "setup_required")
+  )
+
   return (
     <>
-      <ViewTabs view={view} />
-
       {view === "projects" ? (
         <>
-          <section className="overview-hero" aria-label="Cost dashboard">
-            <p>Projects · {monthLabel(analysis.period)}</p>
-            <h1>
-              What each project costs{" "}
-              <span className="hero-sub">before the bill surprises you</span>
-            </h1>
-          </section>
+          {emptyWorkspace ? (
+            <div className="amb-banner amber">
+              <span className="amb-banner-dot" aria-hidden />
+              <span>No accounts connected yet — connect your providers to see your real numbers.</span>
+              <Link href="/dashboard?view=connect" prefetch={false} className="amb-banner-link">
+                Connect accounts
+              </Link>
+            </div>
+          ) : null}
 
-          <OverviewKpis
-            total={totalCost}
-            projected={forecast.projected}
-            dailyRate={forecast.dailyRate}
-            elapsedDays={forecast.elapsedDays}
-            totalDays={forecast.totalDays}
-            accountCount={accounts.length}
-            serviceCount={serviceCount}
-            budget={state.monthlyBudgetUsd ?? null}
-            alertCount={alerts.length}
-          />
+          <div className="amb-kpi-grid">
+            <div className="amb-kpi">
+              <div className="amb-kpi-label">Month to date</div>
+              <div className="amb-kpi-value">{money(totalCost)}</div>
+              <div className="amb-kpi-sub">
+                across {repos.length} {repos.length === 1 ? "project" : "projects"} · {forecast.elapsedDays} days in
+              </div>
+            </div>
+            <div className="amb-kpi">
+              <div className="amb-kpi-label">Projected ({monthLabel(analysis.period).split(" ")[0]})</div>
+              <div className="amb-kpi-value">{money(forecast.projected)}</div>
+              <div className={pacePct > 0 ? "amb-kpi-sub up" : "amb-kpi-sub"}>
+                {pacePct > 0 ? `▲ +${pacePct}% to month-end` : "at current run rate"}
+              </div>
+            </div>
+            <div className="amb-kpi">
+              <div className="amb-kpi-label">AI spend</div>
+              <div className="amb-kpi-value">{money(aiTotal)}</div>
+              <div className="amb-kpi-sub">{aiShare}% of total spend</div>
+            </div>
+            <Link href="/dashboard?view=leaks" prefetch={false} className="amb-kpi action">
+              <div className="amb-kpi-action-head">
+                <span>Recoverable</span>
+                <em>&#8594;</em>
+              </div>
+              <div className="amb-kpi-value">{money(recoverable)}</div>
+              <div className="amb-kpi-sub">
+                {leaks.length} {leaks.length === 1 ? "issue" : "issues"} · recoverable
+              </div>
+            </Link>
+          </div>
 
-          <ProjectCostCockpit projects={indieProjects} />
-
-          {emptyWorkspace ? <DemoWorkspacePreview /> : null}
-
-          {repos.length > 0 ? (() => {
-            const repoCosts = indieProjects.map((project) => {
-              const repo = project.repo
-              const repoAnalysis = repoAnalyses[repo.fullName]
-              return { repo, repoAnalysis, linked: project.linked, cost: project.cost }
-            })
-            const ranked = repoCosts.filter((entry) => entry.cost > 0.005).sort((a, b) => b.cost - a.cost)
-            const rankMax = Math.max(...ranked.map((entry) => entry.cost), 0.01)
-            const rankedTotal = ranked.reduce((sum, entry) => sum + entry.cost, 0)
-
-            return (
-              <>
-                {ranked.length > 0 ? (
-                  <section className="insight-panel repo-ranking" aria-label="Cost by repository">
-                    <div className="insight-panel-head">
-                      <div>
-                        <p>Cost by repository · {monthLabel(analysis.period)}</p>
-                        <h2>{money(rankedTotal)} <span className="hero-sub">assigned across {ranked.length} {ranked.length === 1 ? "repo" : "repos"}</span></h2>
-                      </div>
-                      <Coins aria-hidden />
-                    </div>
-                    <div className="repo-rank-list">
-                      {ranked.map((entry) => {
-                        const pct = rankedTotal > 0 ? Math.round((entry.cost / rankedTotal) * 100) : 0
-                        return (
-                          <Link key={entry.repo.fullName} href={`/dashboard?repo=${encodeURIComponent(entry.repo.fullName)}`} prefetch={false} className="repo-rank-row">
-                            <span className="repo-rank-name">
-                              <FolderGit2 aria-hidden />
-                              <span title={entry.repo.fullName}>{entry.repo.name}</span>
-                            </span>
-                            <span className="repo-rank-bar" aria-hidden>
-                              <i style={{ width: `${Math.max((entry.cost / rankMax) * 100, 2)}%` }} />
-                            </span>
-                            <span className="repo-rank-meta"><b>{money(entry.cost)}</b><small>{pct}%</small></span>
-                          </Link>
-                        )
-                      })}
-                    </div>
-                  </section>
-                ) : null}
-
-                <section className="repo-home-grid" aria-label="Synced repositories">
-                  {repoCosts.map(({ repo, repoAnalysis, linked, cost }) => (
-                    <RepoHomeCard
-                      key={repo.fullName}
-                      fullName={repo.fullName}
-                      isPrivate={repo.private}
-                      defaultBranch={repo.defaultBranch}
-                      active={repo.fullName === selectedRepo}
-                      headline={linked.length === 0 ? (cost > 0.005 ? money(cost) : "Pick accounts") : money(cost)}
-                      detail={
-                        linked.length === 0
-                          ? cost > 0.005
-                            ? "Assigned cost · open to link accounts"
-                            : "No accounts linked yet — open to link"
-                          : `${linked.length} ${linked.length === 1 ? "account" : "accounts"} linked${repoAnalysis ? ` · ${repoAnalysis.summary.signals} signals` : ""}`
-                      }
-                    />
-                  ))}
-                </section>
-              </>
-            )
-          })() : null}
-
-          <RepoSyncPanel initialState={state} />
+          <ProjectsTable projects={projectVMs} totalLabel={money(totalCost)} defaultExpanded={projectVMs[0]?.id ?? null} />
         </>
       ) : null}
 
       {view === "limits" ? (
         <>
-          <section className="overview-hero" aria-label="Limits">
-            <p>Limits · {monthLabel(analysis.period)}</p>
-            <h1>
-              Know when free stops being free <span className="hero-sub">budgets, usage, and runway</span>
-            </h1>
-          </section>
-
-          <div className="two-panel-grid">
-            <FreeTierRunwayPanel rows={accountUsageRows} />
-            <BudgetForecast
-              spent={totalCost}
-              projected={forecast.projected}
-              dailyRate={forecast.dailyRate}
-              elapsedDays={forecast.elapsedDays}
-              totalDays={forecast.totalDays}
-              budget={state.monthlyBudgetUsd ?? null}
-              monthLabel={monthLabel(analysis.period)}
-            />
+          <div className="amb-stat-row">
+            <div className="amb-stat">
+              <div className="amb-stat-label">Free tiers tracked</div>
+              <div className="amb-stat-value">{measuredUsage.length}</div>
+            </div>
+            <div className={nearingCount > 0 ? "amb-stat danger" : "amb-stat"}>
+              <div className="amb-stat-label">Nearing limit</div>
+              <div className="amb-stat-value">{nearingCount}</div>
+            </div>
+            <div className="amb-stat good">
+              <div className="amb-stat-label">Comfortable</div>
+              <div className="amb-stat-value">{comfortableCount}</div>
+            </div>
           </div>
 
-          <AccountWideUsagePanel rows={accountUsageRows} />
-
-          <CloudProviderReportPanel reports={cloudReports} />
+          {limitRows.length > 0 ? (
+            <div className="amb-grid-2">
+              {limitRows.map((row) => {
+                const pct = Math.round(row.percentUsed ?? 0)
+                const color = pct >= 80 ? "#DC2B3F" : pct >= 55 ? "#C77B0A" : "#0F9D63"
+                const d = provMono(row.provider, row.customLabel)
+                const note = pct >= 80 ? "Watch closely" : pct >= 55 ? "Monitor weekly" : "Comfortable"
+                const project = singleRepoFor(row.provider)
+                return (
+                  <div className="amb-limit" key={`${row.provider}-${row.service}`}>
+                    <div className="amb-limit-head">
+                      <span className="amb-mono-badge" style={{ background: d.color }}>
+                        {d.m}
+                      </span>
+                      <div className="amb-limit-id">
+                        <strong>{row.service}</strong>
+                        <small>
+                          {providerName(row.provider)} · {project ?? row.planName}
+                        </small>
+                      </div>
+                      <span className="amb-limit-pct" style={{ color }}>
+                        {pct}%
+                      </span>
+                    </div>
+                    <div className="amb-limit-track">
+                      <div className="amb-limit-fill" style={{ width: `${Math.max(pct, 2)}%`, background: color }} />
+                    </div>
+                    <div className="amb-limit-foot">
+                      <span className="used">
+                        {quantity(row.used ?? 0)} / {quantity(row.limit ?? 0)} {row.unit}
+                      </span>
+                      <span className="note" style={{ color }}>
+                        {note}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="amb-empty-card">
+              <strong>No measured free-tier usage yet</strong>
+              <span>Connect a provider that reports usage (Cloudflare, Vercel, GCP…) to see runway here.</span>
+              <Link href="/dashboard?view=connect" prefetch={false} className="amb-btn-sm-dark">
+                Connect a provider
+              </Link>
+            </div>
+          )}
         </>
       ) : null}
 
       {view === "leaks" ? (
         <>
-          <section className="overview-hero" aria-label="Leaks">
-            <p>Leaks</p>
-            <h1>
-              What changed or looks wasteful <span className="hero-sub">unmapped, stale, inferred, or failing</span>
-            </h1>
-          </section>
-
-          <div className="two-panel-grid">
-            <CostLeakPanel leaks={leaks} />
-            <AttentionPanel alerts={alerts} />
+          <div className="amb-leak-banner">
+            <div className="amt">{money(recoverable)}</div>
+            <div>
+              <strong>recoverable per month</strong>
+              <span>
+                across {leaks.length} {leaks.length === 1 ? "issue" : "issues"} — sorted by impact
+              </span>
+            </div>
           </div>
 
-          <UnassignedCostQueue items={assignmentQueue} repos={repoCandidates(repos)} />
+          {leakVMs.length > 0 ? (
+            <div className="amb-leak-list">
+              {leakVMs.map((leak) => (
+                <div className="amb-leak" key={leak.id}>
+                  <span className="amb-leak-sev" style={{ background: leak.sev }} aria-hidden />
+                  <div className="amb-leak-body">
+                    <span className="amb-leak-tag" style={{ color: leak.sev }}>
+                      {leak.tag}
+                    </span>
+                    <div className="amb-leak-title">{leak.title}</div>
+                    <div className="amb-leak-detail">{leak.detail}</div>
+                  </div>
+                  <div className="amb-leak-aside">
+                    <span className="amb-leak-amt">{leak.amount}</span>
+                    <Link href="/dashboard?view=connect" prefetch={false} className="amb-btn-sm-dark">
+                      {leak.action}
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="amb-banner green">
+              <span className="amb-banner-icon" aria-hidden>
+                <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#fff" strokeWidth="1.6">
+                  <path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <div>
+                <strong>No leaks right now</strong>
+                <span>Spend is mapped, refreshes are clean, and inferred rows are under control.</span>
+              </div>
+            </div>
+          )}
 
-          <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} />
+          {assignmentQueue.length > 0 ? (
+            <div className="amb-legacy">
+              <p className="amb-legacy-head">Unmapped spend — attach to a project</p>
+              <UnassignedCostQueue items={assignmentQueue} repos={repoCandidates(repos)} />
+            </div>
+          ) : null}
         </>
       ) : null}
 
+      {view === "insights" ? (
+        <div className="amb-legacy" style={{ marginTop: 0 }}>
+          <BudgetForecast
+            spent={totalCost}
+            projected={forecast.projected}
+            dailyRate={forecast.dailyRate}
+            elapsedDays={forecast.elapsedDays}
+            totalDays={forecast.totalDays}
+            budget={state.monthlyBudgetUsd ?? null}
+            monthLabel={monthLabel(analysis.period)}
+          />
+          <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} />
+          <AccountWideUsagePanel rows={accountUsageRows} />
+        </div>
+      ) : null}
+
       {view === "ai" ? (
-        <>
-          <section className="overview-hero" aria-label="AI costs">
-            <p>AI · subscriptions, APIs, and gateways</p>
-            <h1>
-              Is your AI spend paying off? <span className="hero-sub">plans, tokens, API value, and project signals</span>
-            </h1>
-          </section>
-
-          {aiTools.length ? (
-            <AiInsights tools={aiTools} expanded />
-          ) : (
-            <section className="ai-empty-state">
-              <div>
-                <p>AI cost cockpit</p>
-                <h2>Connect AI usage to compare subscriptions, APIs, and gateways</h2>
-                <span>Ambrium can read local Claude Code/Codex usage, OpenAI and Anthropic admin billing, Cursor team spend, and AI-like rows from custom providers such as OpenRouter, Gemini/Vertex AI, Cloudflare AI Gateway, and Vercel AI.</span>
+        aiTools.length ? (
+          <>
+            <div className="amb-ai-top">
+              <div className="amb-card">
+                <div className="amb-ai-headline">
+                  <span className="big">{money(aiTotal)}</span>
+                  <span>AI spend this month · {aiShare}% of total</span>
+                </div>
+                <div className="amb-stack">
+                  {aiStack.map((seg, i) => (
+                    <div key={i} className="amb-stack-seg" style={{ width: seg.width, background: seg.color }} />
+                  ))}
+                </div>
+                <div className="amb-ai-legend">
+                  <span>Usage-based {money(aiUsage)}</span>
+                  <span>Subscriptions {money(aiSubscription)}</span>
+                </div>
               </div>
-              <div className="demo-insights">
-                <article><Wallet aria-hidden /><strong>$20</strong><span>ChatGPT/Codex plan</span></article>
-                <article><TrendingUp aria-hidden /><strong>$48</strong><span>API-equivalent value</span></article>
-                <article><Gauge aria-hidden /><strong>2.4x</strong><span>subscription justified</span></article>
+              <div className="amb-card amb-ai-share">
+                <div className="lbl">AI as share of total spend</div>
+                <div className="pct">{aiShare}%</div>
+                <div className="amb-ai-share-track">
+                  <div className="amb-ai-share-fill" style={{ width: `${aiShare}%` }} />
+                </div>
               </div>
-              <a href="/dashboard?view=connect" className="command-button">Connect AI tools</a>
-            </section>
-          )}
-
-          <AiSyncPanel initialState={state} />
-        </>
+            </div>
+            <div className="amb-table">
+              {aiBarVMs.map((a) => (
+                <div className="amb-ai-bar" key={a.id}>
+                  <div className="amb-ai-bar-id">
+                    <span className="amb-mono-badge" style={{ background: a.color }}>
+                      {a.monogram}
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <strong>{a.name}</strong>
+                      <small>{a.sub}</small>
+                    </div>
+                  </div>
+                  <span className="amb-ai-kind">{a.kind}</span>
+                  <div className="amb-ai-bar-track">
+                    <div className="amb-ai-bar-fill" style={{ width: a.width, background: a.color }} />
+                  </div>
+                  <span className="amb-ai-bar-cost">{a.cost}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="amb-empty-card">
+            <strong>No AI usage connected yet</strong>
+            <span>Link your AI tools to compare subscriptions, APIs, and gateways here.</span>
+            <Link href="/dashboard?view=connect" prefetch={false} className="amb-btn-sm-dark">
+              Connect AI tools
+            </Link>
+          </div>
+        )
       ) : null}
 
       {view === "connect" ? (
         <>
-          <section className="overview-hero" aria-label="Connect">
-            <p>Connect</p>
-            <h1>
-              Run one command, see project costs <span className="hero-sub">{accounts.length} {accounts.length === 1 ? "account" : "accounts"} connected</span>
-            </h1>
-          </section>
+          <div className="amb-banner green">
+            <span className="amb-banner-icon" aria-hidden>
+              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#fff" strokeWidth="1.6">
+                <rect x="3" y="7" width="10" height="6.5" rx="1.5" />
+                <path d="M5 7 V5 a3 3 0 0 1 6 0 V7" />
+              </svg>
+            </span>
+            <div>
+              <strong>Read-only by design</strong>
+              <span>Ambrium uses scoped, read-only credentials. It can see costs and usage — never touch your infrastructure.</span>
+            </div>
+          </div>
 
-          <CliConnectionGuide />
+          <div className="amb-agent-card">
+            <h3>Set up with an AI agent</h3>
+            <p>Run the companion CLI — Claude Code or Codex can drive it while you approve each OAuth, IAM, and token step.</p>
+            <div className="amb-cmd">
+              <span className="sigil">$</span>
+              <code>{CLI_BASE}</code>
+              <CopyButton text={CLI_BASE} />
+            </div>
+          </div>
 
-          <AccountsBoard accounts={accounts} />
+          <p className="amb-section-label">Connected · {connectedVMs.length}</p>
+          {connectedVMs.length > 0 ? (
+            <div className="amb-conn-grid">
+              {connectedVMs.map((c) => (
+                <div className="amb-conn" key={c.key}>
+                  <span className="amb-mono-badge" style={{ background: c.color }}>
+                    {c.monogram}
+                  </span>
+                  <div className="amb-conn-id">
+                    <strong>{c.name}</strong>
+                    <small>{c.detail}</small>
+                  </div>
+                  <div className="amb-conn-status" style={{ color: c.warn ? "#C77B0A" : "#0F9D63" }}>
+                    <span className="dot" style={{ background: c.warn ? "#C77B0A" : "#0F9D63" }} />
+                    {c.warn ? "Needs attention" : "Connected"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="amb-empty-card" style={{ marginBottom: 26 }}>
+              <strong>No providers connected yet</strong>
+              <span>Run the command above, or use the manual setup below.</span>
+            </div>
+          )}
 
-          <ProviderConnectPanel providerConnections={analysis.providerConnections} initialState={state} />
+          {pendingConnections.length > 0 ? (
+            <>
+              <p className="amb-section-label">Detected, not connected · {pendingConnections.length}</p>
+              <div className="amb-pending-list">
+                {pendingConnections.map((connection) => {
+                  const d = provMono(connection.provider)
+                  const cmd = `${CLI_BASE} ${connection.provider}`
+                  return (
+                    <div className="amb-pending" key={connection.provider}>
+                      <div className="amb-pending-head">
+                        <span className="amb-mono-badge" style={{ background: d.color }}>
+                          {d.m}
+                        </span>
+                        <div className="amb-pending-id">
+                          <strong>{providerName(connection.provider)}</strong>
+                          <small>{connection.detected ? "Detected in your projects" : statusText(connection)}</small>
+                        </div>
+                        <a href="#credentials" className="amb-btn-sm-dark">
+                          Connect
+                        </a>
+                      </div>
+                      <div className="amb-cmd light">
+                        <span className="sigil">$</span>
+                        <code>{cmd}</code>
+                        <CopyButton text={cmd} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          ) : null}
 
-          <AiSyncPanel initialState={state} />
-
-          <CustomProviderPanel initialState={state} />
+          <div className="amb-legacy" id="credentials">
+            <p className="amb-legacy-head">Manage &amp; credentials</p>
+            <RepoSyncPanel initialState={state} />
+            <ProviderConnectPanel providerConnections={analysis.providerConnections} initialState={state} />
+            <AiSyncPanel initialState={state} />
+            <CustomProviderPanel initialState={state} />
+          </div>
         </>
       ) : null}
     </>
@@ -2226,7 +2168,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const requestedRepo = Array.isArray(rawRepo) ? rawRepo[0] : rawRepo ?? null
   const rawView = Array.isArray(params.view) ? params.view[0] : params.view
   const view: ViewKey =
-    rawView === "limits" || rawView === "leaks" || rawView === "ai" || rawView === "connect" || rawView === "projects"
+    rawView === "limits" ||
+    rawView === "leaks" ||
+    rawView === "ai" ||
+    rawView === "insights" ||
+    rawView === "connect" ||
+    rawView === "projects"
       ? rawView
       : rawView === "repos"
         ? "projects"
@@ -2254,22 +2201,73 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const repos = repoList(state)
   const selectedRepo = requestedRepo ? repos.find((repo) => repo.fullName === requestedRepo) ?? null : null
 
+  // Lightweight derivation for the sidebar: a leak badge count + freshness label.
+  // (RepositoryDashboard recomputes the full set; these pure helpers are cheap.)
+  const connectedProviders = CONNECTABLE_PROVIDERS.filter((provider) => state.connections[provider]?.status === "connected")
+  const { elapsedDays, totalDays } = periodProgress(analysis.period)
+  const latestSyncVal =
+    analysis.liveSync
+      .filter((entry) => entry.status === "success")
+      .map((entry) => entry.syncedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) ?? null
+  const latestSyncTime = latestSyncVal ? new Date(latestSyncVal).getTime() : Number.NaN
+  const latestMs = Number.isFinite(latestSyncTime) ? Math.max(Date.now() - latestSyncTime, 0) : null
+  const sidebarProjects = buildIndieProjects({ repos, analysis, repoAnalyses, connectedProviders, state, elapsedDays, totalDays })
+  const leakCount = buildLeakCandidates({
+    analysis,
+    projects: sidebarProjects,
+    assignments: state.costAssignments,
+    syncedRepoFullNames: state.syncedRepoFullNames,
+    latestMs,
+  }).length
+  const refreshHref = requestedRepo
+    ? `/dashboard?repo=${encodeURIComponent(requestedRepo)}`
+    : view === "projects"
+      ? "/dashboard"
+      : `/dashboard?view=${view}`
+
+  // Real per-repo monthly history for the Projects sparklines. Only needed for
+  // the Projects view; guarded so a disabled/unreachable analytics store yields
+  // {} (no trend) instead of breaking the page.
+  let repoTrends: Record<string, Array<{ month: string; total: number }>> = {}
+  if (!requestedRepo && view === "projects") {
+    const currentMonth = analysis.period.from.slice(0, 7)
+    const [y, m] = currentMonth.split("-").map(Number)
+    const fromDate = new Date(Date.UTC(y, m - 1 - 5, 1))
+    const fromMonth = `${fromDate.getUTCFullYear()}-${String(fromDate.getUTCMonth() + 1).padStart(2, "0")}`
+    try {
+      repoTrends = await getMonthlyTotalsByRepo({ userId: user.id, from: fromMonth, to: currentMonth })
+    } catch {
+      repoTrends = {}
+    }
+  }
+
   return (
-    <main className="app-shell repo-app">
-      <Header subtitle={user.email} />
+    <main className="amb-app">
       <AnalysisRefresher repo={requestedRepo} computedAt={snapshot.computedAt} />
-      {requestedRepo ? (
-        <RepoDetail analysis={analysis} repo={selectedRepo} state={state} />
-      ) : (
-        <RepositoryDashboard
-          analysis={analysis}
-          repos={repos}
-          selectedRepo={state.selectedRepoFullName}
-          state={state}
-          repoAnalyses={repoAnalyses}
-          view={view}
-        />
-      )}
+      <Sidebar view={view} leakCount={leakCount} email={user.email} updatedLabel={`Updated ${shortAge(latestSyncVal)}`} />
+      <div className="amb-main">
+        <AppHeader view={view} month={monthLabel(analysis.period)} refreshHref={refreshHref} />
+        <div className="amb-content">
+          {requestedRepo ? (
+            <div className="amb-legacy" style={{ marginTop: 0 }}>
+              <RepoDetail analysis={analysis} repo={selectedRepo} state={state} />
+            </div>
+          ) : (
+            <RepositoryDashboard
+              analysis={analysis}
+              repos={repos}
+              selectedRepo={state.selectedRepoFullName}
+              state={state}
+              repoAnalyses={repoAnalyses}
+              view={view}
+              repoTrends={repoTrends}
+            />
+          )}
+        </div>
+      </div>
     </main>
   )
 }
