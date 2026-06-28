@@ -1,112 +1,83 @@
 :root {
   color-scheme: light;
-  --bg: #f5f1e8;
-  --ink: #151515;
-  --muted: #696459;
-  --line: #d8d0c1;
-  --border: var(--line);
-  --panel: #fffaf0;
-  --panel-strong: #f0e4cf;
-  --green: #1f8a5b;
-  --red: #b54035;
-  --blue: #285f9f;
-  --yellow: #d79c22;
-  --violet: #7152a5;
-  --shadow: 0 20px 60px rgba(47, 41, 31, 0.13);
 
-  /* Semantic surfaces & tints (overridden in dark mode) */
-  --surface: #fffdf6;
-  --surface-2: #fff8ea;
-  --surface-3: #fbf5e9;
-  --ok-soft: #edf6e8;
-  --ok-soft-2: #e6f0df;
+  /* ============================================================================
+     CENTRALIZED THEME — single source of truth for EVERY page (sign-in, landing,
+     pricing, dashboard). Light-only Ambrium design system: cool-gray surfaces,
+     ink text, one orange accent, Geist (UI) + Geist Mono (figures). Legacy token
+     names are kept stable and remapped to this palette so all existing component
+     CSS automatically follows the theme.
+     ========================================================================== */
+
+  /* Brand palette */
+  --amb-bg: #f7f7f9;
+  --amb-card: #ffffff;
+  --amb-card-2: #fcfcfd;
+  --amb-ink: #19191d;
+  --amb-ink-2: #3a3a42;
+  --amb-text-2: #56565f;
+  --amb-muted: #76767f;
+  --amb-muted-2: #9b9ba6;
+  --amb-faint: #a1a1aa;
+  --amb-line: #ececf0;
+  --amb-line-2: #f2f2f5;
+  --amb-track: #f1f1f4;
+  --amb-accent: #e8920c;
+  --amb-accent-hover: #cf7f08;
+  --amb-accent-ink: #9a5b05;
+  --amb-accent-soft: #fbf3e6;
+  --amb-green: #0f9d63;
+  --amb-red: #dc2b3f;
+  --amb-warn: #c77b0a;
+  --amb-anthropic: #cc785c;
+
+  /* Fonts (loaded globally in layout.tsx) */
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Accent aliases */
+  --accent: var(--amb-accent);
+  --accent-hover: var(--amb-accent-hover);
+  --accent-ink: var(--amb-accent-ink);
+  --accent-soft: var(--amb-accent-soft);
+
+  /* Legacy semantic tokens, remapped to the new palette */
+  --bg: var(--amb-bg);
+  --ink: var(--amb-ink);
+  --muted: var(--amb-muted);
+  --line: var(--amb-line);
+  --border: var(--amb-line);
+  --panel: var(--amb-card);
+  --panel-strong: var(--amb-card-2);
+  --green: var(--amb-green);
+  --red: var(--amb-red);
+  --blue: #3b82f6;
+  --yellow: var(--amb-warn);
+  --violet: #7c3aed;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+
+  /* Semantic surfaces & tints */
+  --surface: var(--amb-card);
+  --surface-2: var(--amb-card-2);
+  --surface-3: var(--amb-card-2);
+  --ok-soft: #f1f8f4;
+  --ok-soft-2: #eaf4ee;
   --ok-mid: #d8ead2;
   --ok-chip: #e3f3ea;
-  --warn-soft: #fff1c9;
-  --warn-mid: #ffe0a6;
-  --warn-ink: #8a6400;
-  --err-soft: #f7d9d4;
-  --info-soft: #dce8f8;
-  --neutral: #eee4d3;
-  --track: #eadfcd;
-  --topbar-bg: rgba(255, 250, 240, 0.84);
-  --grid-line: rgba(21, 21, 21, 0.035);
-}
-
-/* Dark theme — shared values. Applied when the user explicitly picks dark,
-   or when the system prefers dark and the user has not chosen light. */
-:root[data-theme="dark"],
-:root[data-theme="dark"] body {
-  color-scheme: dark;
-}
-
-:root[data-theme="dark"] {
-  --bg: #14120d;
-  --ink: #ece4d3;
-  --muted: #a39c8a;
-  --line: #393428;
-  --border: var(--line);
-  --panel: #1f1c15;
-  --panel-strong: #2a261c;
-  --green: #4cb083;
-  --red: #e07a6e;
-  --blue: #6699dd;
-  --yellow: #e0b352;
-  --violet: #a98fd4;
-  --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
-
-  --surface: #26221a;
-  --surface-2: #2d2819;
-  --surface-3: #221f17;
-  --ok-soft: #1d2c20;
-  --ok-soft-2: #203023;
-  --ok-mid: #284a35;
-  --ok-chip: #1f3527;
-  --warn-soft: #352b15;
-  --warn-mid: #43361a;
-  --warn-ink: #e0b352;
-  --err-soft: #3d211d;
-  --info-soft: #1e2c40;
-  --neutral: #2a261c;
-  --track: #2a261c;
-  --topbar-bg: rgba(31, 28, 21, 0.84);
-  --grid-line: rgba(255, 255, 255, 0.035);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #14120d;
-    --ink: #ece4d3;
-    --muted: #a39c8a;
-    --line: #393428;
-    --border: var(--line);
-    --panel: #1f1c15;
-    --panel-strong: #2a261c;
-    --green: #4cb083;
-    --red: #e07a6e;
-    --blue: #6699dd;
-    --yellow: #e0b352;
-    --violet: #a98fd4;
-    --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
-
-    --surface: #26221a;
-    --surface-2: #2d2819;
-    --surface-3: #221f17;
-    --ok-soft: #1d2c20;
-    --ok-soft-2: #203023;
-    --ok-mid: #284a35;
-    --ok-chip: #1f3527;
-    --warn-soft: #352b15;
-    --warn-mid: #43361a;
-    --warn-ink: #e0b352;
-    --err-soft: #3d211d;
-    --info-soft: #1e2c40;
-    --neutral: #2a261c;
-    --track: #2a261c;
-    --topbar-bg: rgba(31, 28, 21, 0.84);
-    --grid-line: rgba(255, 255, 255, 0.035);
-  }
+  --warn-soft: #fcf6ea;
+  --warn-mid: #f7e6c4;
+  --warn-ink: var(--amb-accent-ink);
+  --err-soft: #fcebec;
+  --info-soft: #eaf1fb;
+  --neutral: var(--amb-card-2);
+  --track: var(--amb-track);
+  --topbar-bg: rgba(247, 247, 249, 0.84);
+  --grid-line: transparent;
+  --radius: 12px;
+  --radius-sm: 9px;
+  --radius-pill: 999px;
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--amb-accent) 30%, transparent);
 }
 
 * {
@@ -115,18 +86,16 @@
 
 html {
   min-width: 320px;
-  background:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
-    var(--bg);
-  background-size: 28px 28px;
+  background: var(--bg);
   transition: background-color 0.2s ease;
 }
 
 body {
   margin: 0;
   color: var(--ink);
-  font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", "Liberation Mono", Menlo, monospace;
+  background: var(--bg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
   transition: color 0.2s ease;
 }
 
@@ -185,9 +154,10 @@ a {
 
 .signin-intro p {
   margin: 18px 0 8px;
-  color: var(--red);
-  font-size: 12px;
-  font-weight: 800;
+  color: var(--amb-accent-ink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
