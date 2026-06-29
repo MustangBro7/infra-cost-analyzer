@@ -282,8 +282,13 @@ async function ensureD1Schema(db: D1DatabaseLike): Promise<void> {
       processed_at TEXT NOT NULL
     )`,
   ]
-  for (const statement of statements) {
-    await db.prepare(statement).run()
+  // Create every table in a single batch round-trip instead of ~16 sequential
+  // ones, so the first request to a cold isolate isn't serialized on schema DDL.
+  const prepared = statements.map((statement) => db.prepare(statement))
+  if (typeof db.batch === "function") {
+    await db.batch(prepared)
+  } else {
+    for (const statement of prepared) await statement.run()
   }
   for (const statement of [
     "ALTER TABLE app_github_repos ADD COLUMN pushed_at TEXT",
@@ -811,6 +816,356 @@ async function persistD1Store(db: D1DatabaseLike, store: AppStore): Promise<void
   await runAtomic(db, statements)
 }
 
+// ---------- per-user scoped D1 access ----------
+// The whole-store loadD1Store/persistD1Store above read and rewrite EVERY user's
+// rows. That makes every request O(all data in the system): a single dashboard
+// load did two full-database scans (one for getUserById, one for the workspace),
+// decrypting every user's connections each time, and any tiny write rewrote all
+// 14 tables for all users. The scoped helpers below touch one user's rows only,
+// which is what the hot paths (auth, /api/state, every workspace mutation) need.
+
+// Tables that store per-user workspace data, keyed by user_id. app_users,
+// app_sessions, app_cli_pairings and app_billing_webhooks are handled separately
+// because they are not part of a workspace rewrite.
+const WORKSPACE_TABLES = [
+  "app_workspace_settings",
+  "app_provider_connections",
+  "app_custom_connections",
+  "app_github_repos",
+  "app_repo_provider_links",
+  "app_cost_assignments",
+  "app_custom_providers",
+  "app_events",
+  "app_analysis_snapshots",
+  "app_billing_subscriptions",
+] as const
+
+async function loadUserFromD1(db: D1DatabaseLike, userId: string): Promise<LocalUser | null> {
+  const row = await db
+    .prepare("SELECT * FROM app_users WHERE id = ?1")
+    .bind(userId)
+    .first<Record<string, string>>()
+  if (!row) return null
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    createdAt: row.created_at,
+    lastSignedInAt: row.last_signed_in_at,
+  }
+}
+
+async function loadWorkspaceFromD1(db: D1DatabaseLike, userId: string): Promise<WorkspaceStore> {
+  const workspace = structuredClone(EMPTY_WORKSPACE)
+
+  const settings = await db
+    .prepare("SELECT * FROM app_workspace_settings WHERE user_id = ?1")
+    .bind(userId)
+    .first<Record<string, string | number | null>>()
+  if (settings) {
+    workspace.selectedRepoFullName = settings.selected_repo_full_name
+      ? String(settings.selected_repo_full_name)
+      : null
+    workspace.syncedRepoFullNames = parseJson(String(settings.synced_repo_full_names_json ?? "[]"), [])
+    workspace.monthlyBudgetUsd =
+      typeof settings.monthly_budget_usd === "number" ? settings.monthly_budget_usd : null
+    workspace.dashboardLayout = parseJson(String(settings.dashboard_layout_json ?? "[]"), [])
+  }
+
+  const connectionRows =
+    (await db.prepare("SELECT * FROM app_provider_connections WHERE user_id = ?1").bind(userId).all<Record<string, string | number | null>>()).results ?? []
+  for (const row of connectionRows) {
+    const privatePayload = await decryptJson<{ accessToken?: string; metadata?: Record<string, unknown> }>(
+      row.encrypted_private_json ? String(row.encrypted_private_json) : null,
+      { metadata: {} }
+    )
+    workspace.connections[String(row.provider) as Provider] = {
+      provider: String(row.provider) as Provider,
+      status: String(row.status) as StoredConnection["status"],
+      accountLabel: row.account_label ? String(row.account_label) : null,
+      accessToken: privatePayload.accessToken,
+      installationId: typeof row.installation_id === "number" ? row.installation_id : undefined,
+      selectedRepoFullName: row.selected_repo_full_name ? String(row.selected_repo_full_name) : undefined,
+      connectedAt: String(row.connected_at),
+      lastVerifiedAt: row.last_verified_at ? String(row.last_verified_at) : null,
+      lastError: row.last_error ? String(row.last_error) : null,
+      metadata: privatePayload.metadata ?? {},
+    }
+  }
+
+  const customConnectionRows =
+    (await db.prepare("SELECT * FROM app_custom_connections WHERE user_id = ?1").bind(userId).all<Record<string, string | null>>()).results ?? []
+  for (const row of customConnectionRows) {
+    const privatePayload = await decryptJson<{ accessToken?: string; metadata?: Record<string, unknown> }>(
+      row.encrypted_private_json ? String(row.encrypted_private_json) : null,
+      { metadata: {} }
+    )
+    workspace.customConnections[String(row.custom_provider_id)] = {
+      provider: "custom",
+      status: String(row.status) as StoredConnection["status"],
+      accountLabel: row.account_label ? String(row.account_label) : null,
+      accessToken: privatePayload.accessToken,
+      connectedAt: String(row.connected_at),
+      lastVerifiedAt: row.last_verified_at ? String(row.last_verified_at) : null,
+      lastError: row.last_error ? String(row.last_error) : null,
+      metadata: { ...(privatePayload.metadata ?? {}), customProviderId: String(row.custom_provider_id) },
+    }
+  }
+
+  const repos =
+    (await db.prepare("SELECT * FROM app_github_repos WHERE user_id = ?1 ORDER BY position").bind(userId).all<Record<string, string | number>>()).results ?? []
+  for (const row of repos) {
+    workspace.githubRepos.push({
+      id: Number(row.repo_id),
+      owner: String(row.owner),
+      name: String(row.name),
+      fullName: String(row.full_name),
+      private: Number(row.private) === 1,
+      defaultBranch: String(row.default_branch),
+      htmlUrl: String(row.html_url),
+      pushedAt: row.pushed_at ? String(row.pushed_at) : null,
+      updatedAt: row.updated_at ? String(row.updated_at) : null,
+    })
+  }
+
+  const repoLinks =
+    (await db.prepare("SELECT * FROM app_repo_provider_links WHERE user_id = ?1").bind(userId).all<Record<string, string>>()).results ?? []
+  for (const row of repoLinks) {
+    workspace.repoProviderLinks[row.repo_full_name] = parseJson(row.providers_json, [])
+  }
+
+  const assignments =
+    (await db.prepare("SELECT * FROM app_cost_assignments WHERE user_id = ?1").bind(userId).all<Record<string, string>>()).results ?? []
+  for (const row of assignments) {
+    workspace.costAssignments[row.item_key] = row.target
+  }
+
+  const customProviders =
+    (await db.prepare("SELECT * FROM app_custom_providers WHERE user_id = ?1").bind(userId).all<Record<string, string>>()).results ?? []
+  for (const row of customProviders) {
+    const def = parseJson<CustomProviderDef | null>(row.definition_json, null)
+    if (def) workspace.customProviders[row.id] = def
+  }
+
+  const events =
+    (await db.prepare("SELECT * FROM app_events WHERE user_id = ?1 ORDER BY position").bind(userId).all<Record<string, string>>()).results ?? []
+  for (const row of events) {
+    workspace.events.push({
+      id: row.id,
+      provider: row.provider as Provider | "system",
+      level: row.level as ConnectionEvent["level"],
+      message: row.message,
+      createdAt: row.created_at,
+    })
+  }
+
+  const snapshots =
+    (await db.prepare("SELECT * FROM app_analysis_snapshots WHERE user_id = ?1").bind(userId).all<Record<string, string>>()).results ?? []
+  for (const row of snapshots) {
+    const snapshot = parseJson<AnalysisSnapshot | null>(row.snapshot_json, null)
+    if (snapshot) workspace.analysisSnapshots[row.snapshot_key] = snapshot
+  }
+
+  const billing = await db
+    .prepare("SELECT * FROM app_billing_subscriptions WHERE user_id = ?1")
+    .bind(userId)
+    .first<Record<string, string | null>>()
+  if (billing) {
+    workspace.billingSubscription = {
+      provider: "dodo",
+      plan: billing.plan === "indie" ? "indie" : "free",
+      status: normalizeBillingStatus(billing.status),
+      customerId: billing.customer_id ? String(billing.customer_id) : null,
+      subscriptionId: billing.subscription_id ? String(billing.subscription_id) : null,
+      checkoutSessionId: billing.checkout_session_id ? String(billing.checkout_session_id) : null,
+      productId: billing.product_id ? String(billing.product_id) : null,
+      currentPeriodEnd: billing.current_period_end ? String(billing.current_period_end) : null,
+      updatedAt: String(billing.updated_at),
+    }
+  }
+
+  return normalizeWorkspace(workspace)
+}
+
+async function persistWorkspaceToD1(db: D1DatabaseLike, userId: string, rawWorkspace: WorkspaceStore): Promise<void> {
+  const workspace = normalizeWorkspace(rawWorkspace)
+  const statements: D1PreparedStatementLike[] = []
+
+  for (const table of WORKSPACE_TABLES) {
+    statements.push(db.prepare(`DELETE FROM ${table} WHERE user_id = ?1`).bind(userId))
+  }
+
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO app_workspace_settings (
+        user_id, selected_repo_full_name, synced_repo_full_names_json, monthly_budget_usd, dashboard_layout_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5)`
+      )
+      .bind(
+        userId,
+        workspace.selectedRepoFullName,
+        JSON.stringify(workspace.syncedRepoFullNames),
+        workspace.monthlyBudgetUsd ?? null,
+        JSON.stringify(normalizeDashboardLayout(workspace.dashboardLayout))
+      )
+  )
+
+  for (const connection of Object.values(workspace.connections).filter(
+    (value): value is StoredConnection => Boolean(value)
+  )) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_provider_connections (
+        user_id, provider, status, account_label, installation_id, selected_repo_full_name,
+        connected_at, last_verified_at, last_error, encrypted_private_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+        )
+        .bind(
+          userId,
+          connection.provider,
+          connection.status,
+          connection.accountLabel,
+          connection.installationId ?? null,
+          connection.selectedRepoFullName ?? null,
+          connection.connectedAt,
+          connection.lastVerifiedAt,
+          connection.lastError,
+          await encryptJson({ accessToken: connection.accessToken, metadata: connection.metadata ?? {} })
+        )
+    )
+  }
+
+  for (const [id, connection] of Object.entries(workspace.customConnections)) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_custom_connections (
+        user_id, custom_provider_id, status, account_label, connected_at,
+        last_verified_at, last_error, encrypted_private_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+        )
+        .bind(
+          userId,
+          id,
+          connection.status,
+          connection.accountLabel,
+          connection.connectedAt,
+          connection.lastVerifiedAt,
+          connection.lastError,
+          await encryptJson({ accessToken: connection.accessToken, metadata: connection.metadata ?? {} })
+        )
+    )
+  }
+
+  for (const [position, repo] of workspace.githubRepos.entries()) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_github_repos (
+        user_id, full_name, repo_id, owner, name, private, default_branch, html_url, pushed_at, updated_at, position
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+        )
+        .bind(
+          userId,
+          repo.fullName,
+          repo.id,
+          repo.owner,
+          repo.name,
+          repo.private ? 1 : 0,
+          repo.defaultBranch,
+          repo.htmlUrl,
+          repo.pushedAt ?? null,
+          repo.updatedAt ?? null,
+          position
+        )
+    )
+  }
+
+  for (const [repoFullName, providers] of Object.entries(workspace.repoProviderLinks)) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_repo_provider_links (user_id, repo_full_name, providers_json)
+       VALUES (?1, ?2, ?3)`
+        )
+        .bind(userId, repoFullName, JSON.stringify(providers))
+    )
+  }
+
+  for (const [itemKey, target] of Object.entries(workspace.costAssignments)) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_cost_assignments (user_id, item_key, target)
+       VALUES (?1, ?2, ?3)`
+        )
+        .bind(userId, itemKey, target)
+    )
+  }
+
+  for (const [id, def] of Object.entries(workspace.customProviders)) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_custom_providers (user_id, id, definition_json)
+       VALUES (?1, ?2, ?3)`
+        )
+        .bind(userId, id, JSON.stringify(def))
+    )
+  }
+
+  for (const [position, event] of workspace.events.slice(0, 50).entries()) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_events (user_id, id, provider, level, message, created_at, position)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+        )
+        .bind(userId, event.id, event.provider, event.level, event.message, event.createdAt, position)
+    )
+  }
+
+  for (const snapshot of Object.values(workspace.analysisSnapshots)) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_analysis_snapshots (user_id, snapshot_key, snapshot_json, computed_at)
+       VALUES (?1, ?2, ?3, ?4)`
+        )
+        .bind(userId, snapshot.key, JSON.stringify(snapshot), snapshot.computedAt)
+    )
+  }
+
+  if (workspace.billingSubscription) {
+    const subscription = workspace.billingSubscription
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO app_billing_subscriptions (
+        user_id, provider, plan, status, customer_id, subscription_id, checkout_session_id,
+        product_id, current_period_end, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+        )
+        .bind(
+          userId,
+          subscription.provider,
+          subscription.plan,
+          subscription.status,
+          subscription.customerId,
+          subscription.subscriptionId,
+          subscription.checkoutSessionId,
+          subscription.productId,
+          subscription.currentPeriodEnd,
+          subscription.updatedAt
+        )
+    )
+  }
+
+  await runAtomic(db, statements)
+}
+
 // ---------- store API ----------
 
 function normalizeEmail(email: string) {
@@ -911,6 +1266,10 @@ export async function createOrUpdateUserSession(input: { email: string; name?: s
 export async function getUserById(id: string | undefined | null): Promise<LocalUser | null> {
   if (isDevPreview()) return DEV_PREVIEW_USER
   if (!id) return null
+  // Fast path: a single indexed row lookup instead of loading every user,
+  // session and workspace in the system. Runs on every authenticated request.
+  const db = await d1Binding()
+  if (db) return loadUserFromD1(db, id)
   const store = await readStore()
   return store.users[id] ?? null
 }
@@ -948,6 +1307,15 @@ export async function createClerkUser(input: { id: string; email: string; name?:
 
 export async function getUserBySessionId(sessionId: string | undefined | null): Promise<LocalUser | null> {
   if (!sessionId) return null
+  const db = await d1Binding()
+  if (db) {
+    const session = await db
+      .prepare("SELECT user_id, expires_at FROM app_sessions WHERE id = ?1")
+      .bind(sessionId)
+      .first<{ user_id: string; expires_at: string }>()
+    if (!session || new Date(session.expires_at).getTime() <= Date.now()) return null
+    return loadUserFromD1(db, session.user_id)
+  }
   const store = await readStore()
   const session = store.sessions[sessionId]
   if (!session || new Date(session.expiresAt).getTime() <= Date.now()) return null
@@ -964,11 +1332,21 @@ export async function deleteSession(sessionId: string | undefined | null) {
 export async function readWorkspace(userId: string): Promise<WorkspaceStore> {
   // Local preview: serve the seeded fixture so no Postgres connection is needed.
   if (isDevPreview()) return normalizeWorkspace(devPreviewWorkspace())
+  // Fast path: read only this user's rows instead of every workspace in the DB.
+  const db = await d1Binding()
+  if (db) return loadWorkspaceFromD1(db, userId)
   const store = await readStore()
   return normalizeWorkspace(store.workspaces[userId])
 }
 
 async function writeWorkspace(userId: string, workspace: WorkspaceStore) {
+  // Fast path: rewrite only this user's rows (atomic per-user) instead of
+  // deleting and reinserting every table for every user on each mutation.
+  const db = await d1Binding()
+  if (db) {
+    await persistWorkspaceToD1(db, userId, workspace)
+    return
+  }
   const store = await readStore()
   store.workspaces[userId] = workspace
   await writeStore(store)
@@ -1253,6 +1631,22 @@ export async function upsertBillingSubscription(userId: string, input: Partial<N
 }
 
 export async function markBillingWebhookProcessed(webhookId: string): Promise<boolean> {
+  const db = await d1Binding()
+  if (db) {
+    // Touch only the webhook dedupe table instead of rewriting (and
+    // re-encrypting) every user's workspace. INSERT OR IGNORE makes the
+    // primary-key collision the dedupe signal.
+    const existing = await db
+      .prepare("SELECT 1 FROM app_billing_webhooks WHERE webhook_id = ?1")
+      .bind(webhookId)
+      .first()
+    if (existing) return false
+    await db
+      .prepare("INSERT OR IGNORE INTO app_billing_webhooks (webhook_id, processed_at) VALUES (?1, ?2)")
+      .bind(webhookId, new Date().toISOString())
+      .run()
+    return true
+  }
   const store = await readStore()
   store.processedBillingWebhookIds = store.processedBillingWebhookIds ?? {}
   if (store.processedBillingWebhookIds[webhookId]) return false
@@ -1268,6 +1662,16 @@ export async function markBillingWebhookProcessed(webhookId: string): Promise<bo
 export async function publicStore(userId: string) {
   const workspace = await readWorkspace(userId)
   return publicStoreFromWorkspace(workspace)
+}
+
+// Test-only handles for the per-user scoped D1 helpers. Production code reaches
+// these through readWorkspace/writeWorkspace; tests exercise them directly
+// against an in-memory D1 double so the data-loss-prone scoped rewrite stays
+// covered without standing up a real Worker.
+export const __test__ = {
+  loadWorkspaceFromD1,
+  persistWorkspaceToD1,
+  loadUserFromD1,
 }
 
 /**

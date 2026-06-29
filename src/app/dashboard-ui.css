@@ -1647,3 +1647,67 @@
     animation: none !important;
   }
 }
+
+/* ----------------------------------------------------------- Loading skeleton */
+/* Rendered by dashboard/loading.tsx via Next's route-level Suspense so a
+   navigation paints the real shell (sidebar + header) instantly and only the
+   data region shimmers, instead of the browser sitting on a blank/frozen page
+   while the server component awaits its data. */
+@keyframes amb-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.amb-skel {
+  position: relative;
+  overflow: hidden;
+  background: var(--amb-line-2);
+  border: 1px solid var(--amb-line);
+}
+
+.amb-skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.65),
+    transparent
+  );
+  animation: amb-shimmer 1.25s infinite;
+}
+
+.amb-skel-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.amb-skel-kpi {
+  height: 96px;
+}
+
+.amb-skel-row {
+  height: 56px;
+  margin-bottom: 10px;
+}
+
+.amb-skel-bar {
+  height: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .amb-skel::after {
+    animation: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .amb-skel-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

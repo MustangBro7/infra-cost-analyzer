@@ -2238,7 +2238,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     const fromDate = new Date(Date.UTC(y, m - 1 - 5, 1))
     const fromMonth = `${fromDate.getUTCFullYear()}-${String(fromDate.getUTCMonth() + 1).padStart(2, "0")}`
     try {
-      repoTrends = await getMonthlyTotalsByRepo({ userId: user.id, from: fromMonth, to: currentMonth })
+      // Sparkline history comes from MotherDuck (OLAP) over a fresh connection,
+      // which can take seconds when the pool is cold. The sparklines are
+      // decorative, so cap the wait: if history isn't back in time, render the
+      // page now with no trend rather than freezing the whole dashboard on it.
+      repoTrends = await Promise.race([
+        getMonthlyTotalsByRepo({ userId: user.id, from: fromMonth, to: currentMonth }),
+        new Promise<Record<string, Array<{ month: string; total: number }>>>((resolve) =>
+          setTimeout(() => resolve({}), 1_500)
+        ),
+      ])
     } catch {
       repoTrends = {}
     }
