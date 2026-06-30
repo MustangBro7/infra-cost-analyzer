@@ -1471,33 +1471,20 @@ function RepositoryDashboard({
     if (!aiReposByProvider.has(row.provider)) aiReposByProvider.set(row.provider, new Set())
     aiReposByProvider.get(row.provider)!.add(repoNameByShort.get(row.attributedRepo) ?? row.attributedRepo)
   }
-  const aiBarVMs = aiTools.map((tool) => {
-    const d = provMono(tool.provider, tool.label)
-    const projects = [...(aiReposByProvider.get(tool.provider) ?? [])]
-    return {
-      id: tool.id,
-      color: d.color,
-      monogram: d.m,
-      name: tool.label,
-      sub: projects.length > 0 ? projects.join(", ") : tool.accountLabel ?? tool.planLabel ?? providerName(tool.provider),
-      kind: tool.category === "subscription" ? "Flat" : "Usage",
-      width: `${Math.max((tool.totalCost / aiMax) * 100, 2)}%`,
-      cost: money(tool.totalCost),
-    }
-  })
   const aiUsageVMs = aiTools
     .map((tool) => {
       const topModel = [...tool.models].sort((a, b) => b.totalTokens - a.totalTokens)[0] ?? null
-      const costPerMillion = tool.totalTokens > 0 ? (tool.totalCost / tool.totalTokens) * 1_000_000 : null
       const valueMultiple = tool.totalCost > 0 && tool.apiValue > 0 ? tool.apiValue / tool.totalCost : null
+      const d = provMono(tool.provider, tool.label)
       return {
         id: tool.id,
         provider: tool.provider,
+        color: d.color,
         name: tool.label,
         source: tool.source === "both" ? "subscription + API" : tool.source ?? tool.category ?? "connected",
         tokens: compactNumber(tool.totalTokens),
+        tokenShare: `${aiTokens > 0 ? Math.max((tool.totalTokens / aiTokens) * 100, 2) : 0}%`,
         output: percentOf(tool.outputTokens, tool.totalTokens),
-        costPerMillion: costPerMillion === null ? "—" : money(costPerMillion),
         totalCost: money(tool.totalCost),
         value: valueMultiple === null ? "—" : `${valueMultiple.toFixed(1)}x`,
         apiValue: money(tool.apiValue),
@@ -1512,6 +1499,7 @@ function RepositoryDashboard({
     })
   const aiDeepDiveVMs = aiTools.map((tool) => {
     const d = provMono(tool.provider, tool.label)
+    const projects = [...(aiReposByProvider.get(tool.provider) ?? [])]
     const totalModelValue = tool.models.reduce((sum, model) => sum + model.estimatedApiUsd, 0)
     const inputValue = tool.models.reduce((sum, model) => sum + modelCostParts(model).input, 0)
     const cacheValue = tool.models.reduce((sum, model) => sum + modelCostParts(model).cache, 0)
@@ -1551,6 +1539,9 @@ function RepositoryDashboard({
       color: d.color,
       monogram: d.m,
       name: tool.label,
+      sub: projects.length > 0 ? projects.join(", ") : tool.accountLabel ?? tool.planLabel ?? providerName(tool.provider),
+      kind: tool.category === "subscription" ? "Flat" : "Usage",
+      width: `${Math.max((tool.totalCost / aiMax) * 100, 2)}%`,
       plan: tool.planLabel ?? (tool.source === "api" ? "API" : "Connected"),
       source: tool.source === "both" ? "subscription + API" : tool.source ?? tool.category ?? "connected",
       totalCost: money(tool.totalCost),
@@ -1843,7 +1834,6 @@ function RepositoryDashboard({
                 <div className="amb-ai-usage-grid">
                   <div className="head">Tool</div>
                   <div className="head">Tokens</div>
-                  <div className="head">Cost / 1M</div>
                   <div className="head">Value / $</div>
                   <div className="head">Top model</div>
                   {aiUsageVMs.map((row) => (
@@ -1857,8 +1847,15 @@ function RepositoryDashboard({
                           <small>{row.source}</small>
                         </span>
                       </div>
-                      <div><strong>{row.tokens}</strong><small>{row.output} output</small></div>
-                      <div><strong>{row.costPerMillion}</strong><small>{row.totalCost} total</small></div>
+                      <div className="amb-ai-token-cell">
+                        <span>
+                          <strong>{row.tokens}</strong>
+                          <small>{row.output} output</small>
+                        </span>
+                        <span className="amb-ai-token-track" aria-hidden>
+                          <i style={{ width: row.tokenShare, background: row.color }} />
+                        </span>
+                      </div>
                       <div><strong>{row.value}</strong><small>{row.apiValue} API value</small></div>
                       <div><strong>{row.topModel}</strong><small>{row.topModelShare}</small></div>
                     </div>
@@ -1866,16 +1863,22 @@ function RepositoryDashboard({
                 </div>
               </div>
             </div>
-            <div className="amb-ai-deepdive" aria-label="AI provider deep dive">
+            <div className="amb-table amb-ai-main-list" aria-label="AI provider detail">
               {aiDeepDiveVMs.map((tool) => (
                 <details className="amb-ai-provider-detail" key={tool.id}>
                   <summary>
-                    <span className="amb-mono-badge" style={{ background: tool.color }}>
-                      {tool.monogram}
+                    <span className="amb-ai-bar-id">
+                      <span className="amb-mono-badge" style={{ background: tool.color }}>
+                        {tool.monogram}
+                      </span>
+                      <span>
+                        <strong>{tool.name}</strong>
+                        <small>{tool.sub}</small>
+                      </span>
                     </span>
-                    <span className="amb-ai-provider-title">
-                      <strong>{tool.name}</strong>
-                      <small>{tool.source} · {tool.plan}</small>
+                    <span className="amb-ai-kind">{tool.kind}</span>
+                    <span className="amb-ai-bar-track">
+                      <i className="amb-ai-bar-fill" style={{ width: tool.width, background: tool.color }} />
                     </span>
                     <span className="amb-ai-provider-total">
                       <strong>{tool.totalCost}</strong>
@@ -1955,26 +1958,6 @@ function RepositoryDashboard({
                     </div>
                   </div>
                 </details>
-              ))}
-            </div>
-            <div className="amb-table">
-              {aiBarVMs.map((a) => (
-                <div className="amb-ai-bar" key={a.id}>
-                  <div className="amb-ai-bar-id">
-                    <span className="amb-mono-badge" style={{ background: a.color }}>
-                      {a.monogram}
-                    </span>
-                    <div style={{ minWidth: 0 }}>
-                      <strong>{a.name}</strong>
-                      <small>{a.sub}</small>
-                    </div>
-                  </div>
-                  <span className="amb-ai-kind">{a.kind}</span>
-                  <div className="amb-ai-bar-track">
-                    <div className="amb-ai-bar-fill" style={{ width: a.width, background: a.color }} />
-                  </div>
-                  <span className="amb-ai-bar-cost">{a.cost}</span>
-                </div>
               ))}
             </div>
           </>

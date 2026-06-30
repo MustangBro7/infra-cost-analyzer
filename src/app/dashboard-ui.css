@@ -1320,7 +1320,7 @@
 
 .amb-ai-usage-grid {
   display: grid;
-  grid-template-columns: minmax(170px, 1.2fr) repeat(4, minmax(96px, 1fr));
+  grid-template-columns: minmax(170px, 1.15fr) minmax(150px, 1.25fr) repeat(2, minmax(110px, 1fr));
 }
 
 .amb-ai-usage-grid .head {
@@ -1353,6 +1353,8 @@
 
 .amb-ai-usage-row .tool > span:last-child {
   min-width: 0;
+  display: grid;
+  gap: 2px;
 }
 
 .amb-ai-usage-row .amb-mono-badge {
@@ -1363,25 +1365,50 @@
   flex: 0 0 auto;
 }
 
-.amb-ai-deepdive {
+.amb-ai-token-cell {
+  align-content: center;
+}
+
+.amb-ai-token-cell > span:first-child {
+  min-width: 0;
   display: grid;
-  gap: 10px;
-  margin: 0 0 22px;
+  gap: 2px;
+}
+
+.amb-ai-token-track {
+  width: min(160px, 100%);
+  height: 5px;
+  border-radius: 999px;
+  background: var(--amb-track);
+  overflow: hidden;
+}
+
+.amb-ai-token-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.amb-ai-main-list {
+  margin-bottom: 22px;
 }
 
 .amb-ai-provider-detail {
-  border: 1px solid var(--amb-line);
-  border-radius: 11px;
+  border-top: 1px solid var(--amb-line-2);
   background: #fff;
   overflow: hidden;
 }
 
+.amb-ai-provider-detail:first-child {
+  border-top: 0;
+}
+
 .amb-ai-provider-detail summary {
   display: grid;
-  grid-template-columns: 30px minmax(150px, 1fr) minmax(180px, auto) auto 18px;
+  grid-template-columns: minmax(150px, 1fr) 70px minmax(140px, 1.6fr) minmax(150px, auto) auto 18px;
   align-items: center;
-  gap: 12px;
-  padding: 13px 15px;
+  gap: 16px;
+  padding: 13px 18px;
   cursor: pointer;
   list-style: none;
 }
@@ -1456,7 +1483,7 @@
 .amb-ai-provider-body {
   display: grid;
   gap: 14px;
-  padding: 0 15px 15px;
+  padding: 0 18px 16px;
   border-top: 1px solid var(--amb-line-2);
 }
 
@@ -1625,6 +1652,11 @@
   min-width: 0;
 }
 
+.amb-ai-bar-id > span:last-child,
+.amb-ai-bar-id > div {
+  min-width: 0;
+}
+
 .amb-ai-bar-id .amb-mono-badge {
   width: 21px;
   height: 21px;
@@ -1657,6 +1689,7 @@
 }
 
 .amb-ai-bar-track {
+  display: block;
   height: 7px;
   background: var(--amb-track);
   border-radius: 4px;
@@ -1664,6 +1697,7 @@
 }
 
 .amb-ai-bar-fill {
+  display: block;
   height: 100%;
   border-radius: 4px;
 }
@@ -2111,21 +2145,24 @@
   }
 
   .amb-ai-usage-grid {
-    min-width: 650px;
+    min-width: 560px;
   }
 
   .amb-ai-provider-detail summary {
-    grid-template-columns: 30px minmax(0, 1fr) 18px;
+    grid-template-columns: minmax(0, 1fr) 18px;
+    gap: 8px 12px;
   }
 
+  .amb-ai-kind,
+  .amb-ai-bar-track,
   .amb-ai-provider-total,
   .amb-ai-provider-pill {
-    grid-column: 2 / 3;
+    grid-column: 1 / 2;
     text-align: left;
   }
 
   .amb-ai-provider-detail summary svg {
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 1;
   }
 
