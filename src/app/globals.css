@@ -124,7 +124,9 @@ a {
   grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
   width: min(860px, 100%);
   max-height: calc(100svh - 48px);
-  border: 1px solid var(--ink);
+  border: 1px solid var(--amb-line);
+  border-radius: var(--radius);
+  overflow: hidden;
   background: var(--panel);
   box-shadow: var(--shadow);
 }
@@ -143,8 +145,10 @@ a {
   place-items: center;
   width: 58px;
   height: 58px;
-  border: 1px solid var(--ink);
-  background: var(--yellow);
+  border: 1px solid var(--amb-line);
+  border-radius: 14px;
+  background: var(--amb-accent-soft);
+  color: var(--amb-accent-ink);
 }
 
 .signin-mark svg {
@@ -191,9 +195,8 @@ a {
 .signin-status i {
   width: 8px;
   height: 8px;
-  border: 1px solid var(--ink);
+  border-radius: 50%;
   background: var(--green);
-  box-shadow: 2px 2px 0 var(--ink);
 }
 
 .signin-clerk {
@@ -209,7 +212,8 @@ a {
   display: grid;
   width: 100%;
   gap: 12px;
-  border: 1px dashed var(--muted);
+  border: 1px dashed var(--amb-line);
+  border-radius: var(--radius-sm);
   padding: 16px;
   color: var(--muted);
   text-align: center;
@@ -220,11 +224,11 @@ a {
   min-height: 44px;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--ink);
-  background: var(--yellow);
-  color: var(--ink);
-  font-weight: 800;
-  text-transform: uppercase;
+  border: 1px solid var(--amb-ink);
+  border-radius: 8px;
+  background: var(--amb-ink);
+  color: #fff;
+  font-weight: 600;
 }
 
 @media (max-width: 720px) {
@@ -268,11 +272,43 @@ a {
 
 .signin-form input {
   min-height: 44px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--amb-line);
+  border-radius: 8px;
   background: var(--surface);
   color: var(--ink);
   font: inherit;
   padding: 0 12px;
+}
+
+/* Companion-CLI pairing approval — a single centered amb card. */
+.pair-page {
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  padding: 24px;
+}
+
+.pair-panel {
+  width: min(460px, 100%);
+  border-color: var(--amb-line);
+  border-radius: var(--radius);
+}
+
+.pair-panel .connected-provider-state,
+.pair-panel .flow-message {
+  border-color: var(--amb-line);
+  border-radius: var(--radius-sm);
+}
+
+.pair-panel .token-form input {
+  border-color: var(--amb-line);
+  border-radius: 8px;
+}
+
+.pair-panel .section-heading p {
+  color: var(--amb-accent-ink);
+  font-weight: 600;
+  letter-spacing: 0.05em;
 }
 
 .app-shell {
@@ -370,18 +406,23 @@ a {
 .link-button,
 .icon-button {
   min-height: 40px;
-  border: 1px solid var(--ink);
-  box-shadow: 3px 3px 0 var(--ink);
+  border: 1px solid var(--amb-line);
+  border-radius: 8px;
 }
 
 .link-button {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--ink);
-  color: var(--panel);
-  padding: 0 12px;
+  background: var(--amb-card);
+  color: var(--amb-ink-2);
+  padding: 0 13px;
   font-size: 13px;
+  font-weight: 500;
+}
+
+.link-button:hover {
+  background: var(--amb-bg);
 }
 
 .icon-button {
@@ -752,23 +793,31 @@ a {
   gap: 8px;
   min-height: 38px;
   border: 1px solid var(--ink);
-  padding: 0 12px;
+  border-radius: 8px;
+  padding: 0 14px;
   font-family: inherit;
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .command-button {
   background: var(--ink);
   color: var(--panel);
-  box-shadow: 3px 3px 0 var(--yellow);
+}
+
+.command-button:hover {
+  background: #000;
 }
 
 .ghost-button {
+  border-color: var(--amb-line);
   background: var(--panel);
-  color: var(--ink);
+  color: var(--amb-ink-2);
+}
+
+.ghost-button:hover {
+  background: var(--amb-bg);
 }
 
 a.command-button,
@@ -1699,15 +1748,19 @@ th {
   justify-content: center;
   gap: 7px;
   min-height: 36px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--amb-line);
+  border-radius: 7px;
   background: var(--panel);
-  color: var(--ink);
-  padding: 0 10px;
+  color: var(--amb-ink-2);
+  padding: 0 12px;
   font-family: inherit;
   font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-weight: 600;
   cursor: pointer;
+}
+
+.copy-button:hover {
+  background: var(--amb-bg);
 }
 
 .copy-button svg {
@@ -3233,7 +3286,8 @@ th {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--amb-line);
+  border-radius: 7px;
   background: var(--surface);
   padding: 5px 10px;
   cursor: pointer;
@@ -3245,7 +3299,8 @@ th {
 }
 
 .assign-btn:hover {
-  box-shadow: 2px 2px 0 var(--ink);
+  background: var(--amb-bg);
+  border-color: var(--amb-muted-2);
 }
 
 .assign-btn:disabled {
@@ -3453,7 +3508,8 @@ th {
   display: flex;
   align-items: center;
   gap: 9px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--amb-line);
+  border-radius: 8px;
   background: var(--surface);
   padding: 8px 12px 8px 10px;
   cursor: pointer;
@@ -3463,12 +3519,12 @@ th {
 }
 
 .account-chip:hover {
-  box-shadow: 3px 3px 0 var(--ink);
+  background: var(--amb-bg);
+  border-color: var(--amb-muted-2);
 }
 
 .account-chip.on {
   background: var(--ok-chip);
-  box-shadow: 3px 3px 0 var(--green);
   border-color: var(--green);
 }
 
@@ -3804,6 +3860,15 @@ th {
 }
 
 /* ---------- Landing page ---------- */
+/* Landing + pricing brand mark: amb accent-soft tile, not the legacy yellow square. */
+.landing-nav .brand-mark,
+.pricing-brand .brand-mark {
+  border-color: var(--amb-line);
+  border-radius: 10px;
+  background: var(--amb-accent-soft);
+  color: var(--amb-accent-ink);
+}
+
 .landing {
   max-width: 1100px;
   margin: 0 auto;
@@ -3860,7 +3925,9 @@ th {
 }
 
 .landing-hero h1 .hl {
-  background: var(--warn-mid);
+  background: var(--amb-accent-soft);
+  color: var(--amb-accent-ink);
+  border-radius: 6px;
   padding: 0 6px;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
@@ -3894,9 +3961,10 @@ th {
 
 .landing-note code {
   background: var(--panel-strong);
-  border: 1px solid var(--line);
+  border: 1px solid var(--amb-line);
+  border-radius: 6px;
   padding: 2px 7px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .landing-hero-art {
@@ -3904,7 +3972,8 @@ th {
 }
 
 .cost-card {
-  border: 1px solid var(--ink);
+  border: 1px solid var(--amb-line);
+  border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow);
   padding: 20px;
@@ -3946,7 +4015,8 @@ th {
 .cost-bar-track {
   height: 14px;
   background: var(--track);
-  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
   display: block;
 }
 
@@ -3966,7 +4036,8 @@ th {
 }
 
 .landing-step {
-  border: 1px solid var(--ink);
+  border: 1px solid var(--amb-line);
+  border-radius: var(--radius);
   background: var(--surface);
   padding: 20px;
   animation: fadeUp 0.6s ease both;
@@ -3975,8 +4046,10 @@ th {
 .landing-step-icon {
   display: inline-flex;
   padding: 9px;
-  border: 1px solid var(--ink);
-  background: var(--surface-2);
+  border: 1px solid var(--amb-line);
+  border-radius: var(--radius-sm);
+  background: var(--amb-accent-soft);
+  color: var(--amb-accent-ink);
   margin-bottom: 12px;
 }
 
@@ -4021,7 +4094,8 @@ th {
   display: flex;
   gap: 14px;
   align-items: flex-start;
-  border: 1px solid var(--ink);
+  border: 1px solid #c9e3d5;
+  border-radius: var(--radius);
   background: var(--ok-soft);
   padding: 18px;
   margin-bottom: 44px;
@@ -5451,14 +5525,16 @@ th {
 .pricing-plan {
   display: grid;
   gap: 18px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--amb-line);
+  border-radius: var(--radius);
   background: var(--panel);
   box-shadow: var(--shadow);
-  padding: 18px;
+  padding: 22px;
 }
 
 .pricing-plan.featured {
-  border-color: var(--ink);
+  border-color: var(--amb-accent);
+  background: linear-gradient(180deg, var(--amb-accent-soft), var(--amb-card));
 }
 
 .pricing-plan p,
@@ -5468,9 +5544,10 @@ th {
 }
 
 .pricing-plan p {
-  color: var(--red);
-  font-size: 12px;
-  font-weight: 900;
+  color: var(--amb-accent-ink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
@@ -5520,9 +5597,11 @@ th {
   display: grid;
   gap: 16px;
   max-width: 980px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--amb-line);
+  border-radius: var(--radius);
   background: var(--surface);
-  padding: 18px;
+  box-shadow: var(--shadow);
+  padding: 22px;
 }
 
 .clerk-pricing-shell p,
@@ -5532,9 +5611,10 @@ th {
 }
 
 .clerk-pricing-shell p {
-  color: var(--red);
-  font-size: 12px;
-  font-weight: 900;
+  color: var(--amb-accent-ink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
@@ -5555,9 +5635,10 @@ th {
 .billing-disabled-note {
   display: grid;
   gap: 6px;
-  border: 1px solid var(--yellow);
+  border: 1px solid #f2e4c8;
+  border-radius: var(--radius-sm);
   background: var(--warn-soft);
-  padding: 12px;
+  padding: 14px;
 }
 
 .billing-disabled-note strong,
