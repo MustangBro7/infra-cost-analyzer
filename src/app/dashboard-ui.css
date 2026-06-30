@@ -1676,15 +1676,11 @@
 /* -------------------------------------------------------------------- Connect */
 
 .amb-connect-tabs {
-  position: sticky;
-  top: 0;
-  z-index: 5;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  margin: -2px 0 18px;
+  margin: 0 0 22px;
   padding: 0 0 10px;
-  background: var(--amb-bg);
   border-bottom: 1px solid var(--amb-line);
 }
 
