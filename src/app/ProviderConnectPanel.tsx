@@ -56,6 +56,8 @@ async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
 
 function providerLabel(provider: Provider) {
   if (provider === "gcp") return "Google Cloud"
+  if (provider === "aws") return "AWS"
+  if (provider === "motherduck") return "MotherDuck"
   if (provider === "anthropic") return "Claude"
   if (provider === "openai") return "OpenAI"
   return provider.charAt(0).toUpperCase() + provider.slice(1)
@@ -99,6 +101,17 @@ const AI_PROVIDER_CARDS: Record<
     docLabel: "Open Cursor dashboard",
   },
 }
+
+const CONNECT_CARD_PROVIDERS = new Set<Provider>([
+  "vercel",
+  "cloudflare",
+  "gcp",
+  "aws",
+  "motherduck",
+  "anthropic",
+  "openai",
+  "cursor",
+])
 
 /** Turns a raw Vercel plan ("hobby", "pro", …) into a card label. */
 function vercelPlanLabel(plan: unknown): string | null {
@@ -160,6 +173,7 @@ export function ProviderConnectPanel({
   const [anthropicKey, setAnthropicKey] = React.useState("")
   const [openaiKey, setOpenaiKey] = React.useState("")
   const [cursorKey, setCursorKey] = React.useState("")
+  const [activeConnectionTab, setActiveConnectionTab] = React.useState("all")
   const [busy, setBusy] = React.useState<string | null>(null)
   const [message, setMessage] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -194,16 +208,15 @@ export function ProviderConnectPanel({
     }
   }
 
-  const relevant = providerConnections.filter((connection) => {
-    return (
-      connection.detected ||
-      ["vercel", "cloudflare", "gcp", "aws", "motherduck", "anthropic", "openai", "cursor"].includes(connection.provider)
-    )
-  })
-
   const suggestedSet = new Set<Provider>(state.suggestedProviders ?? [])
   const aiProviders = new Set<Provider>(["anthropic", "openai", "cursor"])
   const isConnected = (provider: Provider) => state.connections[provider]?.status === "connected"
+  const relevant = providerConnections.filter((connection) => {
+    return (
+      CONNECT_CARD_PROVIDERS.has(connection.provider) &&
+      (connection.detected || isConnected(connection.provider) || aiProviders.has(connection.provider))
+    )
+  })
   const detectionRank = (connection: ProviderConnection) =>
     suggestedSet.has(connection.provider) && !isConnected(connection.provider) ? 0 : 1
   // Promote providers detected in the synced repos, ones already connected, and
@@ -213,6 +226,18 @@ export function ProviderConnectPanel({
     .filter((connection) => suggestedSet.has(connection.provider) || isConnected(connection.provider) || aiProviders.has(connection.provider))
     .sort((a, b) => detectionRank(a) - detectionRank(b))
   const others = relevant.filter((connection) => !promoted.includes(connection))
+  const tabConnections = [...promoted, ...others]
+  const visibleConnections =
+    activeConnectionTab === "all"
+      ? tabConnections
+      : tabConnections.filter((connection) => connection.provider === activeConnectionTab)
+
+  React.useEffect(() => {
+    if (activeConnectionTab === "all") return
+    if (!tabConnections.some((connection) => connection.provider === activeConnectionTab)) {
+      setActiveConnectionTab("all")
+    }
+  }, [activeConnectionTab, tabConnections])
 
   const renderCard = (connection: ProviderConnection) => {
           const saved = state.connections[connection.provider]
@@ -731,16 +756,40 @@ export function ProviderConnectPanel({
         </div>
       ) : null}
 
-      <div className="provider-connect-grid">
-        {promoted.map((connection) => renderCard(connection))}
+      <div className="provider-connect-tabs" role="tablist" aria-label="Connection options">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeConnectionTab === "all"}
+          className={activeConnectionTab === "all" ? "provider-connect-tab active" : "provider-connect-tab"}
+          onClick={() => setActiveConnectionTab("all")}
+        >
+          All
+          <span>{tabConnections.length}</span>
+        </button>
+        {tabConnections.map((connection) => {
+          const connected = isConnected(connection.provider)
+          const detected = suggestedSet.has(connection.provider) && !connected
+          return (
+            <button
+              key={connection.provider}
+              type="button"
+              role="tab"
+              aria-selected={activeConnectionTab === connection.provider}
+              className={activeConnectionTab === connection.provider ? "provider-connect-tab active" : "provider-connect-tab"}
+              onClick={() => setActiveConnectionTab(connection.provider)}
+            >
+              <ProviderBadge provider={connection.provider} />
+              {providerLabel(connection.provider)}
+              {connected ? <span>On</span> : detected ? <span>Detected</span> : null}
+            </button>
+          )
+        })}
       </div>
 
-      {others.length > 0 ? (
-        <details className="provider-connect-more">
-          <summary>Connect another provider</summary>
-          <div className="provider-connect-grid">{others.map((connection) => renderCard(connection))}</div>
-        </details>
-      ) : null}
+      <div className={activeConnectionTab === "all" ? "provider-connect-grid" : "provider-connect-grid single"}>
+        {visibleConnections.map((connection) => renderCard(connection))}
+      </div>
 
       <div className="provider-connect-footer">
         <span>Connected providers</span>

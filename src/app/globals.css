@@ -1972,6 +1972,59 @@ th {
   gap: 10px;
 }
 
+.provider-connect-grid.single {
+  grid-template-columns: minmax(0, 720px);
+}
+
+.provider-connect-tabs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  padding: 0 0 10px;
+  scrollbar-width: thin;
+}
+
+.provider-connect-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 7px 10px;
+  font: 700 12px var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.provider-connect-tab:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.provider-connect-tab.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.provider-connect-tab .provider-logo {
+  width: 18px;
+  height: 18px;
+}
+
+.provider-connect-tab > span {
+  border: 1px solid currentColor;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
 /* Section tabs: Dashboards / Repos / Credentials */
 .view-tabs {
   display: flex;
