@@ -669,8 +669,39 @@ interface AiLocalUsagePayload {
   subscriptionUsd: number
   planLabel: string | null
   toolLabel?: string
-  models: Array<{ model: string; inputTokens: number; cacheTokens: number; outputTokens: number; estimatedApiUsd: number }>
-  totals: { inputTokens: number; cacheTokens: number; outputTokens: number; estimatedApiUsd: number }
+  limits?: Array<{
+    label: string
+    used: number | null
+    limit: number | null
+    unit: string
+    period: "session" | "daily" | "weekly" | "monthly" | string
+    resetsAt?: string | null
+  }>
+  models: Array<{
+    model: string
+    inputTokens: number
+    cacheTokens: number
+    outputTokens: number
+    estimatedApiUsd: number
+    inputUsd?: number
+    cacheUsd?: number
+    outputUsd?: number
+    rates?: {
+      inputPerMillion?: number
+      cachePerMillion?: number
+      cacheReadPerMillion?: number | null
+      outputPerMillion?: number
+    }
+  }>
+  totals: {
+    inputTokens: number
+    cacheTokens: number
+    outputTokens: number
+    estimatedApiUsd: number
+    inputUsd?: number
+    cacheUsd?: number
+    outputUsd?: number
+  }
 }
 
 function buildLocalAiResult(provider: "anthropic" | "openai" | "cursor", label: string, payload: AiLocalUsagePayload): LiveResult {

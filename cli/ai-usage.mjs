@@ -42,8 +42,63 @@ function openAiPrice(model) {
   return OPENAI_PRICES.find((p) => p.match.test(model)) ?? OPENAI_DEFAULT
 }
 
+function pricedModel(model, tokens, price) {
+  const inputUsd = (tokens.input * price.in) / M
+  const cacheUsd = ((tokens.cacheCreate ?? tokens.cached ?? 0) * (price.cacheWrite ?? price.cachedIn ?? 0) + (tokens.cacheRead ?? 0) * (price.cacheRead ?? 0)) / M
+  const outputUsd = (tokens.output * price.out) / M
+  return {
+    model,
+    inputTokens: tokens.displayInput ?? tokens.input,
+    cacheTokens: (tokens.cacheCreate ?? 0) + (tokens.cacheRead ?? 0) + (tokens.cached ?? 0),
+    outputTokens: tokens.output,
+    inputUsd: Number(inputUsd.toFixed(4)),
+    cacheUsd: Number(cacheUsd.toFixed(4)),
+    outputUsd: Number(outputUsd.toFixed(4)),
+    estimatedApiUsd: Number((inputUsd + cacheUsd + outputUsd).toFixed(4)),
+    rates: {
+      inputPerMillion: price.in,
+      cachePerMillion: price.cacheWrite ?? price.cachedIn ?? 0,
+      cacheReadPerMillion: price.cacheRead ?? null,
+      outputPerMillion: price.out,
+    },
+  }
+}
+
 function currentMonth() {
   return new Date().toISOString().slice(0, 7) // YYYY-MM (UTC)
+}
+
+function normalizeLimitValue(value, fallbackLabel, fallbackPeriod) {
+  if (!value || typeof value !== "object") return null
+  const used = Number(value.used ?? value.current ?? value.consumed ?? value.usage)
+  const limit = Number(value.limit ?? value.maximum ?? value.max ?? value.quota)
+  return {
+    label: String(value.label ?? value.name ?? fallbackLabel),
+    used: Number.isFinite(used) ? used : null,
+    limit: Number.isFinite(limit) ? limit : null,
+    unit: String(value.unit ?? "tokens"),
+    period: String(value.period ?? fallbackPeriod),
+    resetsAt: typeof value.resets_at === "string" ? value.resets_at : typeof value.resetsAt === "string" ? value.resetsAt : null,
+  }
+}
+
+function normalizeRateLimits(rateLimits) {
+  if (!rateLimits || typeof rateLimits !== "object") return []
+  const known = [
+    ["session", "Session limit"],
+    ["weekly", "Weekly limit"],
+    ["daily", "Daily limit"],
+    ["monthly", "Monthly limit"],
+  ]
+  const limits = []
+  for (const [key, label] of known) {
+    const row = normalizeLimitValue(rateLimits[key] ?? rateLimits[`${key}_limit`], label, key)
+    if (row) limits.push(row)
+  }
+  if (limits.length > 0) return limits
+  return Object.entries(rateLimits)
+    .map(([key, value]) => normalizeLimitValue(value, key.replace(/_/g, " "), key))
+    .filter(Boolean)
 }
 
 // Recursively list files under dir (depth-limited), tolerating missing dirs.
@@ -120,15 +175,7 @@ export function readClaudeUsage(month = currentMonth()) {
     .filter(([, t]) => t.input + t.cacheCreate + t.cacheRead + t.output > 0)
     .map(([model, t]) => {
       const p = claudePrice(model)
-      const estimatedApiUsd =
-        (t.input * p.in + t.cacheCreate * p.cacheWrite + t.cacheRead * p.cacheRead + t.output * p.out) / M
-      return {
-        model,
-        inputTokens: t.input,
-        cacheTokens: t.cacheCreate + t.cacheRead,
-        outputTokens: t.output,
-        estimatedApiUsd: Number(estimatedApiUsd.toFixed(4)),
-      }
+      return pricedModel(model, t, p)
     })
   if (models.length === 0) return null
   return {
@@ -150,6 +197,7 @@ export function readCodexUsage(month = currentMonth()) {
 
   const byModel = new Map()
   let planType = null
+  let lastRateLimits = null
   for (const file of files) {
     let model = "gpt-5"
     let lastTotals = null
@@ -167,6 +215,7 @@ export function readCodexUsage(month = currentMonth()) {
       if (payload.type === "token_count" && payload.info?.total_token_usage) {
         lastTotals = payload.info.total_token_usage
         if (payload.rate_limits?.plan_type) planType = payload.rate_limits.plan_type
+        if (payload.rate_limits) lastRateLimits = payload.rate_limits
       }
     }
     if (!lastTotals) continue
@@ -181,14 +230,7 @@ export function readCodexUsage(month = currentMonth()) {
   const models = [...byModel.entries()].map(([model, t]) => {
     const p = openAiPrice(model)
     const uncachedInput = Math.max(t.input - t.cached, 0)
-    const estimatedApiUsd = (uncachedInput * p.in + t.cached * p.cachedIn + t.output * p.out) / M
-    return {
-      model,
-      inputTokens: t.input,
-      cacheTokens: t.cached,
-      outputTokens: t.output,
-      estimatedApiUsd: Number(estimatedApiUsd.toFixed(4)),
-    }
+    return pricedModel(model, { input: uncachedInput, displayInput: t.input, cached: t.cached, output: t.output }, p)
   })
   const planLabel = planType ? planType.charAt(0).toUpperCase() + planType.slice(1) : null
   const planCost = process.env.AMBRIUM_PLAN_COST ?? (planType === "pro" ? 200 : 20)
@@ -198,6 +240,7 @@ export function readCodexUsage(month = currentMonth()) {
     month,
     planLabel,
     subscriptionUsd: Number(planCost),
+    limits: normalizeRateLimits(lastRateLimits),
     models,
   }
 }

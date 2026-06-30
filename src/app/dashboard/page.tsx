@@ -20,7 +20,7 @@ import { RepoSyncPanel } from "../RepoSyncPanel"
 import { ProviderConnectPanel } from "../ProviderConnectPanel"
 import { CustomProviderPanel } from "../CustomProviderPanel"
 import { AiSyncPanel } from "../AiSyncPanel"
-import { type AiToolData } from "../AiInsights"
+import { type AiToolData, type AiUsageLimit } from "../AiInsights"
 import { BudgetForecast } from "../BudgetForecast"
 import { RepoAccountPicker } from "../RepoAccountPicker"
 import { ProviderCostPanel } from "../ProviderCostPanel"
@@ -222,6 +222,34 @@ function compactNumber(value: number) {
 function percentOf(value: number, total: number) {
   if (total <= 0) return "0%"
   return `${Math.round((value / total) * 100)}%`
+}
+
+function maybeMoney(value: number | null | undefined) {
+  return value == null || value <= 0 ? "—" : money(value)
+}
+
+function limitUsageLabel(limit: AiUsageLimit) {
+  const used = limit.used == null ? "—" : quantity(limit.used)
+  const cap = limit.limit == null ? "—" : quantity(limit.limit)
+  return `${used} / ${cap} ${limit.unit}`
+}
+
+function modelCostParts(model: AiToolData["models"][number]) {
+  const known = (model.inputUsd ?? 0) + (model.cacheUsd ?? 0) + (model.outputUsd ?? 0)
+  if (known > 0) {
+    return {
+      input: model.inputUsd ?? 0,
+      cache: model.cacheUsd ?? 0,
+      output: model.outputUsd ?? 0,
+    }
+  }
+  const tokens = model.inputTokens + model.cacheTokens + model.outputTokens
+  if (tokens <= 0 || model.estimatedApiUsd <= 0) return { input: 0, cache: 0, output: 0 }
+  return {
+    input: model.estimatedApiUsd * (model.inputTokens / tokens),
+    cache: model.estimatedApiUsd * (model.cacheTokens / tokens),
+    output: model.estimatedApiUsd * (model.outputTokens / tokens),
+  }
 }
 
 type AccountEntry = {
@@ -888,6 +916,16 @@ function shortAge(value: string | null) {
   return `${Math.round(age / 86_400_000)}d ago`
 }
 
+function resetLabel(value: string | null | undefined) {
+  if (!value) return "reset not reported"
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) return "reset not reported"
+  const delta = time - Date.now()
+  const abs = Math.abs(delta)
+  const unit = abs < 3_600_000 ? `${Math.max(Math.round(abs / 60_000), 1)}m` : abs < 86_400_000 ? `${Math.round(abs / 3_600_000)}h` : `${Math.round(abs / 86_400_000)}d`
+  return delta >= 0 ? `resets in ${unit}` : `reset ${unit} ago`
+}
+
 const AI_USAGE_URL: Partial<Record<Provider, string>> = {
   anthropic: "https://claude.ai/new#settings/usage",
   openai: "https://chatgpt.com/codex/cloud/settings/analytics#usage",
@@ -932,7 +970,23 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
       localUsage?: {
         planLabel?: string | null
         totals?: { inputTokens?: number; cacheTokens?: number; outputTokens?: number }
-        models?: Array<{ model: string; inputTokens?: number; cacheTokens?: number; outputTokens?: number; estimatedApiUsd?: number }>
+        limits?: AiUsageLimit[]
+        models?: Array<{
+          model: string
+          inputTokens?: number
+          cacheTokens?: number
+          outputTokens?: number
+          estimatedApiUsd?: number
+          inputUsd?: number
+          cacheUsd?: number
+          outputUsd?: number
+          rates?: {
+            inputPerMillion?: number
+            cachePerMillion?: number
+            cacheReadPerMillion?: number | null
+            outputPerMillion?: number
+          }
+        }>
       }
       subscriptionUsdOverride?: number
       planLabelOverride?: string
@@ -952,7 +1006,18 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
       const input = model.inputTokens ?? 0
       const cache = model.cacheTokens ?? 0
       const output = model.outputTokens ?? 0
-      return { model: model.model, inputTokens: input, cacheTokens: cache, outputTokens: output, totalTokens: input + cache + output, estimatedApiUsd: model.estimatedApiUsd ?? 0 }
+      return {
+        model: model.model,
+        inputTokens: input,
+        cacheTokens: cache,
+        outputTokens: output,
+        totalTokens: input + cache + output,
+        estimatedApiUsd: model.estimatedApiUsd ?? 0,
+        inputUsd: model.inputUsd,
+        cacheUsd: model.cacheUsd,
+        outputUsd: model.outputUsd,
+        rates: model.rates,
+      }
     })
 
     const planLabel = meta.planLabelOverride ?? meta.localUsage?.planLabel ?? null
@@ -982,6 +1047,7 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
       outputTokens,
       totalTokens: inputTokens + cacheTokens + outputTokens,
       models,
+      limits: meta.localUsage?.limits ?? [],
       lastVerifiedAt: conn.lastVerifiedAt ?? null,
       usageUrl: AI_USAGE_URL[provider] ?? null,
       category: subscriptionCost > 0 ? "subscription" : meta.source === "local" ? "local" : "api",
@@ -1025,6 +1091,7 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
         totalTokens: 0,
         estimatedApiUsd: row.cost,
       })),
+      limits: [],
       lastVerifiedAt: analysis.liveSync.find((entry) => entry.provider === first.provider)?.syncedAt ?? null,
       usageUrl: AI_USAGE_URL[first.provider] ?? null,
       category: "gateway",
@@ -1440,6 +1507,63 @@ function RepositoryDashboard({
       const bTool = aiTools.find((tool) => tool.id === b.id)
       return (bTool?.totalTokens ?? 0) - (aTool?.totalTokens ?? 0) || (bTool?.totalCost ?? 0) - (aTool?.totalCost ?? 0)
     })
+  const aiDeepDiveVMs = aiTools.map((tool) => {
+    const d = provMono(tool.provider, tool.label)
+    const totalModelValue = tool.models.reduce((sum, model) => sum + model.estimatedApiUsd, 0)
+    const inputValue = tool.models.reduce((sum, model) => sum + modelCostParts(model).input, 0)
+    const cacheValue = tool.models.reduce((sum, model) => sum + modelCostParts(model).cache, 0)
+    const outputValue = tool.models.reduce((sum, model) => sum + modelCostParts(model).output, 0)
+    const modelRows = [...tool.models]
+      .sort((a, b) => b.estimatedApiUsd - a.estimatedApiUsd || b.totalTokens - a.totalTokens)
+      .map((model) => {
+        const parts = modelCostParts(model)
+        const rates = model.rates
+        return {
+          name: model.model,
+          tokens: compactNumber(model.totalTokens),
+          mix: `${compactNumber(model.inputTokens)} in · ${compactNumber(model.cacheTokens)} cache · ${compactNumber(model.outputTokens)} out`,
+          inputCost: maybeMoney(parts.input),
+          cacheCost: maybeMoney(parts.cache),
+          outputCost: maybeMoney(parts.output),
+          totalValue: maybeMoney(model.estimatedApiUsd),
+          rates:
+            rates && (rates.inputPerMillion || rates.cachePerMillion || rates.outputPerMillion)
+              ? `${maybeMoney(rates.inputPerMillion)}/M in · ${maybeMoney(rates.cachePerMillion)}/M cache · ${maybeMoney(rates.outputPerMillion)}/M out`
+              : "No rate detail",
+        }
+      })
+    const limits = tool.limits.map((limit) => {
+      const pct = limit.used != null && limit.limit && limit.limit > 0 ? Math.min(100, Math.round((limit.used / limit.limit) * 100)) : null
+      return {
+        ...limit,
+        pct,
+        label: `${limit.label} · ${limit.period}`,
+        usage: limitUsageLabel(limit),
+        reset: resetLabel(limit.resetsAt),
+      }
+    })
+    return {
+      id: tool.id ?? tool.provider,
+      provider: tool.provider,
+      color: d.color,
+      monogram: d.m,
+      name: tool.label,
+      plan: tool.planLabel ?? (tool.source === "api" ? "API" : "Connected"),
+      source: tool.source === "both" ? "subscription + API" : tool.source ?? tool.category ?? "connected",
+      totalCost: money(tool.totalCost),
+      subscriptionCost: money(tool.subscriptionCost),
+      apiCost: money(tool.apiCost),
+      apiValue: money(tool.apiValue),
+      tokenTotal: compactNumber(tool.totalTokens),
+      valueMultiple: tool.totalCost > 0 && tool.apiValue > 0 ? `${(tool.apiValue / tool.totalCost).toFixed(1)}x` : "—",
+      inputValue: maybeMoney(inputValue),
+      cacheValue: maybeMoney(cacheValue),
+      outputValue: maybeMoney(outputValue),
+      totalModelValue: maybeMoney(totalModelValue),
+      modelRows,
+      limits,
+    }
+  })
 
   // --- Connect view-model --------------------------------------------------
   const connectedVMs = accounts.map((account) => {
@@ -1732,6 +1856,97 @@ function RepositoryDashboard({
                   ))}
                 </div>
               </div>
+            </div>
+            <div className="amb-ai-deepdive" aria-label="AI provider deep dive">
+              {aiDeepDiveVMs.map((tool) => (
+                <details className="amb-ai-provider-detail" key={tool.id}>
+                  <summary>
+                    <span className="amb-mono-badge" style={{ background: tool.color }}>
+                      {tool.monogram}
+                    </span>
+                    <span className="amb-ai-provider-title">
+                      <strong>{tool.name}</strong>
+                      <small>{tool.source} · {tool.plan}</small>
+                    </span>
+                    <span className="amb-ai-provider-total">
+                      <strong>{tool.totalCost}</strong>
+                      <small>{tool.tokenTotal} tokens · {tool.apiValue} API value</small>
+                    </span>
+                    <span className="amb-ai-provider-pill">{tool.limits.length ? `${tool.limits.length} limits` : "no limits"}</span>
+                    <ChevronDown aria-hidden />
+                  </summary>
+                  <div className="amb-ai-provider-body">
+                    <div className="amb-ai-provider-metrics">
+                      <article><span>Total</span><strong>{tool.totalCost}</strong><small>subscription + API</small></article>
+                      <article><span>Subscription</span><strong>{tool.subscriptionCost}</strong><small>flat plan</small></article>
+                      <article><span>API spend</span><strong>{tool.apiCost}</strong><small>usage based</small></article>
+                      <article><span>API value</span><strong>{tool.totalModelValue}</strong><small>{tool.valueMultiple} value / spend</small></article>
+                      <article><span>Input value</span><strong>{tool.inputValue}</strong><small>priced separately</small></article>
+                      <article><span>Output value</span><strong>{tool.outputValue}</strong><small>priced separately</small></article>
+                    </div>
+                    <div className="amb-ai-provider-split">
+                      <strong>Cost split by token direction</strong>
+                      <div className="amb-ai-provider-split-grid">
+                        <span><i style={{ background: "#4d8cf0" }} /> Input {tool.inputValue}</span>
+                        <span><i style={{ background: "#b9a14a" }} /> Cache {tool.cacheValue}</span>
+                        <span><i style={{ background: "#46a37b" }} /> Output {tool.outputValue}</span>
+                      </div>
+                    </div>
+                    <div className="amb-ai-provider-section">
+                      <div className="amb-ai-provider-section-head">
+                        <strong>Limits</strong>
+                        <span>Session, weekly, monthly, or provider-reported usage windows.</span>
+                      </div>
+                      {tool.limits.length ? (
+                        <div className="amb-ai-limit-list">
+                          {tool.limits.map((limit) => (
+                            <div className="amb-ai-limit-row" key={`${tool.id}-${limit.label}`}>
+                              <div>
+                                <strong>{limit.label}</strong>
+                                <small>{limit.usage} · {limit.reset}</small>
+                              </div>
+                              <span className="amb-ai-limit-track" aria-hidden>
+                                <i style={{ width: `${limit.pct ?? 0}%`, background: limit.pct != null && limit.pct >= 80 ? "#DC2B3F" : tool.color }} />
+                              </span>
+                              <em>{limit.pct == null ? "—" : `${limit.pct}%`}</em>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="amb-ai-provider-empty">No provider limit window was reported with this usage sync.</div>
+                      )}
+                    </div>
+                    <div className="amb-ai-provider-section">
+                      <div className="amb-ai-provider-section-head">
+                        <strong>Models</strong>
+                        <span>Input, cache, and output rates differ by model; total value uses the reported parts when available.</span>
+                      </div>
+                      {tool.modelRows.length ? (
+                        <div className="amb-ai-model-economics">
+                          <div className="head">Model</div>
+                          <div className="head">Tokens</div>
+                          <div className="head">Input</div>
+                          <div className="head">Cache</div>
+                          <div className="head">Output</div>
+                          <div className="head">Total</div>
+                          {tool.modelRows.map((model) => (
+                            <div className="amb-ai-model-economic-row" key={`${tool.id}-${model.name}`}>
+                              <div><strong>{model.name}</strong><small>{model.rates}</small></div>
+                              <div><strong>{model.tokens}</strong><small>{model.mix}</small></div>
+                              <div><strong>{model.inputCost}</strong><small>input</small></div>
+                              <div><strong>{model.cacheCost}</strong><small>cache</small></div>
+                              <div><strong>{model.outputCost}</strong><small>output</small></div>
+                              <div><strong>{model.totalValue}</strong><small>API-rate value</small></div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="amb-ai-provider-empty">No model-level token rows have been synced yet.</div>
+                      )}
+                    </div>
+                  </div>
+                </details>
+              ))}
             </div>
             <div className="amb-table">
               {aiBarVMs.map((a) => (

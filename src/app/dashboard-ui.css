@@ -1363,6 +1363,248 @@
   flex: 0 0 auto;
 }
 
+.amb-ai-deepdive {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 22px;
+}
+
+.amb-ai-provider-detail {
+  border: 1px solid var(--amb-line);
+  border-radius: 11px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.amb-ai-provider-detail summary {
+  display: grid;
+  grid-template-columns: 30px minmax(150px, 1fr) minmax(180px, auto) auto 18px;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.amb-ai-provider-detail summary::-webkit-details-marker {
+  display: none;
+}
+
+.amb-ai-provider-detail summary svg {
+  width: 16px;
+  height: 16px;
+  color: var(--amb-muted-2);
+  transition: transform 0.16s ease;
+}
+
+.amb-ai-provider-detail[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.amb-ai-provider-title,
+.amb-ai-provider-total {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.amb-ai-provider-title strong,
+.amb-ai-provider-total strong,
+.amb-ai-provider-metrics strong,
+.amb-ai-limit-row strong,
+.amb-ai-model-economic-row strong,
+.amb-ai-provider-section-head strong,
+.amb-ai-provider-split strong {
+  min-width: 0;
+  font: 600 13px var(--amb-font);
+  color: var(--amb-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.amb-ai-provider-title small,
+.amb-ai-provider-total small,
+.amb-ai-provider-metrics small,
+.amb-ai-limit-row small,
+.amb-ai-model-economic-row small,
+.amb-ai-provider-section-head span,
+.amb-ai-provider-empty,
+.amb-ai-provider-split-grid span {
+  min-width: 0;
+  font: 400 11px var(--amb-mono);
+  color: var(--amb-muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.amb-ai-provider-total {
+  text-align: right;
+}
+
+.amb-ai-provider-pill {
+  border: 1px solid var(--amb-line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font: 600 10px var(--amb-font);
+  color: var(--amb-muted);
+  background: var(--amb-card-2);
+  white-space: nowrap;
+}
+
+.amb-ai-provider-body {
+  display: grid;
+  gap: 14px;
+  padding: 0 15px 15px;
+  border-top: 1px solid var(--amb-line-2);
+}
+
+.amb-ai-provider-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border: 1px solid var(--amb-line-2);
+  border-radius: 9px;
+  overflow: hidden;
+  margin-top: 14px;
+}
+
+.amb-ai-provider-metrics article {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px;
+  border-right: 1px solid var(--amb-line-2);
+  background: #fff;
+}
+
+.amb-ai-provider-metrics article:last-child {
+  border-right: 0;
+}
+
+.amb-ai-provider-metrics span,
+.amb-ai-model-economics .head {
+  font: 600 10px var(--amb-font);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--amb-faint);
+}
+
+.amb-ai-provider-split,
+.amb-ai-provider-section {
+  display: grid;
+  gap: 9px;
+}
+
+.amb-ai-provider-split-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.amb-ai-provider-split-grid span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--amb-line-2);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: var(--amb-card-2);
+}
+
+.amb-ai-provider-split-grid i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.amb-ai-provider-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.amb-ai-limit-list {
+  display: grid;
+  gap: 7px;
+}
+
+.amb-ai-limit-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(140px, 1.2fr) 42px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--amb-line-2);
+  border-radius: 9px;
+  background: var(--amb-card-2);
+}
+
+.amb-ai-limit-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.amb-ai-limit-track {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--amb-track);
+  overflow: hidden;
+}
+
+.amb-ai-limit-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.amb-ai-limit-row em {
+  font: 600 11px var(--amb-mono);
+  color: var(--amb-muted);
+  text-align: right;
+  font-style: normal;
+}
+
+.amb-ai-model-economics {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.35fr) minmax(150px, 1fr) repeat(4, minmax(86px, 0.7fr));
+  border: 1px solid var(--amb-line-2);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.amb-ai-model-economics .head {
+  padding: 8px 10px;
+  background: var(--amb-card-2);
+  border-bottom: 1px solid var(--amb-line-2);
+}
+
+.amb-ai-model-economic-row {
+  display: contents;
+}
+
+.amb-ai-model-economic-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border-top: 1px solid var(--amb-line-2);
+}
+
+.amb-ai-model-economic-row:first-of-type > div {
+  border-top: 0;
+}
+
+.amb-ai-provider-empty {
+  border: 1px dashed var(--amb-line);
+  border-radius: 9px;
+  padding: 10px 11px;
+  background: var(--amb-card-2);
+}
+
 .amb-ai-bar {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) 70px minmax(140px, 1.6fr) 80px;
@@ -1777,6 +2019,60 @@
 
   .amb-ai-usage-grid {
     min-width: 650px;
+  }
+
+  .amb-ai-provider-detail summary {
+    grid-template-columns: 30px minmax(0, 1fr) 18px;
+  }
+
+  .amb-ai-provider-total,
+  .amb-ai-provider-pill {
+    grid-column: 2 / 3;
+    text-align: left;
+  }
+
+  .amb-ai-provider-detail summary svg {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .amb-ai-provider-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .amb-ai-provider-metrics article {
+    border-right: 1px solid var(--amb-line-2);
+    border-bottom: 1px solid var(--amb-line-2);
+  }
+
+  .amb-ai-provider-metrics article:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .amb-ai-provider-metrics article:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  .amb-ai-provider-section-head {
+    display: grid;
+    gap: 3px;
+  }
+
+  .amb-ai-limit-row {
+    grid-template-columns: 1fr 44px;
+  }
+
+  .amb-ai-limit-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .amb-ai-model-economics {
+    min-width: 760px;
+  }
+
+  .amb-ai-provider-section:has(.amb-ai-model-economics) {
+    overflow-x: auto;
   }
 }
 

@@ -12,6 +12,24 @@ export interface AiModelStat {
   outputTokens: number
   totalTokens: number
   estimatedApiUsd: number
+  inputUsd?: number
+  cacheUsd?: number
+  outputUsd?: number
+  rates?: {
+    inputPerMillion?: number
+    cachePerMillion?: number
+    cacheReadPerMillion?: number | null
+    outputPerMillion?: number
+  }
+}
+
+export interface AiUsageLimit {
+  label: string
+  used: number | null
+  limit: number | null
+  unit: string
+  period: string
+  resetsAt?: string | null
 }
 
 export interface AiToolData {
@@ -30,6 +48,7 @@ export interface AiToolData {
   outputTokens: number
   totalTokens: number
   models: AiModelStat[]
+  limits: AiUsageLimit[]
   lastVerifiedAt: string | null
   usageUrl: string | null
   category?: "subscription" | "api" | "gateway" | "local"

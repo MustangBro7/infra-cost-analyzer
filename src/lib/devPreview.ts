@@ -40,6 +40,7 @@ export const DEV_PREVIEW_USER: LocalUser = {
 const NOW = new Date()
 const MONTH_START = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), 1))
 const MONTH_END = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth() + 1, 0))
+const MONTH_END_RESET = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth() + 1, 1) - 1)
 const ymd = (d: Date) => d.toISOString().slice(0, 10)
 const PERIOD = { from: ymd(MONTH_START), to: ymd(MONTH_END) }
 const TWO_HOURS_AGO = new Date(NOW.getTime() - 2 * 3_600_000).toISOString()
@@ -164,7 +165,84 @@ const FREE_TIER: FreeTierUsageRow[] = [
   usage("vercel", "Hobby", "Bandwidth", 41, 100, "GB"),
   usage("gcp", "Free", "Cloud Run requests", 180_000, 2_000_000, "req"),
   usage("vercel", "Hobby", "Image Optimization", 420, 5_000, "src"),
+  usage("anthropic", "Claude Max", "Value at API rates", 148.62, 200, "USD est."),
+  usage("openai", "ChatGPT Pro", "Value at API rates", 96.74, 200, "USD est."),
 ]
+
+const AI_LOCAL_USAGE = {
+  anthropic: {
+    month: PERIOD.from.slice(0, 7),
+    subscriptionUsd: 20,
+    planLabel: "Max",
+    toolLabel: "Claude Code",
+    limits: [
+      { label: "Session messages", used: 38, limit: 50, unit: "messages", period: "session", resetsAt: new Date(NOW.getTime() + 42 * 60_000).toISOString() },
+      { label: "Weekly messages", used: 312, limit: 500, unit: "messages", period: "weekly", resetsAt: new Date(NOW.getTime() + 3 * 86_400_000).toISOString() },
+      { label: "Monthly included value", used: 148.62, limit: 200, unit: "USD est.", period: "monthly", resetsAt: MONTH_END_RESET.toISOString() },
+    ],
+    models: [
+      {
+        model: "claude-opus-4-1",
+        inputTokens: 1_180_000,
+        cacheTokens: 3_900_000,
+        outputTokens: 420_000,
+        inputUsd: 17.7,
+        cacheUsd: 7.02,
+        outputUsd: 31.5,
+        estimatedApiUsd: 56.22,
+        rates: { inputPerMillion: 15, cachePerMillion: 1.5, cacheReadPerMillion: 1.5, outputPerMillion: 75 },
+      },
+      {
+        model: "claude-sonnet-4",
+        inputTokens: 7_600_000,
+        cacheTokens: 18_000_000,
+        outputTokens: 5_100_000,
+        inputUsd: 22.8,
+        cacheUsd: 5.4,
+        outputUsd: 76.5,
+        estimatedApiUsd: 104.7,
+        rates: { inputPerMillion: 3, cachePerMillion: 0.3, cacheReadPerMillion: 0.3, outputPerMillion: 15 },
+      },
+    ],
+    totals: { inputTokens: 8_780_000, cacheTokens: 21_900_000, outputTokens: 5_520_000, inputUsd: 40.5, cacheUsd: 12.42, outputUsd: 108, estimatedApiUsd: 160.92 },
+  },
+  openai: {
+    month: PERIOD.from.slice(0, 7),
+    subscriptionUsd: 20,
+    planLabel: "Pro",
+    toolLabel: "Codex",
+    limits: [
+      { label: "Session limit", used: 76, limit: 100, unit: "turns", period: "session", resetsAt: new Date(NOW.getTime() + 26 * 60_000).toISOString() },
+      { label: "Weekly limit", used: 584, limit: 1_000, unit: "turns", period: "weekly", resetsAt: new Date(NOW.getTime() + 5 * 86_400_000).toISOString() },
+      { label: "Monthly included value", used: 96.74, limit: 200, unit: "USD est.", period: "monthly", resetsAt: MONTH_END_RESET.toISOString() },
+    ],
+    models: [
+      {
+        model: "gpt-5",
+        inputTokens: 9_400_000,
+        cacheTokens: 22_500_000,
+        outputTokens: 3_800_000,
+        inputUsd: 11.75,
+        cacheUsd: 2.81,
+        outputUsd: 38,
+        estimatedApiUsd: 52.56,
+        rates: { inputPerMillion: 1.25, cachePerMillion: 0.125, cacheReadPerMillion: null, outputPerMillion: 10 },
+      },
+      {
+        model: "gpt-5-mini",
+        inputTokens: 28_000_000,
+        cacheTokens: 40_000_000,
+        outputTokens: 12_000_000,
+        inputUsd: 7,
+        cacheUsd: 1,
+        outputUsd: 24,
+        estimatedApiUsd: 32,
+        rates: { inputPerMillion: 0.25, cachePerMillion: 0.025, cacheReadPerMillion: null, outputPerMillion: 2 },
+      },
+    ],
+    totals: { inputTokens: 37_400_000, cacheTokens: 62_500_000, outputTokens: 15_800_000, inputUsd: 18.75, cacheUsd: 3.81, outputUsd: 62, estimatedApiUsd: 84.56 },
+  },
+}
 
 function conn(
   provider: Provider,
@@ -186,8 +264,8 @@ const CONNECTIONS: Partial<Record<Provider, StoredConnection>> = {
   vercel: conn("vercel", "4 projects"),
   cloudflare: conn("cloudflare", "3 zones", { lastError: "API token expires in 3 days." }),
   aws: conn("aws", "Cost Explorer", { metadata: { costExplorer: true } }),
-  openai: conn("openai", "Usage API"),
-  anthropic: conn("anthropic", "Usage API"),
+  openai: conn("openai", "Usage API", { metadata: { source: "both", showApi: true, localUsage: AI_LOCAL_USAGE.openai } }),
+  anthropic: conn("anthropic", "Usage API", { metadata: { source: "both", showApi: true, localUsage: AI_LOCAL_USAGE.anthropic } }),
   cursor: conn("cursor", "Team seat"),
   github: conn("github", "12 repos", { metadata: { installationId: 1 } }),
 }
