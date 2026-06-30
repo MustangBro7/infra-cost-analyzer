@@ -359,7 +359,7 @@
 
 /* Centered inner row, aligned to the same column as .amb-content. */
 .amb-header-inner {
-  max-width: 1180px;
+  max-width: 1560px;
   margin: 0 auto;
   width: 100%;
   display: flex;
@@ -419,8 +419,8 @@
 }
 
 .amb-content {
-  padding: 24px 32px 56px;
-  max-width: 1180px;
+  padding: 24px 40px 56px;
+  max-width: 1560px;
   width: 100%;
   margin: 0 auto;
 }
