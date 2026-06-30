@@ -16,22 +16,30 @@ const HOME = homedir()
 // first match wins, else the provider default. Approximate and clearly labeled
 // as estimates in the UI.
 const CLAUDE_PRICES = [
+  { match: /fable|mythos/i, in: 10, cacheWrite: 12.5, cacheRead: 1, out: 50 },
+  { match: /opus.*4[-.]?[5-8]|opus-4-[5-8]/i, in: 5, cacheWrite: 6.25, cacheRead: 0.5, out: 25 },
   { match: /opus/i, in: 15, cacheWrite: 18.75, cacheRead: 1.5, out: 75 },
   { match: /sonnet/i, in: 3, cacheWrite: 3.75, cacheRead: 0.3, out: 15 },
+  { match: /haiku.*4[-.]?5|haiku-4-5/i, in: 1, cacheWrite: 1.25, cacheRead: 0.1, out: 5 },
   { match: /haiku/i, in: 0.8, cacheWrite: 1.0, cacheRead: 0.08, out: 4 },
-  { match: /fable/i, in: 15, cacheWrite: 18.75, cacheRead: 1.5, out: 75 },
 ]
 const CLAUDE_DEFAULT = { in: 3, cacheWrite: 3.75, cacheRead: 0.3, out: 15 }
 
 const OPENAI_PRICES = [
+  { match: /gpt-5\.5.*pro|gpt-5-5.*pro/i, in: 30, cachedIn: 0, out: 180 },
+  { match: /gpt-5\.5|gpt-5-5/i, in: 5, cachedIn: 0.5, out: 30 },
+  { match: /gpt-5\.4.*mini|gpt-5-4.*mini/i, in: 0.75, cachedIn: 0.075, out: 4.5 },
+  { match: /gpt-5\.4.*nano|gpt-5-4.*nano/i, in: 0.2, cachedIn: 0.02, out: 1.25 },
+  { match: /gpt-5\.4|gpt-5-4/i, in: 2.5, cachedIn: 0.25, out: 15 },
+  { match: /gpt-5\.3.*codex|gpt-5-3.*codex|codex/i, in: 1.75, cachedIn: 0.175, out: 14 },
+  { match: /chat-latest/i, in: 5, cachedIn: 0.5, out: 30 },
   { match: /gpt-5.*mini/i, in: 0.25, cachedIn: 0.025, out: 2 },
   { match: /gpt-5/i, in: 1.25, cachedIn: 0.125, out: 10 },
   { match: /gpt-4o.*mini/i, in: 0.15, cachedIn: 0.075, out: 0.6 },
   { match: /gpt-4o|gpt-4\.1/i, in: 2.5, cachedIn: 1.25, out: 10 },
   { match: /o[134]/i, in: 1.1, cachedIn: 0.55, out: 4.4 },
-  { match: /codex/i, in: 1.25, cachedIn: 0.125, out: 10 },
 ]
-const OPENAI_DEFAULT = { in: 1.25, cachedIn: 0.125, out: 10 }
+const OPENAI_DEFAULT = { in: 2.5, cachedIn: 0.25, out: 15 }
 
 const M = 1_000_000
 

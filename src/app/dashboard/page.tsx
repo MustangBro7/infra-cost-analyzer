@@ -1471,39 +1471,15 @@ function RepositoryDashboard({
     if (!aiReposByProvider.has(row.provider)) aiReposByProvider.set(row.provider, new Set())
     aiReposByProvider.get(row.provider)!.add(repoNameByShort.get(row.attributedRepo) ?? row.attributedRepo)
   }
-  const aiUsageVMs = aiTools
-    .map((tool) => {
-      const topModel = [...tool.models].sort((a, b) => b.totalTokens - a.totalTokens)[0] ?? null
-      const valueMultiple = tool.totalCost > 0 && tool.apiValue > 0 ? tool.apiValue / tool.totalCost : null
-      const d = provMono(tool.provider, tool.label)
-      return {
-        id: tool.id,
-        provider: tool.provider,
-        color: d.color,
-        name: tool.label,
-        source: tool.source === "both" ? "subscription + API" : tool.source ?? tool.category ?? "connected",
-        tokens: compactNumber(tool.totalTokens),
-        tokenShare: `${aiTokens > 0 ? Math.max((tool.totalTokens / aiTokens) * 100, 2) : 0}%`,
-        output: percentOf(tool.outputTokens, tool.totalTokens),
-        totalCost: money(tool.totalCost),
-        value: valueMultiple === null ? "—" : `${valueMultiple.toFixed(1)}x`,
-        apiValue: money(tool.apiValue),
-        topModel: topModel?.model ?? "—",
-        topModelShare: topModel ? `${percentOf(topModel.totalTokens, tool.totalTokens)} of tokens` : "No model breakdown",
-      }
-    })
-    .sort((a, b) => {
-      const aTool = aiTools.find((tool) => tool.id === a.id)
-      const bTool = aiTools.find((tool) => tool.id === b.id)
-      return (bTool?.totalTokens ?? 0) - (aTool?.totalTokens ?? 0) || (bTool?.totalCost ?? 0) - (aTool?.totalCost ?? 0)
-    })
   const aiDeepDiveVMs = aiTools.map((tool) => {
     const d = provMono(tool.provider, tool.label)
     const projects = [...(aiReposByProvider.get(tool.provider) ?? [])]
+    const topModel = [...tool.models].sort((a, b) => b.totalTokens - a.totalTokens)[0] ?? null
     const totalModelValue = tool.models.reduce((sum, model) => sum + model.estimatedApiUsd, 0)
     const inputValue = tool.models.reduce((sum, model) => sum + modelCostParts(model).input, 0)
     const cacheValue = tool.models.reduce((sum, model) => sum + modelCostParts(model).cache, 0)
     const outputValue = tool.models.reduce((sum, model) => sum + modelCostParts(model).output, 0)
+    const valueMultiple = tool.totalCost > 0 && tool.apiValue > 0 ? tool.apiValue / tool.totalCost : null
     const modelRows = [...tool.models]
       .sort((a, b) => b.estimatedApiUsd - a.estimatedApiUsd || b.totalTokens - a.totalTokens)
       .map((model) => {
@@ -1542,6 +1518,12 @@ function RepositoryDashboard({
       sub: projects.length > 0 ? projects.join(", ") : tool.accountLabel ?? tool.planLabel ?? providerName(tool.provider),
       kind: tool.category === "subscription" ? "Flat" : "Usage",
       width: `${Math.max((tool.totalCost / aiMax) * 100, 2)}%`,
+      tokens: compactNumber(tool.totalTokens),
+      tokenShare: `${aiTokens > 0 ? Math.max((tool.totalTokens / aiTokens) * 100, 2) : 0}%`,
+      output: percentOf(tool.outputTokens, tool.totalTokens),
+      value: valueMultiple === null ? "—" : `${valueMultiple.toFixed(1)}x`,
+      topModel: topModel?.model ?? "—",
+      topModelShare: topModel ? `${percentOf(topModel.totalTokens, tool.totalTokens)} of tokens` : "No model breakdown",
       plan: tool.planLabel ?? (tool.source === "api" ? "API" : "Connected"),
       source: tool.source === "both" ? "subscription + API" : tool.source ?? tool.category ?? "connected",
       totalCost: money(tool.totalCost),
@@ -1557,6 +1539,10 @@ function RepositoryDashboard({
       modelRows,
       limits,
     }
+  }).sort((a, b) => {
+    const aTool = aiTools.find((tool) => (tool.id ?? tool.provider) === a.id)
+    const bTool = aiTools.find((tool) => (tool.id ?? tool.provider) === b.id)
+    return (bTool?.totalTokens ?? 0) - (aTool?.totalTokens ?? 0) || (bTool?.totalCost ?? 0) - (aTool?.totalCost ?? 0)
   })
 
   // --- Connect view-model --------------------------------------------------
@@ -1829,65 +1815,42 @@ function RepositoryDashboard({
               <div className="amb-ai-usage-table">
                 <div className="amb-ai-usage-title">
                   <strong>Usage detail</strong>
-                  <span>Tokens, cost density, value, and model concentration by connected AI tool.</span>
+                  <span>Tokens, API-rate value, limits, and model concentration by connected AI tool.</span>
                 </div>
                 <div className="amb-ai-usage-grid">
-                  <div className="head">Tool</div>
-                  <div className="head">Tokens</div>
-                  <div className="head">Value / $</div>
-                  <div className="head">Top model</div>
-                  {aiUsageVMs.map((row) => (
-                    <div className="amb-ai-usage-row" key={row.id}>
-                      <div className="tool">
-                        <span className="amb-mono-badge" style={{ background: provMono(row.provider, row.name).color }}>
-                          {provMono(row.provider, row.name).m}
+                  <div className="amb-ai-usage-headrow">
+                    <div className="head">Tool</div>
+                    <div className="head">Tokens</div>
+                    <div className="head">Value / $</div>
+                    <div className="head">Top model</div>
+                    <div className="head" aria-hidden />
+                  </div>
+                  {aiDeepDiveVMs.map((tool) => (
+                    <details className="amb-ai-usage-row" key={tool.id}>
+                      <summary>
+                        <span className="tool">
+                          <span className="amb-mono-badge" style={{ background: tool.color }}>
+                            {tool.monogram}
+                          </span>
+                          <span>
+                            <strong>{tool.name}</strong>
+                            <small>{tool.source}</small>
+                          </span>
                         </span>
-                        <span>
-                          <strong>{row.name}</strong>
-                          <small>{row.source}</small>
+                        <span className="amb-ai-token-cell">
+                          <span>
+                            <strong>{tool.tokens}</strong>
+                            <small>{tool.output} output</small>
+                          </span>
+                          <span className="amb-ai-token-track" aria-hidden>
+                            <i style={{ width: tool.tokenShare, background: tool.color }} />
+                          </span>
                         </span>
-                      </div>
-                      <div className="amb-ai-token-cell">
-                        <span>
-                          <strong>{row.tokens}</strong>
-                          <small>{row.output} output</small>
-                        </span>
-                        <span className="amb-ai-token-track" aria-hidden>
-                          <i style={{ width: row.tokenShare, background: row.color }} />
-                        </span>
-                      </div>
-                      <div><strong>{row.value}</strong><small>{row.apiValue} API value</small></div>
-                      <div><strong>{row.topModel}</strong><small>{row.topModelShare}</small></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="amb-table amb-ai-main-list" aria-label="AI provider detail">
-              {aiDeepDiveVMs.map((tool) => (
-                <details className="amb-ai-provider-detail" key={tool.id}>
-                  <summary>
-                    <span className="amb-ai-bar-id">
-                      <span className="amb-mono-badge" style={{ background: tool.color }}>
-                        {tool.monogram}
-                      </span>
-                      <span>
-                        <strong>{tool.name}</strong>
-                        <small>{tool.sub}</small>
-                      </span>
-                    </span>
-                    <span className="amb-ai-kind">{tool.kind}</span>
-                    <span className="amb-ai-bar-track">
-                      <i className="amb-ai-bar-fill" style={{ width: tool.width, background: tool.color }} />
-                    </span>
-                    <span className="amb-ai-provider-total">
-                      <strong>{tool.totalCost}</strong>
-                      <small>{tool.tokenTotal} tokens · {tool.apiValue} API value</small>
-                    </span>
-                    <span className="amb-ai-provider-pill">{tool.limits.length ? `${tool.limits.length} limits` : "no limits"}</span>
-                    <ChevronDown aria-hidden />
-                  </summary>
-                  <div className="amb-ai-provider-body">
+                        <span><strong>{tool.value}</strong><small>{tool.apiValue} API value</small></span>
+                        <span><strong>{tool.topModel}</strong><small>{tool.topModelShare}</small></span>
+                        <ChevronDown aria-hidden />
+                      </summary>
+                      <div className="amb-ai-provider-body">
                     <div className="amb-ai-provider-metrics">
                       <article><span>Total</span><strong>{tool.totalCost}</strong><small>subscription + API</small></article>
                       <article><span>Subscription</span><strong>{tool.subscriptionCost}</strong><small>flat plan</small></article>
@@ -1959,6 +1922,8 @@ function RepositoryDashboard({
                   </div>
                 </details>
               ))}
+            </div>
+            </div>
             </div>
           </>
         ) : (
