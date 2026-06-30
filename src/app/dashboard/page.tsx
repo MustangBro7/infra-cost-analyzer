@@ -47,6 +47,7 @@ export const dynamic = "force-dynamic"
 // Indie-first app sections, selected by ?view=. Projects is the default product
 // surface; old query values are accepted as aliases below for existing links.
 type ViewKey = "projects" | "limits" | "leaks" | "ai" | "insights" | "connect"
+type ConnectTabKey = "setup" | "connected" | "detected" | "credentials"
 
 function money(value: number) {
   const abs = Math.abs(value)
@@ -1247,6 +1248,7 @@ function RepositoryDashboard({
   state,
   repoAnalyses,
   view,
+  connectTab,
   repoTrends,
 }: {
   analysis: AnalysisResult
@@ -1255,6 +1257,7 @@ function RepositoryDashboard({
   state: Awaited<ReturnType<typeof publicStore>>
   repoAnalyses: Record<string, AnalysisResult>
   view: ViewKey
+  connectTab: ConnectTabKey
   // Real monthly cost-per-repo history for sparklines; {} when historical
   // analytics reads are disabled or empty (we then render no trend, not a fake).
   repoTrends: Record<string, Array<{ month: string; total: number }>>
@@ -1585,6 +1588,12 @@ function RepositoryDashboard({
   const pendingConnections = analysis.providerConnections.filter(
     (connection) => connection.status !== "connected" && (connection.detected || connection.status === "setup_required")
   )
+  const connectTabs: Array<{ key: ConnectTabKey; label: string; detail: string; count?: number }> = [
+    { key: "setup", label: "Setup", detail: "Read-only + CLI" },
+    { key: "connected", label: "Connected", detail: "Live accounts", count: connectedVMs.length },
+    { key: "detected", label: "Detected", detail: "Found in repos", count: pendingConnections.length },
+    { key: "credentials", label: "Credentials", detail: "Manage access" },
+  ]
 
   return (
     <>
@@ -1982,95 +1991,138 @@ function RepositoryDashboard({
 
       {view === "connect" ? (
         <>
-          <div className="amb-banner green">
-            <span className="amb-banner-icon" aria-hidden>
-              <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#fff" strokeWidth="1.6">
-                <rect x="3" y="7" width="10" height="6.5" rx="1.5" />
-                <path d="M5 7 V5 a3 3 0 0 1 6 0 V7" />
-              </svg>
-            </span>
-            <div>
-              <strong>Read-only by design</strong>
-              <span>Ambrium uses scoped, read-only credentials. It can see costs and usage — never touch your infrastructure.</span>
-            </div>
+          <div className="amb-connect-tabs" role="tablist" aria-label="Connect sections">
+            {connectTabs.map((tab) => (
+              <Link
+                key={tab.key}
+                href={tab.key === "setup" ? "/dashboard?view=connect" : `/dashboard?view=connect&connectTab=${tab.key}`}
+                prefetch={false}
+                role="tab"
+                aria-selected={connectTab === tab.key}
+                className={connectTab === tab.key ? "amb-connect-tab active" : "amb-connect-tab"}
+              >
+                <span>
+                  <strong>{tab.label}</strong>
+                  <small>{tab.detail}</small>
+                </span>
+                {typeof tab.count === "number" ? <em>{tab.count}</em> : null}
+              </Link>
+            ))}
           </div>
 
-          <div className="amb-agent-card">
-            <h3>Set up with an AI agent</h3>
-            <p>Run the companion CLI — Claude Code or Codex can drive it while you approve each OAuth, IAM, and token step.</p>
-            <div className="amb-cmd">
-              <span className="sigil">$</span>
-              <code>{CLI_BASE}</code>
-              <CopyButton text={CLI_BASE} />
-            </div>
-          </div>
-
-          <p className="amb-section-label">Connected · {connectedVMs.length}</p>
-          {connectedVMs.length > 0 ? (
-            <div className="amb-conn-grid">
-              {connectedVMs.map((c) => (
-                <div className="amb-conn" key={c.key}>
-                  <span className="amb-mono-badge" style={{ background: c.color }}>
-                    {c.monogram}
-                  </span>
-                  <div className="amb-conn-id">
-                    <strong>{c.name}</strong>
-                    <small>{c.detail}</small>
-                  </div>
-                  <div className="amb-conn-status" style={{ color: c.warn ? "#C77B0A" : "#0F9D63" }}>
-                    <span className="dot" style={{ background: c.warn ? "#C77B0A" : "#0F9D63" }} />
-                    {c.warn ? "Needs attention" : "Connected"}
-                  </div>
+          {connectTab === "setup" ? (
+            <div className="amb-connect-tab-panel">
+              <div className="amb-banner green">
+                <span className="amb-banner-icon" aria-hidden>
+                  <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="#fff" strokeWidth="1.6">
+                    <rect x="3" y="7" width="10" height="6.5" rx="1.5" />
+                    <path d="M5 7 V5 a3 3 0 0 1 6 0 V7" />
+                  </svg>
+                </span>
+                <div>
+                  <strong>Read-only by design</strong>
+                  <span>Ambrium uses scoped, read-only credentials. It can see costs and usage — never touch your infrastructure.</span>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="amb-empty-card" style={{ marginBottom: 26 }}>
-              <strong>No providers connected yet</strong>
-              <span>Run the command above, or use the manual setup below.</span>
-            </div>
-          )}
-
-          {pendingConnections.length > 0 ? (
-            <>
-              <p className="amb-section-label">Detected, not connected · {pendingConnections.length}</p>
-              <div className="amb-pending-list">
-                {pendingConnections.map((connection) => {
-                  const d = provMono(connection.provider)
-                  const cmd = `${CLI_BASE} ${connection.provider}`
-                  return (
-                    <div className="amb-pending" key={connection.provider}>
-                      <div className="amb-pending-head">
-                        <span className="amb-mono-badge" style={{ background: d.color }}>
-                          {d.m}
-                        </span>
-                        <div className="amb-pending-id">
-                          <strong>{providerName(connection.provider)}</strong>
-                          <small>{connection.detected ? "Detected in your projects" : statusText(connection)}</small>
-                        </div>
-                        <a href="#credentials" className="amb-btn-sm-dark">
-                          Connect
-                        </a>
-                      </div>
-                      <div className="amb-cmd light">
-                        <span className="sigil">$</span>
-                        <code>{cmd}</code>
-                        <CopyButton text={cmd} />
-                      </div>
-                    </div>
-                  )
-                })}
               </div>
-            </>
+
+              <div className="amb-agent-card">
+                <h3>Set up with an AI agent</h3>
+                <p>Run the companion CLI — Claude Code or Codex can drive it while you approve each OAuth, IAM, and token step.</p>
+                <div className="amb-cmd">
+                  <span className="sigil">$</span>
+                  <code>{CLI_BASE}</code>
+                  <CopyButton text={CLI_BASE} />
+                </div>
+              </div>
+            </div>
           ) : null}
 
-          <div className="amb-legacy" id="credentials">
-            <p className="amb-legacy-head">Manage &amp; credentials</p>
-            <RepoSyncPanel initialState={state} />
-            <ProviderConnectPanel providerConnections={analysis.providerConnections} initialState={state} />
-            <AiSyncPanel initialState={state} />
-            <CustomProviderPanel initialState={state} />
-          </div>
+          {connectTab === "connected" ? (
+            <div className="amb-connect-tab-panel">
+              <p className="amb-section-label">Connected · {connectedVMs.length}</p>
+              {connectedVMs.length > 0 ? (
+                <div className="amb-conn-grid">
+                  {connectedVMs.map((c) => (
+                    <div className="amb-conn" key={c.key}>
+                      <span className="amb-mono-badge" style={{ background: c.color }}>
+                        {c.monogram}
+                      </span>
+                      <div className="amb-conn-id">
+                        <strong>{c.name}</strong>
+                        <small>{c.detail}</small>
+                      </div>
+                      <div className="amb-conn-status" style={{ color: c.warn ? "#C77B0A" : "#0F9D63" }}>
+                        <span className="dot" style={{ background: c.warn ? "#C77B0A" : "#0F9D63" }} />
+                        {c.warn ? "Needs attention" : "Connected"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="amb-empty-card">
+                  <strong>No providers connected yet</strong>
+                  <span>Use the setup or credentials tabs to connect your first account.</span>
+                  <Link href="/dashboard?view=connect&connectTab=credentials" prefetch={false} className="amb-btn-sm-dark">
+                    Open credentials
+                  </Link>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {connectTab === "detected" ? (
+            <div className="amb-connect-tab-panel">
+              {pendingConnections.length > 0 ? (
+                <>
+                  <p className="amb-section-label">Detected, not connected · {pendingConnections.length}</p>
+                  <div className="amb-pending-list">
+                    {pendingConnections.map((connection) => {
+                      const d = provMono(connection.provider)
+                      const cmd = `${CLI_BASE} ${connection.provider}`
+                      return (
+                        <div className="amb-pending" key={connection.provider}>
+                          <div className="amb-pending-head">
+                            <span className="amb-mono-badge" style={{ background: d.color }}>
+                              {d.m}
+                            </span>
+                            <div className="amb-pending-id">
+                              <strong>{providerName(connection.provider)}</strong>
+                              <small>{connection.detected ? "Detected in your projects" : statusText(connection)}</small>
+                            </div>
+                            <Link href="/dashboard?view=connect&connectTab=credentials" prefetch={false} className="amb-btn-sm-dark">
+                              Connect
+                            </Link>
+                          </div>
+                          <div className="amb-cmd light">
+                            <span className="sigil">$</span>
+                            <code>{cmd}</code>
+                            <CopyButton text={cmd} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="amb-empty-card">
+                  <strong>No detected providers waiting</strong>
+                  <span>Synced repositories are either connected already or do not expose new provider signals yet.</span>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {connectTab === "credentials" ? (
+            <div className="amb-connect-tab-panel">
+              <div className="amb-legacy" id="credentials">
+                <p className="amb-legacy-head">Manage &amp; credentials</p>
+                <RepoSyncPanel initialState={state} />
+                <ProviderConnectPanel providerConnections={analysis.providerConnections} initialState={state} />
+                <AiSyncPanel initialState={state} />
+                <CustomProviderPanel initialState={state} />
+              </div>
+            </div>
+          ) : null}
         </>
       ) : null}
     </>
@@ -2506,6 +2558,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
         : rawView === "credentials"
           ? "connect"
           : "projects"
+  const rawConnectTab = Array.isArray(params.connectTab) ? params.connectTab[0] : params.connectTab
+  const connectTab: ConnectTabKey =
+    rawConnectTab === "connected" || rawConnectTab === "detected" || rawConnectTab === "credentials"
+      ? rawConnectTab
+      : "setup"
   const dashboardStore = await readDashboardStore(user.id)
   const state = { user, ...dashboardStore.publicState }
   const workspace = dashboardStore.workspace
@@ -2598,6 +2655,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
               state={state}
               repoAnalyses={repoAnalyses}
               view={view}
+              connectTab={connectTab}
               repoTrends={repoTrends}
             />
           )}
