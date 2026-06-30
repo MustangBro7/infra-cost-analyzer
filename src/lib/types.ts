@@ -278,8 +278,8 @@ export interface WorkspaceStore {
   // providers its scan detected). Drives per-repo cost filtering.
   repoProviderLinks: Record<string, Provider[]>
   // Manual assignment of individual account billing line items to a repo, keyed
-  // by a stable cost-item key. Value is a repo full name, or "__account__" to
-  // force account-level. Lets the user split an account's cost across repos.
+  // by a stable cost-item key. Value is a repo full name, "__account__" to force
+  // account-level, or "__split_equal__" to split evenly across synced repos.
   costAssignments: Record<string, string>
   // Optional monthly spend budget (USD) the dashboard tracks actual + projected
   // spend against. null/undefined = no budget set.

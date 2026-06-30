@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { CheckCircle2, FolderGit2, ShieldAlert } from "lucide-react"
+import { CheckCircle2, FolderGit2, GitBranchPlus, ShieldAlert } from "lucide-react"
+import { ACCOUNT_SENTINEL, SPLIT_EQUAL_SENTINEL } from "@/lib/costAttribution"
 
 export interface AssignmentCandidate {
   fullName: string
@@ -99,6 +100,12 @@ export function UnassignedCostQueue({
                   <span>{item.confidence === "inferred" ? "confirm mapping" : "unassigned"}</span>
                 </div>
                 <div className="assignment-actions">
+                  {repos.length > 1 ? (
+                    <button type="button" disabled={busy === item.itemKey} onClick={() => assign(item.itemKey, SPLIT_EQUAL_SENTINEL)} title="Split evenly across all synced projects">
+                      <GitBranchPlus aria-hidden />
+                      Split equally
+                    </button>
+                  ) : null}
                   {suggested.map((repo) => (
                     <button key={repo.fullName} type="button" disabled={busy === item.itemKey} onClick={() => assign(item.itemKey, repo.fullName)}>
                       <FolderGit2 aria-hidden />
@@ -117,7 +124,8 @@ export function UnassignedCostQueue({
                     {repos.map((repo) => (
                       <option key={repo.fullName} value={repo.fullName}>{repo.fullName}</option>
                     ))}
-                    <option value="__account__">Shared / account-level</option>
+                    {repos.length > 1 ? <option value={SPLIT_EQUAL_SENTINEL}>Split equally across projects</option> : null}
+                    <option value={ACCOUNT_SENTINEL}>Shared / account-level</option>
                   </select>
                 </div>
               </article>

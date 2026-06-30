@@ -55,6 +55,7 @@ export function attributeCostRows(rows: NormalizedCostRow[], ctx: AttributionCon
 // Sentinel meaning "explicitly account-level" — the user pulled this item out of
 // every repo, overriding any auto-attribution.
 export const ACCOUNT_SENTINEL = "__account__"
+export const SPLIT_EQUAL_SENTINEL = "__split_equal__"
 
 /**
  * Stable key for a billing line item, used to remember the user's manual
@@ -81,6 +82,7 @@ export function isKeyAssignedHere(
 ): boolean {
   const manual = assignments[itemKey]
   if (manual === ACCOUNT_SENTINEL) return false
+  if (manual === SPLIT_EQUAL_SENTINEL) return true
   if (manual) return manual === selectedFullName
   return (attributedRepo ?? null) === selectedShort
 }
@@ -97,11 +99,32 @@ export function isAssignedHere(
 /** The repo full name an item is manually assigned to, if any (not the sentinel). */
 export function manualTargetForKey(itemKey: string, assignments: Record<string, string>): string | null {
   const manual = assignments[itemKey]
-  return manual && manual !== ACCOUNT_SENTINEL ? manual : null
+  return manual && manual !== ACCOUNT_SENTINEL && manual !== SPLIT_EQUAL_SENTINEL ? manual : null
 }
 
 export function manualTarget(row: NormalizedCostRow, assignments: Record<string, string>): string | null {
   return manualTargetForKey(costItemKey(row), assignments)
+}
+
+export function assignedCostRowForRepo(
+  row: NormalizedCostRow,
+  assignments: Record<string, string>,
+  selectedFullName: string,
+  selectedShort: string,
+  splitAcross: number
+): NormalizedCostRow | null {
+  const key = costItemKey(row)
+  const manual = assignments[key]
+  if (manual === SPLIT_EQUAL_SENTINEL) {
+    const shareCount = Math.max(Math.floor(splitAcross), 1)
+    return {
+      ...row,
+      cost: row.cost / shareCount,
+      attribution: "user_confirmed",
+      attributionReason: `Split equally across ${shareCount} synced ${shareCount === 1 ? "project" : "projects"}.`,
+    }
+  }
+  return isKeyAssignedHere(key, row.attributedRepo, assignments, selectedFullName, selectedShort) ? row : null
 }
 
 /** Best-effort auto-attribution of a resource by its name matching a repo. */

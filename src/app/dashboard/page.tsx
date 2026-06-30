@@ -37,7 +37,7 @@ import { getMonthlyTotalsByRepo } from "@/lib/analytics/queries"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore, readDashboardStore } from "@/lib/localStore"
 import { CONNECTABLE_PROVIDERS, resolveLinkedProviders } from "@/lib/repoLinks"
-import { ACCOUNT_SENTINEL, costItemKey, isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
+import { ACCOUNT_SENTINEL, SPLIT_EQUAL_SENTINEL, assignedCostRowForRepo, costItemKey, isAssignedHere, isKeyAssignedHere } from "@/lib/costAttribution"
 import { resourceMetricService, resourceUsageRows } from "@/lib/freeTier"
 import type { AnalysisResult, FreeTierUsageRow, GitHubRepoSummary, NormalizedCostRow, Provider, ProviderConnection, RepoSignal } from "@/lib/types"
 
@@ -215,6 +215,15 @@ function quantity(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)
 }
 
+function compactNumber(value: number) {
+  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value)
+}
+
+function percentOf(value: number, total: number) {
+  if (total <= 0) return "0%"
+  return `${Math.round((value / total) * 100)}%`
+}
+
 type AccountEntry = {
   key: string
   provider: Provider
@@ -257,11 +266,14 @@ function projectCostRows(input: {
   repoAnalysis: AnalysisResult | undefined
   accountAnalysis: AnalysisResult
   assignments: Record<string, string>
+  splitAcross: number
 }): NormalizedCostRow[] {
   const repoShortName = input.repo.name.toLowerCase()
   const candidateRows = [...(input.repoAnalysis?.costRows ?? []), ...input.accountAnalysis.costRows]
   const uniqueRows = [...new Map(candidateRows.map((row) => [costItemKey(row), row])).values()]
-  return uniqueRows.filter((row) => isAssignedHere(row, input.assignments, input.repo.fullName, repoShortName))
+  return uniqueRows
+    .map((row) => assignedCostRowForRepo(row, input.assignments, input.repo.fullName, repoShortName, input.splitAcross))
+    .filter((row): row is NormalizedCostRow => Boolean(row))
 }
 
 function buildIndieProjects(input: {
@@ -287,6 +299,7 @@ function buildIndieProjects(input: {
       repoAnalysis,
       accountAnalysis: input.analysis,
       assignments: input.state.costAssignments,
+      splitAcross: input.repos.length,
     })
     const cost = sumCost(rows)
     const breakdown = breakdownByProvider(rows).map((entry) => ({ provider: entry.provider, label: entry.label, total: entry.total }))
@@ -1050,6 +1063,7 @@ function buildAssignmentQueue(input: {
         !manual && !row.attributedRepo ||
         !manual && row.attribution === "inferred" ||
         manual === ACCOUNT_SENTINEL
+      if (manual === SPLIT_EQUAL_SENTINEL) return null
       if (!needsReview) return null
       const confidence: AssignmentQueueItem["confidence"] =
         manual === ACCOUNT_SENTINEL ? "manual" : row.attribution === "inferred" ? "inferred" : "unassigned"
@@ -1362,7 +1376,17 @@ function RepositoryDashboard({
   // --- AI view-model -------------------------------------------------------
   const aiSubscription = aiTools.reduce((sum, tool) => sum + tool.subscriptionCost, 0)
   const aiUsage = aiTools.reduce((sum, tool) => sum + tool.apiCost, 0)
+  const aiTokens = aiTools.reduce((sum, tool) => sum + tool.totalTokens, 0)
+  const aiInputTokens = aiTools.reduce((sum, tool) => sum + tool.inputTokens, 0)
+  const aiCacheTokens = aiTools.reduce((sum, tool) => sum + tool.cacheTokens, 0)
+  const aiOutputTokens = aiTools.reduce((sum, tool) => sum + tool.outputTokens, 0)
+  const aiApiValue = aiTools.reduce((sum, tool) => sum + tool.apiValue, 0)
+  const aiSynced = aiTools.filter((tool) => tool.lastVerifiedAt).length
   const aiShare = totalCost > 0.005 ? Math.round((aiTotal / totalCost) * 100) : 0
+  const aiTopTool = [...aiTools].sort((a, b) => b.totalTokens - a.totalTokens || b.totalCost - a.totalCost)[0] ?? null
+  const aiTopModel = aiTools
+    .flatMap((tool) => tool.models.map((model) => ({ ...model, toolLabel: tool.label })))
+    .sort((a, b) => b.totalTokens - a.totalTokens)[0] ?? null
   const aiStack = aiTools
     .filter((tool) => tool.totalCost > 0)
     .map((tool) => {
@@ -1391,6 +1415,31 @@ function RepositoryDashboard({
       cost: money(tool.totalCost),
     }
   })
+  const aiUsageVMs = aiTools
+    .map((tool) => {
+      const topModel = [...tool.models].sort((a, b) => b.totalTokens - a.totalTokens)[0] ?? null
+      const costPerMillion = tool.totalTokens > 0 ? (tool.totalCost / tool.totalTokens) * 1_000_000 : null
+      const valueMultiple = tool.totalCost > 0 && tool.apiValue > 0 ? tool.apiValue / tool.totalCost : null
+      return {
+        id: tool.id,
+        provider: tool.provider,
+        name: tool.label,
+        source: tool.source === "both" ? "subscription + API" : tool.source ?? tool.category ?? "connected",
+        tokens: compactNumber(tool.totalTokens),
+        output: percentOf(tool.outputTokens, tool.totalTokens),
+        costPerMillion: costPerMillion === null ? "—" : money(costPerMillion),
+        totalCost: money(tool.totalCost),
+        value: valueMultiple === null ? "—" : `${valueMultiple.toFixed(1)}x`,
+        apiValue: money(tool.apiValue),
+        topModel: topModel?.model ?? "—",
+        topModelShare: topModel ? `${percentOf(topModel.totalTokens, tool.totalTokens)} of tokens` : "No model breakdown",
+      }
+    })
+    .sort((a, b) => {
+      const aTool = aiTools.find((tool) => tool.id === a.id)
+      const bTool = aiTools.find((tool) => tool.id === b.id)
+      return (bTool?.totalTokens ?? 0) - (aTool?.totalTokens ?? 0) || (bTool?.totalCost ?? 0) - (aTool?.totalCost ?? 0)
+    })
 
   // --- Connect view-model --------------------------------------------------
   const connectedVMs = accounts.map((account) => {
@@ -1630,6 +1679,60 @@ function RepositoryDashboard({
                 </div>
               </div>
             </div>
+            <div className="amb-ai-usage">
+              <div className="amb-ai-usage-summary">
+                <article>
+                  <span>Token composition</span>
+                  <strong>{percentOf(aiOutputTokens, aiTokens)} output</strong>
+                  <small>{compactNumber(aiInputTokens)} input · {compactNumber(aiCacheTokens)} cache · {compactNumber(aiOutputTokens)} output</small>
+                </article>
+                <article>
+                  <span>Heaviest tool</span>
+                  <strong>{aiTopTool ? aiTopTool.label : "No token data"}</strong>
+                  <small>{aiTopTool ? `${compactNumber(aiTopTool.totalTokens)} tokens · ${money(aiTopTool.totalCost)}` : "Connect local or API usage"}</small>
+                </article>
+                <article>
+                  <span>Top model</span>
+                  <strong>{aiTopModel ? aiTopModel.model : "No model data"}</strong>
+                  <small>{aiTopModel ? `${aiTopModel.toolLabel} · ${compactNumber(aiTopModel.totalTokens)} tokens` : "Sync local usage for model rows"}</small>
+                </article>
+                <article>
+                  <span>Sync coverage</span>
+                  <strong>{aiSynced}/{aiTools.length}</strong>
+                  <small>{money(aiApiValue)} API-rate value tracked</small>
+                </article>
+              </div>
+              <div className="amb-ai-usage-table">
+                <div className="amb-ai-usage-title">
+                  <strong>Usage detail</strong>
+                  <span>Tokens, cost density, value, and model concentration by connected AI tool.</span>
+                </div>
+                <div className="amb-ai-usage-grid">
+                  <div className="head">Tool</div>
+                  <div className="head">Tokens</div>
+                  <div className="head">Cost / 1M</div>
+                  <div className="head">Value / $</div>
+                  <div className="head">Top model</div>
+                  {aiUsageVMs.map((row) => (
+                    <div className="amb-ai-usage-row" key={row.id}>
+                      <div className="tool">
+                        <span className="amb-mono-badge" style={{ background: provMono(row.provider, row.name).color }}>
+                          {provMono(row.provider, row.name).m}
+                        </span>
+                        <span>
+                          <strong>{row.name}</strong>
+                          <small>{row.source}</small>
+                        </span>
+                      </div>
+                      <div><strong>{row.tokens}</strong><small>{row.output} output</small></div>
+                      <div><strong>{row.costPerMillion}</strong><small>{row.totalCost} total</small></div>
+                      <div><strong>{row.value}</strong><small>{row.apiValue} API value</small></div>
+                      <div><strong>{row.topModel}</strong><small>{row.topModelShare}</small></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
             <div className="amb-table">
               {aiBarVMs.map((a) => (
                 <div className="amb-ai-bar" key={a.id}>
@@ -1766,6 +1869,7 @@ function ProviderAccordion({
   repoShort,
   assignments,
   repoLabels,
+  splitAcross,
   costDataOff = false,
 }: {
   analysis: AnalysisResult
@@ -1774,13 +1878,16 @@ function ProviderAccordion({
   repoShort: string
   assignments: Record<string, string>
   repoLabels: Record<string, string>
+  splitAcross: number
   costDataOff?: boolean
 }) {
   const rows = providerRows(connection.provider, analysis.costRows)
-  const projectRows = rows.filter((row) => isAssignedHere(row, assignments, repoFullName, repoShort))
+  const projectRows = rows
+    .map((row) => assignedCostRowForRepo(row, assignments, repoFullName, repoShort, splitAcross))
+    .filter((row): row is NormalizedCostRow => Boolean(row))
   const restRows = rows.filter((row) => !isAssignedHere(row, assignments, repoFullName, repoShort))
   const projectTotal = sumCost(projectRows)
-  const restTotal = sumCost(restRows)
+  const restTotal = Math.max(sumCost(rows) - projectTotal, 0)
   const signals = providerSignals(connection.provider, analysis.signals)
   const freeTier = providerFreeTier(connection.provider, analysis.freeTier)
   const resourceItems = (analysis.resourceItems ?? []).filter((item) => item.provider === connection.provider)
@@ -2030,9 +2137,12 @@ function RepoDetail({
   const linkedCostRows = analysis.costRows.filter((row) => linkedSet.has(row.provider))
   // Within the linked accounts, split the cost actually tied to this project
   // (auto-attributed or manually assigned) from the rest of those accounts.
-  const projectCostRows = linkedCostRows.filter((row) => isAssignedHere(row, assignments, selectedName, repoShort))
+  const splitAcross = Math.max(state.syncedRepoFullNames.length, 1)
+  const projectCostRows = linkedCostRows
+    .map((row) => assignedCostRowForRepo(row, assignments, selectedName, repoShort, splitAcross))
+    .filter((row): row is NormalizedCostRow => Boolean(row))
   const projectTotal = sumCost(projectCostRows)
-  const restTotal = sumCost(linkedCostRows.filter((row) => !isAssignedHere(row, assignments, selectedName, repoShort)))
+  const restTotal = Math.max(sumCost(linkedCostRows) - projectTotal, 0)
   const measuredUsageCount = analysis.freeTier.filter((row) => row.source === "measured" && linkedSet.has(row.provider)).length
   const linkedConnections = analysis.providerConnections.filter((connection) => linkedSet.has(connection.provider))
   // Providers this repo detected that can't be linked because they aren't
@@ -2136,6 +2246,7 @@ function RepoDetail({
                     repoShort={repoShort}
                     assignments={assignments}
                     repoLabels={repoLabels}
+                    splitAcross={splitAcross}
                     costDataOff={costDataOff}
                   />
                 )

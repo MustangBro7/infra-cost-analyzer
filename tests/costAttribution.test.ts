@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { ACCOUNT_SENTINEL, attributeRepoForName, attributeRepoForRow, costItemKey, isAssignedHere, isKeyAssignedHere, manualTarget } from "../src/lib/costAttribution"
+import { ACCOUNT_SENTINEL, SPLIT_EQUAL_SENTINEL, assignedCostRowForRepo, attributeRepoForName, attributeRepoForRow, costItemKey, isAssignedHere, isKeyAssignedHere, manualTarget } from "../src/lib/costAttribution"
 import type { NormalizedCostRow } from "../src/lib/types"
 
 function row(partial: Partial<NormalizedCostRow>): NormalizedCostRow {
@@ -61,6 +61,15 @@ test("the account sentinel detaches an auto-matched row from its repo", () => {
   const assignments = { [costItemKey(r)]: ACCOUNT_SENTINEL }
   assert.equal(isAssignedHere(r, assignments, "acme/gpay-cost-analyzer", "gpay-cost-analyzer"), false)
   assert.equal(manualTarget(r, assignments), null)
+})
+
+test("the equal split sentinel divides a cost row across synced repos", () => {
+  const r = row({ cost: 21, attributedRepo: null })
+  const assignments = { [costItemKey(r)]: SPLIT_EQUAL_SENTINEL }
+  assert.equal(isAssignedHere(r, assignments, "acme/gpay-cost-analyzer", "gpay-cost-analyzer"), true)
+  assert.equal(isAssignedHere(r, assignments, "acme/other-app", "other-app"), true)
+  assert.equal(manualTarget(r, assignments), null)
+  assert.equal(assignedCostRowForRepo(r, assignments, "acme/gpay-cost-analyzer", "gpay-cost-analyzer", 3)?.cost, 7)
 })
 
 test("with no assignment, falls back to auto-attribution", () => {

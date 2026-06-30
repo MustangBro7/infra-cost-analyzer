@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic"
 /**
  * Manually assigns a billing line item to a repo (or clears it). Body:
  * { itemKey, target } where target is a repo full name, "__account__" to force
- * account-level, or null to clear (revert to auto-attribution).
+ * account-level, "__split_equal__" to split evenly, or null to clear.
  */
 export async function POST(request: NextRequest) {
   try {
