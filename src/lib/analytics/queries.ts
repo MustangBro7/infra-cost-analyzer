@@ -1,6 +1,6 @@
 import { analyticsRuntimeFlags, withAnalyticsClient } from "./connection"
 import { devPreviewAnalyticsDashboard, devPreviewTrends, isDevPreview } from "../devPreview"
-import type { AnalyticsDashboardResult, AnalyticsServicesResult, AnalyticsTrendsResult } from "./types"
+import type { AnalyticsDashboardResult, AnalyticsServicesResult, AnalyticsTrendsResult, RangeSpendSummary } from "./types"
 
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/
 
@@ -112,6 +112,91 @@ export async function getMonthlyTotalsByRepo(input: {
       ;(out[repo] ??= []).push({ month: String(row.month), total: Number(row.total) })
     }
     return out
+  })
+}
+
+const EMPTY_RANGE_SPEND: RangeSpendSummary = { available: false, total: 0, byMonth: [], byProvider: [], byRepo: {} }
+
+/**
+ * Historical spend over a contiguous set of past months (YYYY-MM, oldest
+ * first), aggregated for the dashboard's date-range filter: account-level
+ * total + per-month + per-provider (repo IS NULL scope) and per-repo totals,
+ * all over one connection. Months in the current billing month must NOT be
+ * passed here — the live snapshot is the source of truth for the current
+ * month, and mixing the two would double-count it.
+ */
+export async function getRangeSpendSummary(input: {
+  userId: string
+  months: string[]
+}): Promise<RangeSpendSummary> {
+  if (input.months.length === 0) return { ...EMPTY_RANGE_SPEND, available: true }
+  const from = input.months[0]
+  const to = input.months[input.months.length - 1]
+  validateMonthRange(from, to)
+
+  if (isDevPreview()) {
+    const seeded = devPreviewAnalyticsDashboard({ from, to, month: to })
+    const monthSet = new Set(input.months)
+    const byMonth = seeded.trends.trends
+      .filter((row) => monthSet.has(row.month))
+      .map((row) => ({ month: row.month, total: row.total }))
+    const providerTotals = new Map<string, number>()
+    for (const row of seeded.trends.providers) {
+      if (!monthSet.has(row.month)) continue
+      providerTotals.set(row.provider, (providerTotals.get(row.provider) ?? 0) + row.total)
+    }
+    const byRepo: Record<string, number> = {}
+    for (const [repo, points] of Object.entries(devPreviewTrends())) {
+      byRepo[repo] = points.filter((p) => monthSet.has(p.month)).reduce((sum, p) => sum + p.total, 0)
+    }
+    return {
+      available: true,
+      total: byMonth.reduce((sum, row) => sum + row.total, 0),
+      byMonth,
+      byProvider: [...providerTotals.entries()].map(([provider, total]) => ({ provider, total })).sort((a, b) => b.total - a.total),
+      byRepo,
+    }
+  }
+
+  const flags = await analyticsRuntimeFlags()
+  if (!flags.reads) return EMPTY_RANGE_SPEND
+  return withAnalyticsClient(async (client) => {
+    const values = [input.userId, `${from}-01`, `${to}-01`]
+    const [account, providers, repos] = await Promise.all([
+      client.query(
+        `SELECT strftime(month, '%Y-%m') AS month, SUM(total)::DOUBLE AS total
+         FROM monthly_cost_summary
+         WHERE user_id = $1 AND month >= $2::DATE AND month <= $3::DATE AND repo_full_name IS NULL
+         GROUP BY month
+         ORDER BY month`,
+        values
+      ),
+      client.query(
+        `SELECT provider, SUM(total)::DOUBLE AS total
+         FROM provider_monthly_summary
+         WHERE user_id = $1 AND month >= $2::DATE AND month <= $3::DATE AND repo_full_name IS NULL
+         GROUP BY provider
+         ORDER BY total DESC`,
+        values
+      ),
+      client.query(
+        `SELECT repo_full_name AS repo, SUM(total)::DOUBLE AS total
+         FROM monthly_cost_summary
+         WHERE user_id = $1 AND month >= $2::DATE AND month <= $3::DATE AND repo_full_name IS NOT NULL
+         GROUP BY repo_full_name`,
+        values
+      ),
+    ])
+    const byMonth = account.rows.map((row) => ({ month: String(row.month), total: Number(row.total) }))
+    const byRepo: Record<string, number> = {}
+    for (const row of repos.rows) byRepo[String(row.repo)] = Number(row.total)
+    return {
+      available: true,
+      total: byMonth.reduce((sum, row) => sum + row.total, 0),
+      byMonth,
+      byProvider: providers.rows.map((row) => ({ provider: String(row.provider), total: Number(row.total) })),
+      byRepo,
+    }
   })
 }
 

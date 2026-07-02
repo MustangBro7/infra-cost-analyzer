@@ -20,6 +20,7 @@ import { queryGcpBillingExportCosts } from "./gcpClient"
 import { fetchMotherDuckUsage, type MotherDuckPlan } from "./motherduckClient"
 import { fetchAnthropicCostUsage, fetchOpenAiCostUsage, fetchCursorCostUsage, type AiCostUsage } from "./aiClients"
 import { runCustomProvider } from "./customProvider"
+import { sameUtcMonth } from "./dateRange"
 
 function period() {
   const now = new Date()
@@ -82,9 +83,18 @@ export async function buildAnalysis(
  * refresh. Measured free-tier rows round-trip back into usage samples (the
  * analysis doesn't persist raw samples), which finalizeAnalysis re-derives into
  * the same free-tier lines.
+ *
+ * Never carries across a month boundary: a snapshot computed for a previous
+ * billing month must not leak its rows into the new month's totals — a fresh
+ * month legitimately starts at $0 until providers report new spend.
  */
-export function carryForwardOnError(result: LiveResult, previous: AnalysisResult | undefined): LiveResult {
+export function carryForwardOnError(
+  result: LiveResult,
+  previous: AnalysisResult | undefined,
+  currentPeriodFrom: string = period().from
+): LiveResult {
   if (!previous) return result
+  if (previous.period?.from && previous.period.from !== currentPeriodFrom) return result
   const provider = result.sync.provider
   const failedEmpty = result.sync.status === "error" && result.rows.length === 0 && result.usage.length === 0
   if (!failedEmpty) return result
@@ -136,8 +146,10 @@ export async function buildAnalysisWithLiveData(
 
   // AWS carries its own free-tier rows, so guard it separately against the same
   // failed-and-empty case rather than through the shared usage path above.
+  // Same month gate as carryForwardOnError: never resurrect a previous month.
+  const previousSameMonth = !previous?.period?.from || previous.period.from === period().from
   let aws = awsRaw
-  if (previous && awsRaw.sync.status === "error" && awsRaw.rows.length === 0 && awsRaw.freeTier.length === 0) {
+  if (previous && previousSameMonth && awsRaw.sync.status === "error" && awsRaw.rows.length === 0 && awsRaw.freeTier.length === 0) {
     const prevRows = previous.costRows.filter((row) => row.provider === "aws")
     const prevFree = previous.freeTier.filter((row) => row.provider === "aws")
     if (prevRows.length > 0 || prevFree.length > 0) {
@@ -946,14 +958,28 @@ const COST_EXPLORER_INTERVAL_MS: Record<string, number> = {
  * Whether a fresh Cost Explorer call is due, given when it last ran and the
  * chosen cadence. "manual" never auto-fetches (the user pulls on demand); each
  * billed $0.01 call is gated by this so a page refresh can't keep hitting it.
+ * A cache from a previous calendar month is always due (except in manual mode):
+ * its rows describe LAST month's spend and must never be re-labelled as this
+ * month's.
  */
-export function costExplorerDue(fetchedAt: string | undefined, interval: string): boolean {
+export function costExplorerDue(fetchedAt: string | undefined, interval: string, now: Date = new Date()): boolean {
   if (interval === "manual") return false
   if (!fetchedAt) return true
+  if (!sameUtcMonth(fetchedAt, now)) return true
   const ms = COST_EXPLORER_INTERVAL_MS[interval] ?? COST_EXPLORER_INTERVAL_MS.daily
   const last = new Date(fetchedAt).getTime()
   if (Number.isNaN(last)) return true
-  return Date.now() - last >= ms
+  return now.getTime() - last >= ms
+}
+
+/**
+ * A cached Cost Explorer result may only be shown when it was fetched in the
+ * current calendar month — the cached rows get stamped with the current billing
+ * period, so serving an older cache would present last month's spend as this
+ * month's (the exact leak this guards against).
+ */
+export function costExplorerCacheUsable(cache: { fetchedAt: string } | undefined, now: Date = new Date()): boolean {
+  return Boolean(cache?.fetchedAt) && sameUtcMonth(cache!.fetchedAt, now)
 }
 
 function awsPeriod(currentPeriod: { from: string; to: string }) {
@@ -1032,10 +1058,14 @@ async function loadAwsLive(
     costExplorerEnabled && (options?.forceCostExplorer === true || costExplorerDue(cache?.fetchedAt, interval))
 
   const currentPeriod = period()
+  // A cache written in a previous month must not be served: its rows would be
+  // stamped with the current period below. In manual mode this means "no rows
+  // until the user pulls again", which is correct for a new month.
+  const usableCacheRows = costExplorerCacheUsable(cache) ? (cache?.rows ?? []) : []
   const [costResult, freeTierResult] = await Promise.allSettled([
     fetchCostExplorer
       ? getAwsCostAndUsage(credentials, awsPeriod(currentPeriod))
-      : Promise.resolve((cache?.rows ?? []) as AwsCostRow[]),
+      : Promise.resolve(usableCacheRows as AwsCostRow[]),
     getAwsFreeTierUsage(credentials),
   ])
 
@@ -1050,7 +1080,7 @@ async function loadAwsLive(
       // Caching is best-effort; a write failure shouldn't break the analysis.
     }
   }
-  const usedCache = costExplorerEnabled && !fetchCostExplorer && (cache?.rows.length ?? 0) > 0
+  const usedCache = costExplorerEnabled && !fetchCostExplorer && usableCacheRows.length > 0
 
   const rows: NormalizedCostRow[] = []
   const usage: ProviderUsageSample[] = []

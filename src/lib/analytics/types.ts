@@ -103,3 +103,19 @@ export interface AnalyticsDashboardResult {
   trends: AnalyticsTrendsResult
   services: AnalyticsServicesResult
 }
+
+/**
+ * Aggregated historical spend over a set of past calendar months, powering the
+ * dashboard's date-range filter. `available` is false when historical reads are
+ * disabled/unreachable so the UI can say "history unavailable" instead of
+ * silently reporting $0 for past months.
+ */
+export interface RangeSpendSummary {
+  available: boolean
+  /** Account-level total over the requested months (all currencies summed). */
+  total: number
+  byMonth: Array<{ month: string; total: number }>
+  byProvider: Array<{ provider: string; total: number }>
+  /** Per-repo totals over the requested months, keyed by repo full name. */
+  byRepo: Record<string, number>
+}

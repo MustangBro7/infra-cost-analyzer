@@ -200,3 +200,25 @@ test("buildAnalysisWithLiveData uses only live Vercel billing rows for cost", as
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("costExplorerDue: a cache from a previous calendar month is always due", async () => {
+  const { costExplorerDue } = await import("../src/lib/costEngine")
+  const now = new Date("2026-07-02T08:00:00Z")
+  // Fetched 2 days ago but in June → due even on a weekly/monthly cadence.
+  assert.equal(costExplorerDue("2026-06-30T20:00:00Z", "weekly", now), true)
+  assert.equal(costExplorerDue("2026-06-30T20:00:00Z", "monthly", now), true)
+  // Same-month cache follows the normal cadence (12h old: daily not yet due).
+  assert.equal(costExplorerDue("2026-07-01T20:00:00Z", "weekly", now), false)
+  assert.equal(costExplorerDue("2026-07-01T20:00:00Z", "daily", now), false)
+  assert.equal(costExplorerDue("2026-07-01T02:00:00Z", "daily", now), true)
+  // Manual mode never auto-fetches, even across months.
+  assert.equal(costExplorerDue("2026-06-30T20:00:00Z", "manual", now), false)
+})
+
+test("costExplorerCacheUsable: only a current-month cache may be displayed", async () => {
+  const { costExplorerCacheUsable } = await import("../src/lib/costEngine")
+  const now = new Date("2026-07-02T08:00:00Z")
+  assert.equal(costExplorerCacheUsable({ fetchedAt: "2026-07-01T10:00:00Z" }, now), true)
+  assert.equal(costExplorerCacheUsable({ fetchedAt: "2026-06-30T23:59:00Z" }, now), false)
+  assert.equal(costExplorerCacheUsable(undefined, now), false)
+})

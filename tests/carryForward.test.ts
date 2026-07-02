@@ -53,3 +53,37 @@ test("skips allowance-only previous rows (only measured usage is carried)", () =
   assert.equal(out.usage.length, 0)
   assert.equal(out.sync.status, "error")
 })
+
+test("never carries a previous month's snapshot into the new month", () => {
+  // June snapshot with real usage + cost, but the refresh is running in July:
+  // the error must surface as an error with $0, not resurrect June's numbers.
+  const previous = previousWith([{ service: "Workers Requests", used: 19_256 }])
+  previous.period = { from: "2026-06-01", to: "2026-06-30" }
+  previous.costRows = [
+    {
+      provider: "cloudflare",
+      serviceName: "Workers Paid",
+      resourceId: null,
+      resourceName: "acct",
+      billingPeriodStart: "2026-06-01",
+      billingPeriodEnd: "2026-06-30",
+      cost: 5,
+      currency: "USD",
+      attribution: "verified",
+      attributionReason: "",
+      signalId: null,
+    } as NormalizedCostRow,
+  ]
+  const out = carryForwardOnError(liveResult("error"), previous, "2026-07-01")
+  assert.equal(out.rows.length, 0)
+  assert.equal(out.usage.length, 0)
+  assert.equal(out.sync.status, "error")
+})
+
+test("carries forward within the same billing month", () => {
+  const previous = previousWith([{ service: "Workers Requests", used: 19_256 }])
+  previous.period = { from: "2026-07-01", to: "2026-07-31" }
+  const out = carryForwardOnError(liveResult("error"), previous, "2026-07-01")
+  assert.equal(out.usage.length, 1)
+  assert.equal(out.sync.status, "success")
+})
