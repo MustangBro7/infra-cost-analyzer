@@ -23,6 +23,13 @@ import type { LocalUser } from "./types"
 async function resolveCurrentUser(): Promise<LocalUser | null> {
   // Local preview: skip Clerk entirely and act as a fixed demo user.
   if (isDevPreview()) return DEV_PREVIEW_USER
+  // Staging replica: the middleware already enforced the staging access key
+  // for every request on this Worker, so act as the fixed staging user whose
+  // cloned workspace the environment serves. Set only on the staging Worker.
+  const stagingUserId = process.env.AMBRIUM_STAGING_USER
+  if (stagingUserId && process.env.AMBRIUM_STAGING_KEY) {
+    return getUserById(stagingUserId)
+  }
   const { userId } = await auth()
   if (!userId) return null
 

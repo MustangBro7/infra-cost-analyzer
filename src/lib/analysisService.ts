@@ -72,6 +72,15 @@ export async function refreshAnalysisSnapshot(input: {
   githubRepos: GitHubRepoSummary[]
   forceCostExplorer?: boolean
 }): Promise<RefreshedAnalysisSnapshot> {
+  // Staging replica: provider credentials cloned from production intentionally
+  // do NOT decrypt here (different APP_ENCRYPTION_KEY), so a live recompute
+  // would see every provider as not-connected and overwrite the cloned
+  // snapshot with an empty one. Serve the cloned snapshot untouched instead —
+  // staging data only changes via scripts/staging-sync-data.sh.
+  if (process.env.AMBRIUM_STAGING_USER && process.env.AMBRIUM_STAGING_KEY) {
+    const existing = await readAnalysisSnapshot(input.userId, snapshotKeyForRepo(input.requestedRepo))
+    if (existing) return { ...existing, analytics: { status: "disabled", syncRunId: null } }
+  }
   const scan = await scanForRepo(input)
   // Pass the existing snapshot so a provider whose live pull fails this time
   // keeps its last-known-good usage instead of being blanked.

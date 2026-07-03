@@ -56,5 +56,56 @@
   // development and migration scripts.
   "observability": {
     "enabled": true
+  },
+  "env": {
+    // Staging replica for testing (especially by AI agents) without touching
+    // production: its OWN D1 (cloned from prod via `npm run staging:sync-data`),
+    // the production MotherDuck through Hyperdrive but READ-ONLY
+    // (ANALYTICS_ENABLED=false disables all analytics writes; reads stay on),
+    // and no custom domains — it lives on workers.dev. Auth is replaced by a
+    // shared access key: AMBRIUM_STAGING_USER pins the served workspace and
+    // every request must present AMBRIUM_STAGING_KEY (x-staging-key header,
+    // ?staging_key=, or the cookie it sets). Deploy: `npm run deploy:staging`.
+    // Secrets to set once: AMBRIUM_STAGING_KEY, APP_ENCRYPTION_KEY (any value;
+    // prod-encrypted provider tokens intentionally do NOT decrypt here).
+    "staging": {
+      // MUST stay []: without it staging inherits the top-level routes and a
+      // staging deploy REASSIGNS ambrium.io away from production.
+      "routes": [],
+      "workers_dev": true,
+      "vars": {
+        "APP_URL": "https://infra-cost-analyzer-staging.abhinavmohan12.workers.dev",
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuYW1icml1bS5pbyQ",
+        "NEXT_PUBLIC_CLERK_SIGN_IN_URL": "/sign-in",
+        "NEXT_PUBLIC_CLERK_SIGN_UP_URL": "/sign-up",
+        "NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL": "/dashboard",
+        "NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL": "/dashboard",
+        "DODO_PAYMENTS_ENVIRONMENT": "test",
+        "ANALYTICS_ENABLED": "false",
+        "ANALYTICS_READS_ENABLED": "true",
+        "MOTHERDUCK_PROVIDER_PLAN": "free",
+        "AMBRIUM_STAGING_USER": "user_3FMtQXJZxs0cBVEZNIJhOpsODJ0"
+      },
+      "assets": {
+        "directory": ".open-next/assets",
+        "binding": "ASSETS"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "infra-cost-analyzer-staging",
+          "database_id": "91dbdc0d-3b0f-4575-b596-084860515ac6"
+        }
+      ],
+      "hyperdrive": [
+        {
+          "binding": "ANALYTICS_DB",
+          "id": "ff776adf0c2746a6ae3a1a226bc4dffe"
+        }
+      ],
+      "observability": {
+        "enabled": true
+      }
+    }
   }
 }

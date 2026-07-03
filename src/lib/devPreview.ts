@@ -444,6 +444,34 @@ export function devPreviewTrends(): Record<string, Array<{ month: string; total:
   return out
 }
 
+/**
+ * Historical cost rows for the date-range filter, mirroring the live shape:
+ * the same seeded fact keys re-stamped into each past month with a ramping
+ * scale, so assignments/attribution slice past months exactly like the
+ * current one and month-over-month totals visibly differ.
+ */
+export function devPreviewRangeCostRows(months: string[]): NormalizedCostRow[] {
+  const out: NormalizedCostRow[] = []
+  for (const month of months) {
+    const [y, m] = month.split("-").map(Number)
+    const from = new Date(Date.UTC(y, m - 1, 1))
+    const to = new Date(Date.UTC(y, m, 0))
+    // Older months are cheaper (mirrors the seeded 12-month ramp).
+    const monthsAgo = (NOW.getUTCFullYear() - y) * 12 + (NOW.getUTCMonth() + 1 - m)
+    const scale = Math.max(0.45, 1 - monthsAgo * 0.09)
+    for (const row of COST_ROWS) {
+      out.push({
+        ...row,
+        billingPeriodStart: ymd(from),
+        billingPeriodEnd: ymd(to),
+        cost: Math.round(row.cost * scale * 100) / 100,
+        source: undefined,
+      })
+    }
+  }
+  return out
+}
+
 function monthsBetween(from: string, to: string): string[] {
   const out: string[] = []
   const [fy, fm] = from.split("-").map(Number)

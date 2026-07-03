@@ -22,10 +22,16 @@ export function analyticsWritesEnabled(
   return flag(env.ANALYTICS_ENABLED, Boolean(env.ANALYTICS_DB?.connectionString || env.MOTHERDUCK_DATABASE_URL))
 }
 
+/**
+ * Reads only require a connection + the reads flag — independent of writes, so
+ * a read-only environment (staging pointed at the production MotherDuck with
+ * ANALYTICS_ENABLED=false) can show history without ever writing to it.
+ */
 export function analyticsReadsEnabled(
   env: AnalyticsConnectionEnv = process.env as unknown as AnalyticsConnectionEnv
 ): boolean {
-  return analyticsWritesEnabled(env) && flag(env.ANALYTICS_READS_ENABLED, true)
+  const hasConnection = Boolean(env.ANALYTICS_DB?.connectionString || env.MOTHERDUCK_DATABASE_URL)
+  return hasConnection && flag(env.ANALYTICS_READS_ENABLED, true)
 }
 
 async function cloudflareEnv(): Promise<AnalyticsConnectionEnv | null> {

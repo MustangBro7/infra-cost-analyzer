@@ -41,7 +41,6 @@ export function ProjectsTable({
   totalLabel,
   defaultExpanded,
   costHeader = "Month to date",
-  breakdownLabel = "Cost by provider",
 }: {
   projects: ProjectRowVM[]
   totalLabel: string
@@ -49,9 +48,6 @@ export function ProjectsTable({
   // Header of the cost column — "Month to date" by default, or the selected
   // date-range label (e.g. "Q2 2026") when the report is range-filtered.
   costHeader?: string
-  // Label of the expanded per-provider split. The split always describes the
-  // live current month, so range mode passes a label saying exactly that.
-  breakdownLabel?: string
 }) {
   const [sortBy, setSortBy] = useState<SortKey>("cost")
   const [expanded, setExpanded] = useState<string | null>(defaultExpanded ?? null)
@@ -192,7 +188,7 @@ export function ProjectsTable({
                 {open ? (
                   <div className="amb-expand">
                     <div>
-                      <div className="amb-expand-label">{breakdownLabel}</div>
+                      <div className="amb-expand-label">Cost by provider</div>
                       {p.breakdown.length === 0 ? (
                         <div className="amb-expand-desc">No billed provider cost is assigned to this project yet.</div>
                       ) : (

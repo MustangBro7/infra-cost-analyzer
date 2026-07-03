@@ -1,4 +1,4 @@
-import type { Attribution, Provider } from "../types"
+import type { Attribution, NormalizedCostRow, Provider } from "../types"
 
 export type AnalyticsSource = "live" | "d1_backfill" | "retry"
 export type AnalyticsWriteStatus = "written" | "queued" | "disabled"
@@ -105,17 +105,16 @@ export interface AnalyticsDashboardResult {
 }
 
 /**
- * Aggregated historical spend over a set of past calendar months, powering the
- * dashboard's date-range filter. `available` is false when historical reads are
- * disabled/unreachable so the UI can say "history unavailable" instead of
- * silently reporting $0 for past months.
+ * Historical cost rows reconstructed from the analytics store for the
+ * dashboard's date-range filter. The rows are full NormalizedCostRow-shaped
+ * facts (provider, service, resource, billing period, attributed repo), so the
+ * display pipeline — manual assignments, equal splits, per-repo attribution,
+ * provider breakdowns — applies to past months exactly as it does to the live
+ * current month. `available` is false when historical reads are disabled or
+ * unreachable so the UI can say "history unavailable" instead of silently
+ * reporting $0 for past months.
  */
-export interface RangeSpendSummary {
+export interface RangeCostRowsResult {
   available: boolean
-  /** Account-level total over the requested months (all currencies summed). */
-  total: number
-  byMonth: Array<{ month: string; total: number }>
-  byProvider: Array<{ provider: string; total: number }>
-  /** Per-repo totals over the requested months, keyed by repo full name. */
-  byRepo: Record<string, number>
+  rows: NormalizedCostRow[]
 }

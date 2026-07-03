@@ -34,8 +34,8 @@ import { ProjectsTable, type ProjectRowVM } from "./ProjectsTable"
 import { CopyButton } from "./CopyButton"
 import { DateRangePicker } from "./DateRangePicker"
 import { getOrCreateAnalysisSnapshot, snapshotKeyForRepo } from "@/lib/analysisService"
-import { getMonthlyTotalsByRepo, getRangeSpendSummary } from "@/lib/analytics/queries"
-import type { RangeSpendSummary } from "@/lib/analytics/types"
+import { getMonthlyTotalsByRepo, getRangeCostRows } from "@/lib/analytics/queries"
+import type { RangeCostRowsResult } from "@/lib/analytics/types"
 import { currentMonthRange, pastMonthsOf, resolveDateRange, rowOverlapsRange, type ResolvedDateRange } from "@/lib/dateRange"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore, readDashboardStore } from "@/lib/localStore"
@@ -327,7 +327,10 @@ function projectCostRows(input: {
 }): NormalizedCostRow[] {
   const repoShortName = input.repo.name.toLowerCase()
   const candidateRows = [...(input.repoAnalysis?.costRows ?? []), ...input.accountAnalysis.costRows]
-  const uniqueRows = [...new Map(candidateRows.map((row) => [costItemKey(row), row])).values()]
+  // Dedupe repo-snapshot rows against account rows per billing month: the same
+  // fact key legitimately recurs across months (e.g. a subscription billed in
+  // June AND July), and a multi-month range must count each occurrence.
+  const uniqueRows = [...new Map(candidateRows.map((row) => [`${costItemKey(row)}::${row.billingPeriodStart}`, row])).values()]
   return uniqueRows
     .map((row) => assignedCostRowForRepo(row, input.assignments, input.repo.fullName, repoShortName, input.splitAcross))
     .filter((row): row is NormalizedCostRow => Boolean(row))
@@ -666,12 +669,17 @@ function CostOverview({
   measuredUsageCount,
   emptyNote,
   footnote,
+  spendNoun = "Live month-to-date spend",
+  periodNoun = "this month",
 }: {
   eyebrow: string
   rows: NormalizedCostRow[]
   measuredUsageCount: number
   emptyNote: string
   footnote?: ReactNode
+  // Copy overrides for range-filtered views (e.g. "Spend in Q2 2026").
+  spendNoun?: string
+  periodNoun?: string
 }) {
   const total = sumCost(rows)
   const breakdown = breakdownByProvider(rows)
@@ -684,10 +692,10 @@ function CostOverview({
           <h2>{money(total)}</h2>
           <span>
             {breakdown.length > 0
-              ? `Live month-to-date spend across ${breakdown.length} ${breakdown.length === 1 ? "account" : "accounts"}.`
+              ? `${spendNoun} across ${breakdown.length} ${breakdown.length === 1 ? "account" : "accounts"}.`
               : measuredUsageCount > 0
                 ? `No billed spend — ${measuredUsageCount} live usage metric${measuredUsageCount === 1 ? "" : "s"} tracked.`
-                : "No billed spend this month."}
+                : `No billed spend ${periodNoun}.`}
           </span>
         </div>
         <span className="cost-overview-icon">
@@ -1287,7 +1295,8 @@ function RepositoryDashboard({
   connectTab,
   repoTrends,
   range,
-  rangeSpend,
+  rangeAnalysis,
+  historyMissing,
 }: {
   analysis: AnalysisResult
   repos: GitHubRepoSummary[]
@@ -1299,19 +1308,35 @@ function RepositoryDashboard({
   // Real monthly cost-per-repo history for sparklines; {} when historical
   // analytics reads are disabled or empty (we then render no trend, not a fake).
   repoTrends: Record<string, Array<{ month: string; total: number }>>
-  // Selected reporting range + the historical (pre-current-month) spend for it.
+  // Selected reporting range and the analysis whose costRows cover it (live
+  // rows for the current month + reconstructed history for past months).
+  // `analysis` stays clamped to the live current month for the current-state
+  // surfaces: leaks, limits, budget/forecast, connect.
   range: ResolvedDateRange
-  rangeSpend: RangeSpendSummary | null
+  rangeAnalysis: AnalysisResult
+  historyMissing: boolean
 }) {
+  const rangeMode = !range.isCurrentMonthOnly
   const connectedProviders = CONNECTABLE_PROVIDERS.filter((provider) => state.connections[provider]?.status === "connected")
   const accounts = accountEntries(analysis, state)
   const totalCost = sumCost(analysis.costRows)
+  const rangeTotal = sumCost(rangeAnalysis.costRows)
   const { elapsedDays, totalDays } = periodProgress(analysis.period)
   const forecast = {
     elapsedDays,
     totalDays,
     dailyRate: elapsedDays > 0 ? totalCost / elapsedDays : 0,
     projected: (elapsedDays > 0 ? totalCost / elapsedDays : 0) * totalDays,
+  }
+  // Run-rate over the selected range (for ranges covering the current month
+  // this projects to the range's end; for past ranges elapsed == total, so
+  // "projected" equals the actual and never inflates anything).
+  const rangeProgress = periodProgress({ from: range.from, to: range.to })
+  const rangeForecast = {
+    elapsedDays: rangeProgress.elapsedDays,
+    totalDays: rangeProgress.totalDays,
+    dailyRate: rangeProgress.elapsedDays > 0 ? rangeTotal / rangeProgress.elapsedDays : 0,
+    projected: (rangeProgress.elapsedDays > 0 ? rangeTotal / rangeProgress.elapsedDays : 0) * rangeProgress.totalDays,
   }
   const latestSync = analysis.liveSync
     .filter((entry) => entry.status === "success")
@@ -1321,18 +1346,33 @@ function RepositoryDashboard({
     .at(-1)
   const latestSyncTime = latestSync ? new Date(latestSync).getTime() : Number.NaN
   const latestMs = Number.isFinite(latestSyncTime) ? Math.max(Date.now() - latestSyncTime, 0) : null
+  // Projects follow the selected range: costs, splits, and per-provider
+  // breakdowns all derive from the range rows through the same assignment
+  // machinery as the live month.
   const indieProjects = buildIndieProjects({
     repos,
-    analysis,
+    analysis: rangeAnalysis,
     repoAnalyses,
     connectedProviders,
     state,
-    elapsedDays: forecast.elapsedDays,
-    totalDays: forecast.totalDays,
+    elapsedDays: rangeForecast.elapsedDays,
+    totalDays: rangeForecast.totalDays,
   })
+  // Leaks are actions to take now, so they always work on the live month.
+  const currentProjects = rangeMode
+    ? buildIndieProjects({
+        repos,
+        analysis,
+        repoAnalyses,
+        connectedProviders,
+        state,
+        elapsedDays: forecast.elapsedDays,
+        totalDays: forecast.totalDays,
+      })
+    : indieProjects
   const leaks = buildLeakCandidates({
     analysis,
-    projects: indieProjects,
+    projects: currentProjects,
     assignments: state.costAssignments,
     syncedRepoFullNames: state.syncedRepoFullNames,
     latestMs,
@@ -1340,21 +1380,14 @@ function RepositoryDashboard({
   const accountUsageRows = analysis.freeTier.filter((row) => !AI_PROVIDERS.includes(row.provider))
   // Unmapped/inferred/shared cost rows to attach to a repo from the Leaks view.
   const assignmentQueue = buildAssignmentQueue({ analysis, repos, assignments: state.costAssignments })
-  const aiTools = buildAiTools(analysis, state)
+  // AI spend follows the range; token/limit detail is whatever the connections
+  // last reported (metadata), which is inherently current.
+  const aiTools = buildAiTools(rangeAnalysis, state)
   const emptyWorkspace = repos.length === 0 && accounts.length === 0 && totalCost <= 0.005
 
   const aiTotal = aiTools.reduce((sum, tool) => sum + tool.totalCost, 0)
   const recoverable = leaks.reduce((sum, leak) => sum + (leak.amount ?? 0), 0)
   const pacePct = totalCost > 0.005 ? Math.round(((forecast.projected - totalCost) / totalCost) * 100) : 0
-
-  // Range totals: live snapshot for the current month + analytics history for
-  // past months. Each month comes from exactly one source, so nothing is
-  // double-counted and last month's spend can never inflate this month's.
-  const rangeCurrentPortion = range.includesCurrentMonth ? totalCost : 0
-  const rangeTotal = rangeCurrentPortion + (rangeSpend?.total ?? 0)
-  const historyMissing = !range.isCurrentMonthOnly && rangeSpend?.available !== true
-  const rangeRepoTotal = (fullName: string, currentCost: number) =>
-    (range.includesCurrentMonth ? currentCost : 0) + (rangeSpend?.byRepo[fullName] ?? 0)
 
   // Repo display name keyed by its lowercased short name (cost rows attribute by
   // short name) so AI/limit attribution can show the project's real name.
@@ -1384,32 +1417,24 @@ function RepositoryDashboard({
     const current = usageByProvider.get(row.provider)
     if (!current || (row.percentUsed ?? 0) > (current.percentUsed ?? 0)) usageByProvider.set(row.provider, row)
   }
-  // Range mode (anything but the default "this month"): each project's cost
-  // column shows its total over the selected range. Provider-split bars and
-  // projections only describe the live current month, so range mode swaps them
-  // for a single comparable bar scaled to the largest range total.
-  const rangeMode = !range.isCurrentMonthOnly
-  const rangeCostByRepo = new Map(indieProjects.map((p) => [p.repo.fullName, rangeRepoTotal(p.repo.fullName, p.cost)]))
-  const rangeScale = Math.max(...rangeCostByRepo.values(), 1)
   const projectVMs: ProjectRowVM[] = indieProjects.map((p) => {
-    const displayCost = rangeMode ? rangeCostByRepo.get(p.repo.fullName) ?? 0 : p.cost
-    const free = displayCost <= 0.005
+    const free = p.cost <= 0.005
     const conf = CONF_CHIP[p.confidence]
     const dots = p.stackProviders.slice(0, 4).map((prov) => {
       const d = provMono(prov)
       return { color: d.color, monogram: d.m, name: providerName(prov) }
     })
-    const segments = rangeMode
-      ? free
-        ? []
-        : [{ color: "#19191D", width: `${((displayCost / rangeScale) * 100).toFixed(2)}%` }]
-      : p.breakdown.map((b) => {
-          const d = provMono(b.provider, b.label)
-          return { color: d.color, width: `${((b.total / projectScale) * 100).toFixed(2)}%` }
-        })
+    const segments = p.breakdown.map((b) => {
+      const d = provMono(b.provider, b.label)
+      return { color: d.color, width: `${((b.total / projectScale) * 100).toFixed(2)}%` }
+    })
     // Real sparkline: historical monthly totals for this repo + current MTD as
     // the latest point. No history → no points → empty trend cell (not faked).
-    const series = [...(repoTrends[p.repo.fullName]?.map((t) => t.total) ?? []), p.cost]
+    // In range mode the cost column is a multi-month total, which doesn't
+    // belong on a monthly trend line, so only the history is plotted.
+    const series = rangeMode
+      ? repoTrends[p.repo.fullName]?.map((t) => t.total) ?? []
+      : [...(repoTrends[p.repo.fullName]?.map((t) => t.total) ?? []), p.cost]
     const sparkPoints = buildSparkline(series)
     const sparkUp = series.length >= 2 && series[series.length - 1] >= series[0]
     let runwayLabel = "On free tier"
@@ -1450,7 +1475,7 @@ function RepositoryDashboard({
       ? free
         ? "no spend in range"
         : range.includesCurrentMonth
-          ? `incl. ${money(p.cost)} this month`
+          ? `proj ${money(p.projected)} by ${monthLabel({ from: `${range.months[range.months.length - 1]}-01` }).split(" ")[0]}-end`
           : range.months.length === 1
             ? "full month"
             : `over ${range.months.length} months`
@@ -1462,15 +1487,15 @@ function RepositoryDashboard({
       repo: p.repo.fullName,
       href: `/dashboard?repo=${encodeURIComponent(p.repo.fullName)}${rangeMode ? `&range=${encodeURIComponent(String(range.key))}` : ""}`,
       free,
-      mtdValue: displayCost,
-      mtdLabel: free ? (rangeMode ? "No spend" : "Free tier") : money(displayCost),
+      mtdValue: p.cost,
+      mtdLabel: free ? (rangeMode ? "No spend" : "Free tier") : money(p.cost),
       mtdColor: free ? "#0F9D63" : "#19191D",
       projDisplay,
       confLabel: conf.label,
       confColor: conf.color,
       dots,
       segments,
-      projMarker: rangeMode ? "0%" : `${Math.min((p.projected / projectScale) * 100, 100).toFixed(2)}%`,
+      projMarker: `${Math.min((p.projected / projectScale) * 100, 100).toFixed(2)}%`,
       sparkPoints,
       sparkColor: sparkUp ? "#C77B0A" : "#0F9D63",
       runwayLabel,
@@ -1525,7 +1550,7 @@ function RepositoryDashboard({
   const aiOutputTokens = aiTools.reduce((sum, tool) => sum + tool.outputTokens, 0)
   const aiApiValue = aiTools.reduce((sum, tool) => sum + tool.apiValue, 0)
   const aiSynced = aiTools.filter((tool) => tool.lastVerifiedAt).length
-  const aiShare = totalCost > 0.005 ? Math.round((aiTotal / totalCost) * 100) : 0
+  const aiShare = rangeTotal > 0.005 ? Math.round((aiTotal / rangeTotal) * 100) : 0
   const aiTopTool = [...aiTools].sort((a, b) => b.totalTokens - a.totalTokens || b.totalCost - a.totalCost)[0] ?? null
   const aiTopModel = aiTools
     .flatMap((tool) => tool.models.map((model) => ({ ...model, toolLabel: tool.label })))
@@ -1537,9 +1562,9 @@ function RepositoryDashboard({
       return { width: `${aiTotal > 0 ? (tool.totalCost / aiTotal) * 100 : 0}%`, color: d.color }
     })
   const aiMax = Math.max(...aiTools.map((tool) => tool.totalCost), 0.01)
-  // Real per-tool project list from AI-attributed cost rows.
+  // Real per-tool project list from AI-attributed cost rows (range-scoped).
   const aiReposByProvider = new Map<Provider, Set<string>>()
-  for (const row of analysis.costRows) {
+  for (const row of rangeAnalysis.costRows) {
     if (!isAiLikeRow(row) || !row.attributedRepo) continue
     if (!aiReposByProvider.has(row.provider)) aiReposByProvider.set(row.provider, new Set())
     aiReposByProvider.get(row.provider)!.add(repoNameByShort.get(row.attributedRepo) ?? row.attributedRepo)
@@ -1679,13 +1704,17 @@ function RepositoryDashboard({
                   : `across ${repos.length} ${repos.length === 1 ? "project" : "projects"} · ${forecast.elapsedDays} days in`}
               </div>
             </div>
-            {rangeMode ? (
+            {rangeMode && range.includesCurrentMonth ? (
+              <div className="amb-kpi">
+                <div className="amb-kpi-label">Projected ({range.label})</div>
+                <div className="amb-kpi-value">{money(rangeForecast.projected)}</div>
+                <div className="amb-kpi-sub">incl. {money(totalCost)} this month so far</div>
+              </div>
+            ) : rangeMode ? (
               <div className="amb-kpi">
                 <div className="amb-kpi-label">Monthly average</div>
                 <div className="amb-kpi-value">{money(rangeTotal / Math.max(range.months.length, 1))}</div>
-                <div className="amb-kpi-sub">
-                  {range.includesCurrentMonth ? `incl. ${money(totalCost)} this month so far` : "per calendar month"}
-                </div>
+                <div className="amb-kpi-sub">per calendar month</div>
               </div>
             ) : (
               <div className="amb-kpi">
@@ -1699,7 +1728,9 @@ function RepositoryDashboard({
             <div className="amb-kpi">
               <div className="amb-kpi-label">AI spend</div>
               <div className="amb-kpi-value">{money(aiTotal)}</div>
-              <div className="amb-kpi-sub">{aiShare}% of this month&apos;s spend</div>
+              <div className="amb-kpi-sub">
+                {aiShare}% of {rangeMode ? "spend in range" : "this month's spend"}
+              </div>
             </div>
             <Link href="/dashboard?view=leaks" prefetch={false} className="amb-kpi action">
               <div className="amb-kpi-action-head">
@@ -1718,7 +1749,6 @@ function RepositoryDashboard({
             totalLabel={money(rangeTotal)}
             defaultExpanded={projectVMs[0]?.id ?? null}
             costHeader={rangeMode ? range.label : "Month to date"}
-            breakdownLabel={rangeMode ? "Cost by provider · this month" : "Cost by provider"}
           />
         </>
       ) : null}
@@ -1870,7 +1900,7 @@ function RepositoryDashboard({
               <div className="amb-card">
                 <div className="amb-ai-headline">
                   <span className="big">{money(aiTotal)}</span>
-                  <span>AI spend this month · {aiShare}% of total</span>
+                  <span>AI spend {rangeMode ? `· ${monthSpanLabel(range)}` : "this month"} · {aiShare}% of total</span>
                 </div>
                 <div className="amb-stack">
                   {aiStack.map((seg, i) => (
@@ -2432,13 +2462,17 @@ function RepoDetail({
   repo,
   state,
   range,
-  rangeSpend,
+  historyMissing,
 }: {
+  // The range-scoped analysis: live rows for the current month plus
+  // reconstructed history for past months in the selected range. Everything
+  // this view derives (project split, rest-of-account, provider accordions)
+  // follows the range automatically.
   analysis: AnalysisResult
   repo: GitHubRepoSummary | null
   state: Awaited<ReturnType<typeof publicStore>>
   range: ResolvedDateRange
-  rangeSpend: RangeSpendSummary | null
+  historyMissing: boolean
 }) {
   const scannedRepo = currentRepoFullName(analysis)
   const selectedName = repo?.fullName ?? scannedRepo
@@ -2463,10 +2497,6 @@ function RepoDetail({
     .filter((row): row is NormalizedCostRow => Boolean(row))
   const projectTotal = sumCost(projectCostRows)
   const restTotal = Math.max(sumCost(linkedCostRows) - projectTotal, 0)
-  // Range total for this project: live assigned cost for the current month
-  // plus this repo's analytics history for the range's past months.
-  const projectRangeTotal = (range.includesCurrentMonth ? projectTotal : 0) + (rangeSpend?.byRepo[selectedName] ?? 0)
-  const historyMissing = !range.isCurrentMonthOnly && rangeSpend?.available !== true
   const measuredUsageCount = analysis.freeTier.filter((row) => row.source === "measured" && linkedSet.has(row.provider)).length
   const linkedConnections = analysis.providerConnections.filter((connection) => linkedSet.has(connection.provider))
   // Providers this repo detected that can't be linked because they aren't
@@ -2506,7 +2536,7 @@ function RepoDetail({
             <article>
               <Coins aria-hidden />
               <span>This project</span>
-              <strong>{money(projectRangeTotal)}</strong>
+              <strong>{money(projectTotal)}</strong>
               <small>
                 {range.isCurrentMonthOnly
                   ? "assigned cost this month"
@@ -2521,15 +2551,17 @@ function RepoDetail({
           </div>
 
           <CostOverview
-            eyebrow={`This Project · ${monthLabel(analysis.period)}`}
+            eyebrow={`This Project · ${monthSpanLabel(range)}`}
             rows={projectCostRows}
             measuredUsageCount={measuredUsageCount}
+            spendNoun={range.isCurrentMonthOnly ? "Live month-to-date spend" : `Spend in ${monthSpanLabel(range)}`}
+            periodNoun={range.isCurrentMonthOnly ? "this month" : "in this range"}
             emptyNote={
               linked.length === 0
                 ? "No accounts linked to this repo yet. Tick the accounts it uses below to see its cost."
                 : restTotal > 0.005
                   ? "No cost is tied directly to this project — it's all account-level in the linked accounts (see below)."
-                  : "No billed cost for the linked accounts this month — usage shows under each account below."
+                  : `No billed cost for the linked accounts ${range.isCurrentMonthOnly ? "this month" : "in this range"} — usage shows under each account below.`
             }
             footnote={
               restTotal > 0.005 ? (
@@ -2544,7 +2576,7 @@ function RepoDetail({
             }
           />
 
-          <HistoricalAnalyticsPanel repo={selectedName} currentMonth={analysis.period.from.slice(0, 7)} />
+          <HistoricalAnalyticsPanel repo={selectedName} currentMonth={currentMonthRange().from.slice(0, 7)} />
 
           <RepoAccountPicker
             repo={selectedName}
@@ -2639,10 +2671,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const dashboardStore = await readDashboardStore(user.id)
   const state = { user, ...dashboardStore.publicState }
   const workspace = dashboardStore.workspace
+  // Per-repo snapshots: clamped to the current month (leak guard), then to the
+  // selected range so a past-months view never mixes in live current rows.
   const repoAnalyses = Object.fromEntries(
     Object.entries(workspace.analysisSnapshots)
       .filter(([key]) => key !== "__overview__" && key !== "__local__")
-      .map(([key, value]) => [key, clampAnalysisToCurrentMonth(value.analysis)])
+      .map(([key, value]) => {
+        const clamped = clampAnalysisToCurrentMonth(value.analysis)
+        return [key, { ...clamped, costRows: clamped.costRows.filter((row) => rowOverlapsRange(row, range)) }]
+      })
   )
   // Renders from the persisted snapshot (DB read). Live provider/GitHub data is
   // refreshed out-of-band by <AnalysisRefresher>, not on every page load. The
@@ -2658,23 +2695,39 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const repos = repoList(state)
 
   // Historical portion of the selected range (months strictly before the
-  // current one), from the analytics store. Bounded wait: if history can't be
-  // read in time, render with available:false so the UI says so instead of
-  // silently reporting $0 for past months.
+  // current one): full cost rows reconstructed from the analytics store, so
+  // assignments/splits/attribution apply to past months exactly like the live
+  // month. Bounded wait: if history can't be read in time, render with
+  // available:false so the UI says so instead of silently reporting $0.
   const pastMonths = pastMonthsOf(range)
-  let rangeSpend: RangeSpendSummary | null = null
+  let rangeHistory: RangeCostRowsResult = { available: true, rows: [] }
   if (pastMonths.length > 0) {
     try {
-      rangeSpend = await Promise.race([
-        getRangeSpendSummary({ userId: user.id, months: pastMonths }),
-        new Promise<RangeSpendSummary>((resolve) =>
-          setTimeout(() => resolve({ available: false, total: 0, byMonth: [], byProvider: [], byRepo: {} }), 5_000)
+      rangeHistory = await Promise.race([
+        getRangeCostRows({ userId: user.id, months: pastMonths }),
+        new Promise<RangeCostRowsResult>((resolve) =>
+          setTimeout(() => resolve({ available: false, rows: [] }), 8_000)
         ),
       ])
     } catch {
-      rangeSpend = { available: false, total: 0, byMonth: [], byProvider: [], byRepo: {} }
+      rangeHistory = { available: false, rows: [] }
     }
   }
+  const historyMissing = pastMonths.length > 0 && !rangeHistory.available
+
+  // The analysis every cost surface renders: live rows for the current month
+  // (when the range covers it) + reconstructed rows for past months. Each
+  // month comes from exactly one source, so nothing double-counts.
+  const rangeAnalysis: AnalysisResult = range.isCurrentMonthOnly
+    ? analysis
+    : {
+        ...analysis,
+        period: { from: range.from, to: range.to },
+        costRows: [
+          ...(range.includesCurrentMonth ? analysis.costRows : []),
+          ...rangeHistory.rows,
+        ],
+      }
   const selectedRepo = requestedRepo ? repos.find((repo) => repo.fullName === requestedRepo) ?? null : null
 
   // Lightweight derivation for the sidebar: a leak badge count + freshness label.
@@ -2705,7 +2758,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       ? rangeSuffix
         ? `/dashboard?${rangeSuffix}`
         : "/dashboard"
-      : `/dashboard?view=${view}`
+      : `/dashboard?view=${view}${rangeSuffix ? `&${rangeSuffix}` : ""}`
 
   // Real per-repo monthly history for the Projects sparklines. Only needed for
   // the Projects view; guarded so a disabled/unreachable analytics store yields
@@ -2732,14 +2785,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     }
   }
 
-  // The range selector is shown where spend is reported over time (Projects
-  // overview + repo drill-down). Limits/leaks/AI/connect describe current
-  // state, so they keep a static current-month chip.
-  const rangeSupported = Boolean(requestedRepo) || view === "projects"
+  // The range selector is shown wherever spend is reported (Projects, AI,
+  // Insights, repo drill-down). Limits/leaks/connect describe current state
+  // needing action now, so they keep a static current-month chip.
+  const rangeSupported = Boolean(requestedRepo) || view === "projects" || view === "ai" || view === "insights"
   const rangeParams: Record<string, string> | null = rangeSupported
     ? requestedRepo
       ? { repo: requestedRepo }
-      : {}
+      : view === "projects"
+        ? {}
+        : { view }
     : null
 
   return (
@@ -2751,11 +2806,18 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
         <div className="amb-content">
           {requestedRepo ? (
             <div className="amb-legacy" style={{ marginTop: 0 }}>
-              <RepoDetail analysis={analysis} repo={selectedRepo} state={state} range={range} rangeSpend={rangeSpend} />
+              <RepoDetail
+                analysis={rangeAnalysis}
+                repo={selectedRepo}
+                state={state}
+                range={range}
+                historyMissing={historyMissing}
+              />
             </div>
           ) : (
             <RepositoryDashboard
               analysis={analysis}
+              rangeAnalysis={rangeAnalysis}
               repos={repos}
               selectedRepo={state.selectedRepoFullName}
               state={state}
@@ -2764,7 +2826,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
               connectTab={connectTab}
               repoTrends={repoTrends}
               range={range}
-              rangeSpend={rangeSpend}
+              historyMissing={historyMissing}
             />
           )}
         </div>

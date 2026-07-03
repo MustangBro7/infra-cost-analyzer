@@ -38,6 +38,29 @@ export default clerkMiddleware(async (auth, request) => {
   if (process.env.AMBRIUM_DEV_PREVIEW === "1" && process.env.NODE_ENV !== "production") {
     return NextResponse.next();
   }
+  // Staging replica (separate Worker with cloned data, no interactive auth):
+  // AMBRIUM_STAGING_USER + AMBRIUM_STAGING_KEY are set ONLY on the staging
+  // Worker, never on production. Every request must present the access key
+  // (header, ?staging_key=, or the cookie set after the first request) —
+  // without it the whole host answers 401, so the cloned billing data is not
+  // publicly browsable. With it, Clerk is skipped and localAuth serves the
+  // fixed staging user.
+  const stagingUser = process.env.AMBRIUM_STAGING_USER;
+  const stagingKey = process.env.AMBRIUM_STAGING_KEY;
+  if (stagingUser && stagingKey) {
+    const provided =
+      request.headers.get("x-staging-key") ??
+      request.nextUrl.searchParams.get("staging_key") ??
+      request.cookies.get("ambrium_staging_key")?.value ??
+      "";
+    if (provided !== stagingKey) {
+      return NextResponse.json({ error: "Staging access key required." }, { status: 401 });
+    }
+    const response = NextResponse.next();
+    response.cookies.set("ambrium_staging_key", stagingKey, { httpOnly: true, secure: true, sameSite: "lax", path: "/" });
+    response.headers.set("Cache-Control", "no-store, must-revalidate");
+    return response;
+  }
   // The workers.dev route exists only as an infrastructure fallback. Browser
   // traffic must stay on ambrium.io so Clerk session cookies and third-party
   // callbacks always share one origin.
