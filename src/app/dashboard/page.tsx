@@ -37,6 +37,7 @@ import { getOrCreateAnalysisSnapshot, snapshotKeyForRepo } from "@/lib/analysisS
 import { getMonthlyTotalsByRepo, getRangeCostRows } from "@/lib/analytics/queries"
 import type { RangeCostRowsResult } from "@/lib/analytics/types"
 import { currentMonthRange, pastMonthsOf, resolveDateRange, rowOverlapsRange, type ResolvedDateRange } from "@/lib/dateRange"
+import { projectedSpend } from "@/lib/forecast"
 import { currentUserFromCookies } from "@/lib/localAuth"
 import { publicStore, readDashboardStore } from "@/lib/localStore"
 import { CONNECTABLE_PROVIDERS, resolveLinkedProviders } from "@/lib/repoLinks"
@@ -369,8 +370,8 @@ function buildIndieProjects(input: {
         : linked.length > 0
           ? linked
           : detectedProviders
-    const dailyRate = input.elapsedDays > 0 ? cost / input.elapsedDays : 0
-    const projected = dailyRate * input.totalDays
+    // Flat subscriptions count once; only usage is run-rated to period end.
+    const { dailyRate, projected } = projectedSpend(rows, input.elapsedDays, input.totalDays)
     const signalCount = repoAnalysis?.signals.length ?? 0
     const lastActivityAt = repo.pushedAt ?? repo.updatedAt ?? null
     const inactiveDays = daysSinceIso(lastActivityAt)
@@ -1322,21 +1323,28 @@ function RepositoryDashboard({
   const totalCost = sumCost(analysis.costRows)
   const rangeTotal = sumCost(rangeAnalysis.costRows)
   const { elapsedDays, totalDays } = periodProgress(analysis.period)
+  // Forecasts count flat subscriptions once at face value and run-rate only
+  // the usage-based rows — a $40 Claude plan on day 1 projects as $40, not
+  // $40 × 30. dailyRate is therefore the usage run rate.
+  const monthForecast = projectedSpend(analysis.costRows, elapsedDays, totalDays)
   const forecast = {
     elapsedDays,
     totalDays,
-    dailyRate: elapsedDays > 0 ? totalCost / elapsedDays : 0,
-    projected: (elapsedDays > 0 ? totalCost / elapsedDays : 0) * totalDays,
+    dailyRate: monthForecast.dailyRate,
+    projected: monthForecast.projected,
   }
-  // Run-rate over the selected range (for ranges covering the current month
+  // Projection over the selected range (for ranges covering the current month
   // this projects to the range's end; for past ranges elapsed == total, so
-  // "projected" equals the actual and never inflates anything).
+  // "projected" equals the actual and never inflates anything). Flat
+  // subscriptions count at their billed amounts only — a subscription
+  // observed once is NOT assumed to recur in the range's future months.
   const rangeProgress = periodProgress({ from: range.from, to: range.to })
+  const rangeSpendForecast = projectedSpend(rangeAnalysis.costRows, rangeProgress.elapsedDays, rangeProgress.totalDays)
   const rangeForecast = {
     elapsedDays: rangeProgress.elapsedDays,
     totalDays: rangeProgress.totalDays,
-    dailyRate: rangeProgress.elapsedDays > 0 ? rangeTotal / rangeProgress.elapsedDays : 0,
-    projected: (rangeProgress.elapsedDays > 0 ? rangeTotal / rangeProgress.elapsedDays : 0) * rangeProgress.totalDays,
+    dailyRate: rangeSpendForecast.dailyRate,
+    projected: rangeSpendForecast.projected,
   }
   const latestSync = analysis.liveSync
     .filter((entry) => entry.status === "success")
