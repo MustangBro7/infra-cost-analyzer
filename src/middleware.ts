@@ -31,7 +31,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/extend/(.*)",
 ]);
 
-export default clerkMiddleware(async (auth, request) => {
+const clerkHandler = clerkMiddleware(async (auth, request) => {
   // Local preview (AMBRIUM_DEV_PREVIEW=1, non-production): bypass auth entirely so
   // /dashboard renders the seeded fixture with no Clerk session. Inlined here to
   // avoid bundling the preview fixture into the edge middleware.
@@ -86,6 +86,39 @@ export default clerkMiddleware(async (auth, request) => {
   }
   return redirectToSignIn();
 });
+
+/**
+ * Clerk's handshake step (the ?__clerk_handshake= redirect back from
+ * clerk.ambrium.io) throws when the token can't be verified — e.g. the Worker's
+ * CLERK_SECRET_KEY belongs to a different Clerk instance — and that exception
+ * used to surface as a bare 500 on every visit, locking users out entirely.
+ * Catch it: log the underlying reason (visible in `wrangler tail`), drop the
+ * handshake param, clear our session cookie, and land on /sign-in so the user
+ * can retry instead of hitting an error wall.
+ */
+export default async function middleware(
+  request: Parameters<typeof clerkHandler>[0],
+  event: Parameters<typeof clerkHandler>[1]
+) {
+  try {
+    return await clerkHandler(request, event);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/handshake/i.test(message)) throw error;
+    console.error(`clerk-handshake-failed path=${request.nextUrl.pathname} detail=${message}`);
+    // Already on the sign-in/up pages: render them (public, client-side Clerk)
+    // instead of redirecting to ourselves in a loop.
+    if (/^\/sign-(in|up)/.test(request.nextUrl.pathname)) {
+      return NextResponse.next();
+    }
+    const signIn = request.nextUrl.clone();
+    signIn.pathname = "/sign-in";
+    signIn.search = "";
+    const response = NextResponse.redirect(signIn);
+    response.cookies.delete("__session");
+    return response;
+  }
+}
 
 export const config = {
   matcher: [
