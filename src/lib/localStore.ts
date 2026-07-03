@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createHash, randomBytes } from "node:crypto"
 import path from "node:path"
 import type {
+  AlertSettings,
+  AlertState,
   AnalysisSnapshot,
   AppStore,
   ConnectionEvent,
@@ -15,6 +17,7 @@ import type {
   CliPairing,
 } from "./types"
 import { normalizeDashboardLayout } from "./dashboardLayout"
+import { assertCanConnectCustomProvider, assertCanConnectProvider, assertCanSyncRepo, workspacePlan } from "./plan"
 import { CONNECTABLE_PROVIDERS } from "./repoLinks"
 import { DEV_PREVIEW_USER, devPreviewWorkspace, isDevPreview } from "./devPreview"
 
@@ -30,6 +33,8 @@ const EMPTY_WORKSPACE: WorkspaceStore = {
   customProviders: {},
   customConnections: {},
   billingSubscription: null,
+  alertSettings: null,
+  alertState: null,
 }
 
 const EMPTY_STORE: AppStore = {
@@ -156,6 +161,18 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
   }
 }
 
+// Alert preferences + delivery state ride together in one JSON settings column.
+type AlertsColumn = { settings?: AlertSettings | null; state?: AlertState | null }
+
+function parseAlertsColumn(value: string | number | null | undefined): AlertsColumn {
+  return parseJson<AlertsColumn>(typeof value === "string" ? value : null, {})
+}
+
+function serializeAlertsColumn(workspace: WorkspaceStore): string | null {
+  if (!workspace.alertSettings && !workspace.alertState) return null
+  return JSON.stringify({ settings: workspace.alertSettings ?? null, state: workspace.alertState ?? null })
+}
+
 async function ensureD1Schema(db: D1DatabaseLike): Promise<void> {
   const statements = [
     `CREATE TABLE IF NOT EXISTS app_kv (
@@ -180,7 +197,8 @@ async function ensureD1Schema(db: D1DatabaseLike): Promise<void> {
       selected_repo_full_name TEXT,
       synced_repo_full_names_json TEXT NOT NULL,
       monthly_budget_usd REAL,
-      dashboard_layout_json TEXT NOT NULL
+      dashboard_layout_json TEXT NOT NULL,
+      alerts_json TEXT
     )`,
     `CREATE TABLE IF NOT EXISTS app_provider_connections (
       user_id TEXT NOT NULL,
@@ -293,6 +311,7 @@ async function ensureD1Schema(db: D1DatabaseLike): Promise<void> {
   for (const statement of [
     "ALTER TABLE app_github_repos ADD COLUMN pushed_at TEXT",
     "ALTER TABLE app_github_repos ADD COLUMN updated_at TEXT",
+    "ALTER TABLE app_workspace_settings ADD COLUMN alerts_json TEXT",
   ]) {
     try {
       await db.prepare(statement).run()
@@ -390,12 +409,15 @@ async function loadD1Store(db: D1DatabaseLike): Promise<AppStore> {
 
   const settings = (await db.prepare("SELECT * FROM app_workspace_settings").all<Record<string, string | number | null>>()).results ?? []
   for (const row of settings) {
+    const alerts = parseAlertsColumn(row.alerts_json)
     store.workspaces[String(row.user_id)] = {
       ...structuredClone(EMPTY_WORKSPACE),
       selectedRepoFullName: row.selected_repo_full_name ? String(row.selected_repo_full_name) : null,
       syncedRepoFullNames: parseJson(String(row.synced_repo_full_names_json ?? "[]"), []),
       monthlyBudgetUsd: typeof row.monthly_budget_usd === "number" ? row.monthly_budget_usd : null,
       dashboardLayout: parseJson(String(row.dashboard_layout_json ?? "[]"), []),
+      alertSettings: alerts.settings ?? null,
+      alertState: alerts.state ?? null,
     }
   }
 
@@ -618,15 +640,16 @@ async function persistD1Store(db: D1DatabaseLike, store: AppStore): Promise<void
       db
         .prepare(
           `INSERT INTO app_workspace_settings (
-        user_id, selected_repo_full_name, synced_repo_full_names_json, monthly_budget_usd, dashboard_layout_json
-      ) VALUES (?1, ?2, ?3, ?4, ?5)`
+        user_id, selected_repo_full_name, synced_repo_full_names_json, monthly_budget_usd, dashboard_layout_json, alerts_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
         )
         .bind(
           userId,
           workspace.selectedRepoFullName,
           JSON.stringify(workspace.syncedRepoFullNames),
           workspace.monthlyBudgetUsd ?? null,
-          JSON.stringify(normalizeDashboardLayout(workspace.dashboardLayout))
+          JSON.stringify(normalizeDashboardLayout(workspace.dashboardLayout)),
+          serializeAlertsColumn(workspace)
         )
     )
 
@@ -870,6 +893,9 @@ async function loadWorkspaceFromD1(db: D1DatabaseLike, userId: string): Promise<
     workspace.monthlyBudgetUsd =
       typeof settings.monthly_budget_usd === "number" ? settings.monthly_budget_usd : null
     workspace.dashboardLayout = parseJson(String(settings.dashboard_layout_json ?? "[]"), [])
+    const alerts = parseAlertsColumn(settings.alerts_json)
+    workspace.alertSettings = alerts.settings ?? null
+    workspace.alertState = alerts.state ?? null
   }
 
   const connectionRows =
@@ -999,15 +1025,16 @@ async function persistWorkspaceToD1(db: D1DatabaseLike, userId: string, rawWorks
     db
       .prepare(
         `INSERT INTO app_workspace_settings (
-        user_id, selected_repo_full_name, synced_repo_full_names_json, monthly_budget_usd, dashboard_layout_json
-      ) VALUES (?1, ?2, ?3, ?4, ?5)`
+        user_id, selected_repo_full_name, synced_repo_full_names_json, monthly_budget_usd, dashboard_layout_json, alerts_json
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
       )
       .bind(
         userId,
         workspace.selectedRepoFullName,
         JSON.stringify(workspace.syncedRepoFullNames),
         workspace.monthlyBudgetUsd ?? null,
-        JSON.stringify(normalizeDashboardLayout(workspace.dashboardLayout))
+        JSON.stringify(normalizeDashboardLayout(workspace.dashboardLayout)),
+        serializeAlertsColumn(workspace)
       )
   )
 
@@ -1371,6 +1398,11 @@ export async function writeAnalysisSnapshot(userId: string, snapshot: AnalysisSn
 
 export async function upsertConnection(userId: string, connection: StoredConnection) {
   const workspace = await readWorkspace(userId)
+  // Plan gate: a NEW provider connection counts against the plan's provider
+  // limit. Updates/reconnects of an existing entry always pass.
+  if (connection.status === "connected") {
+    assertCanConnectProvider(workspace, connection.provider)
+  }
   workspace.connections[connection.provider] = connection
   workspace.events = withEvent(workspace.events, {
     provider: connection.provider,
@@ -1435,6 +1467,8 @@ export async function syncGitHubRepo(userId: string, fullName: string) {
   if (!workspace.githubRepos.some((repo) => repo.fullName === fullName)) {
     throw new Error("Repository is not available in the connected GitHub installation.")
   }
+  // Plan gate: syncing a repo beyond the plan's project limit throws.
+  assertCanSyncRepo(workspace, fullName)
   if (!workspace.syncedRepoFullNames.includes(fullName)) {
     workspace.syncedRepoFullNames.push(fullName)
   }
@@ -1541,6 +1575,8 @@ export async function setCustomConnection(userId: string, id: string, secret: st
   const workspace = await readWorkspace(userId)
   const def = workspace.customProviders[id]
   if (!def) throw new Error("Unknown custom provider.")
+  // Plan gate: each connected custom provider counts against the provider limit.
+  assertCanConnectCustomProvider(workspace, id)
   const now = new Date().toISOString()
   workspace.customConnections[id] = {
     provider: "custom",
@@ -1564,6 +1600,25 @@ export async function removeCustomConnection(userId: string, id: string) {
   const workspace = await readWorkspace(userId)
   delete workspace.customConnections[id]
   await writeWorkspace(userId, workspace)
+}
+
+/** Saves the user's email-alert preferences (master switch + digest cadence). */
+export async function setAlertSettings(userId: string, settings: AlertSettings) {
+  const workspace = await readWorkspace(userId)
+  workspace.alertSettings = {
+    enabled: settings.enabled !== false,
+    digest: settings.digest === "off" ? "off" : "weekly",
+  }
+  await writeWorkspace(userId, workspace)
+  return workspace.alertSettings
+}
+
+/** Persists alert delivery bookkeeping (sent keys, last digest time). */
+export async function saveAlertState(userId: string, state: AlertState) {
+  const workspace = await readWorkspace(userId)
+  workspace.alertState = state
+  await writeWorkspace(userId, workspace)
+  return workspace.alertState
 }
 
 /** Sets (or clears, with null) the workspace's monthly spend budget in USD. */
@@ -1710,6 +1765,10 @@ function publicStoreFromWorkspace(workspace: WorkspaceStore) {
     costAssignments: workspace.costAssignments,
     monthlyBudgetUsd: workspace.monthlyBudgetUsd ?? null,
     billingSubscription: workspace.billingSubscription ?? null,
+    // Effective plan + alert preferences (no delivery state) so the UI can
+    // gate features and render upgrade prompts without re-deriving billing.
+    plan: workspacePlan(workspace),
+    alertSettings: workspace.alertSettings ?? null,
     dashboardLayout: normalizeDashboardLayout(workspace.dashboardLayout),
     // Custom provider definitions (no secrets) plus whether each has a saved
     // secret, so the UI can render and prompt to connect them.
@@ -1788,6 +1847,8 @@ function normalizeWorkspace(workspace?: Partial<WorkspaceStore>): WorkspaceStore
     billingSubscription: workspace.billingSubscription ?? null,
     monthlyBudgetUsd: workspace.monthlyBudgetUsd ?? null,
     dashboardLayout: normalizeDashboardLayout(workspace.dashboardLayout),
+    alertSettings: workspace.alertSettings ?? null,
+    alertState: workspace.alertState ?? null,
   }
 }
 

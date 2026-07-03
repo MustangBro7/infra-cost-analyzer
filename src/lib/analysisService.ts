@@ -11,6 +11,7 @@ import type { AnalyticsWriteResult } from "./analytics/types"
 import { writeAnalyticsPayload } from "./analytics/writer"
 import { autoConnectFromEnv } from "./connectors"
 import { devPreviewSnapshot, isDevPreview } from "./devPreview"
+import { planLimits } from "./plan"
 
 export const OVERVIEW_SNAPSHOT_KEY = "__overview__"
 export type RefreshedAnalysisSnapshot = AnalysisSnapshot & { analytics: AnalyticsWriteResult }
@@ -124,12 +125,30 @@ export async function getOrCreateAnalysisSnapshot(input: {
 export async function refreshAllSnapshotsLiveData(): Promise<{
   users: number
   snapshots: number
+  skippedByPlan: number
+  alertsSent: number
+  digestsSent: number
   analyticsOutbox: { delivered: number; failed: number }
 }> {
   const analyticsOutbox = await drainAnalyticsOutbox()
   const store = await readStore()
   let users = 0
   let snapshots = 0
+  let skippedByPlan = 0
+  let alertsSent = 0
+  let digestsSent = 0
+  // Dynamic import: alerts.ts statically imports OVERVIEW_SNAPSHOT_KEY from this
+  // module, so a static import here would create a module cycle.
+  const { runAlertSweepForUser } = await import("./alerts")
+  const sweepAlerts = async (userId: string) => {
+    try {
+      const result = await runAlertSweepForUser(userId)
+      alertsSent += result.alertsSent
+      if (result.digestSent) digestsSent += 1
+    } catch {
+      // Alerting must never fail the refresh sweep.
+    }
+  }
   for (const [userId] of Object.entries(store.workspaces)) {
     await autoConnectFromEnv(userId)
     const workspace = await readWorkspace(userId)
@@ -152,6 +171,19 @@ export async function refreshAllSnapshotsLiveData(): Promise<{
         // Continue with other users if one account's initial sync fails.
       }
       continue
+    }
+    // Plan gate on background refresh cadence: the Free plan advertises a
+    // monthly refresh, so its existing snapshots are re-pulled only once the
+    // newest one is older than the plan's interval. Manual "Refresh now" is
+    // untouched — this only paces the scheduled sweep.
+    const refreshDays = planLimits(workspace).backgroundRefreshDays
+    if (refreshDays > 0) {
+      const newest = snaps.reduce((max, snap) => (snap.computedAt > max ? snap.computedAt : max), "")
+      const ageMs = Date.now() - new Date(newest).getTime()
+      if (Number.isFinite(ageMs) && ageMs < refreshDays * 24 * 60 * 60 * 1000) {
+        skippedByPlan += 1
+        continue
+      }
     }
     users += 1
     // A free-plan Worker is capped at 50 subrequests per invocation. Each
@@ -177,6 +209,9 @@ export async function refreshAllSnapshotsLiveData(): Promise<{
         // One user's failure shouldn't stop the rest of the sweep.
       }
     }
+    // Evaluate email alerts on the fresh data (Indie only; the sweep itself
+    // enforces plan, settings, and per-key dedupe).
+    await sweepAlerts(userId)
   }
-  return { users, snapshots, analyticsOutbox }
+  return { users, snapshots, skippedByPlan, alertsSent, digestsSent, analyticsOutbox }
 }

@@ -294,6 +294,31 @@ export interface WorkspaceStore {
   // built-in provider connections.
   customConnections: Record<string, StoredConnection>
   billingSubscription?: BillingSubscription | null
+  // Email alert preferences + delivery bookkeeping (see AlertSettings/AlertState).
+  alertSettings?: AlertSettings | null
+  alertState?: AlertState | null
+}
+
+/**
+ * Email alerting preferences. Alerts are evaluated during the background cron
+ * sweep and delivered to the account email. Sending is Indie-plan only; the
+ * settings persist regardless of plan so an upgrade starts delivering
+ * immediately.
+ */
+export interface AlertSettings {
+  // Master switch for threshold alert emails (budget %, free-tier runway).
+  enabled: boolean
+  // Weekly spend summary email cadence.
+  digest: "weekly" | "off"
+}
+
+/**
+ * Delivery bookkeeping so each alert fires once: sentKeys maps a stable alert
+ * key (scoped to the billing month) to the ISO time it was emailed.
+ */
+export interface AlertState {
+  sentKeys: Record<string, string>
+  lastDigestAt?: string | null
 }
 
 export type BillingPlan = "free" | "indie"

@@ -33,6 +33,33 @@ repos, apps, free tiers, and subscriptions.
 Dodo Payments is used for hosted USD checkout and subscription webhooks. Clerk
 is used only for authentication.
 
+Plan limits are enforced in the store layer (`src/lib/plan.ts`): the Free plan
+syncs up to 2 repositories, connects up to 2 billing providers (GitHub is not
+counted; custom providers are), and gets a monthly background refresh. Indie
+lifts the limits, refreshes on every cron tick, and unlocks email alerts.
+Manual "Refresh now" works on every plan.
+
+## Email Alerts (Indie)
+
+The cron sweep evaluates each user's overview snapshot after refreshing it and
+emails threshold alerts (each once per billing month) plus a weekly digest:
+
+- Budget crossings at 50% / 80% / 100% of the monthly budget.
+- Projected month-end spend over budget (subscription-aware forecast).
+- Free-tier usage at 80% (warning) and 100% (critical) of a published limit.
+
+Delivery uses Cloudflare Email Service via the `send_email` binding (`EMAIL`)
+in `wrangler.jsonc`. One-time setup:
+
+```bash
+npx wrangler email sending enable ambrium.io
+```
+
+Preferences live in Dashboard → Insights → Email alerts (master switch, weekly
+digest toggle, test send). Outside the Workers runtime, or before the domain is
+onboarded, sends are skipped gracefully and alert keys stay unmarked so they
+deliver on the next sweep once email works. The staging replica never sends.
+
 ## What Works Now
 
 - Scans local or GitHub repositories and maps provider evidence back to projects.

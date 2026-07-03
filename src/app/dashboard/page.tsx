@@ -22,6 +22,8 @@ import { CustomProviderPanel } from "../CustomProviderPanel"
 import { AiSyncPanel } from "../AiSyncPanel"
 import { type AiToolData, type AiUsageLimit } from "../AiInsights"
 import { BudgetForecast } from "../BudgetForecast"
+import { AlertsPanel } from "../AlertsPanel"
+import { PLAN_LIMITS } from "@/lib/plan"
 import { RepoAccountPicker } from "../RepoAccountPicker"
 import { ProviderCostPanel } from "../ProviderCostPanel"
 import { ProviderResourcePanel } from "../ProviderResourcePanel"
@@ -1896,6 +1898,7 @@ function RepositoryDashboard({
             budget={state.monthlyBudgetUsd ?? null}
             monthLabel={monthLabel(analysis.period)}
           />
+          <AlertsPanel plan={state.plan} initialSettings={state.alertSettings ?? null} />
           <HistoricalAnalyticsPanel repo={null} currentMonth={analysis.period.from.slice(0, 7)} />
           <AccountWideUsagePanel rows={accountUsageRows} />
         </div>
@@ -2201,6 +2204,11 @@ function RepositoryDashboard({
 
           {connectTab === "credentials" ? (
             <div className="amb-connect-tab-panel">
+              <PlanLimitBanner
+                plan={state.plan}
+                syncedRepoCount={state.syncedRepoFullNames.length}
+                providerCount={connectedBillingProviderCount(state)}
+              />
               <div className="amb-legacy" id="credentials">
                 <p className="amb-legacy-head">Manage &amp; credentials</p>
                 <RepoSyncPanel initialState={state} />
@@ -2213,6 +2221,51 @@ function RepositoryDashboard({
         </>
       ) : null}
     </>
+  )
+}
+
+/** Billing providers connected (GitHub excluded), matching the plan limit's count. */
+function connectedBillingProviderCount(state: {
+  connections: Record<string, { status?: string; provider?: string } | null>
+  customProviders: Array<{ connected?: boolean }>
+}): number {
+  const builtIn = Object.values(state.connections).filter(
+    (connection) => connection && connection.status === "connected" && connection.provider !== "github"
+  ).length
+  const custom = state.customProviders.filter((provider) => provider.connected).length
+  return builtIn + custom
+}
+
+/** Upgrade prompt shown on the Free plan once a repo/provider limit is reached. */
+function PlanLimitBanner({
+  plan,
+  syncedRepoCount,
+  providerCount,
+}: {
+  plan: "free" | "indie"
+  syncedRepoCount: number
+  providerCount: number
+}) {
+  if (plan !== "free") return null
+  const limits = PLAN_LIMITS.free
+  const atRepos = limits.maxSyncedRepos != null && syncedRepoCount >= limits.maxSyncedRepos
+  const atProviders = limits.maxProviders != null && providerCount >= limits.maxProviders
+  if (!atRepos && !atProviders) return null
+  const parts = [
+    atRepos ? `${syncedRepoCount} of ${limits.maxSyncedRepos} repositories` : null,
+    atProviders ? `${providerCount} of ${limits.maxProviders} providers` : null,
+  ].filter(Boolean)
+  return (
+    <div className="amb-banner amber">
+      <span className="amb-banner-dot" aria-hidden />
+      <div>
+        <strong>Free plan limit reached — {parts.join(" · ")}.</strong>{" "}
+        <span>Upgrade to Indie for unlimited projects and providers, automatic refresh, and email alerts.</span>
+      </div>
+      <Link href="/pricing" prefetch={false} className="amb-banner-link">
+        See plans — $5/month
+      </Link>
+    </div>
   )
 }
 

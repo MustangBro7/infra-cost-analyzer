@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { AuthRequiredError, requireUserFromRequest } from "@/lib/localAuth"
 import { readWorkspace, selectGitHubRepo, syncGitHubRepo, unsyncGitHubRepo, upsertConnection } from "@/lib/localStore"
+import { PlanLimitError } from "@/lib/plan"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -38,6 +39,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof AuthRequiredError) {
       return NextResponse.json({ error: error.message }, { status: 401 })
+    }
+    if (error instanceof PlanLimitError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 402 })
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to select repo." },

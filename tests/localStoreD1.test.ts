@@ -156,6 +156,8 @@ function sampleWorkspace(overrides: Partial<WorkspaceStore> = {}): WorkspaceStor
     billingSubscription: null,
     monthlyBudgetUsd: 200,
     dashboardLayout: [],
+    alertSettings: { enabled: true, digest: "weekly" },
+    alertState: { sentKeys: { "2026-07:budget:80": "2026-07-10T00:00:00.000Z" }, lastDigestAt: null },
     ...overrides,
   }
 }
@@ -176,6 +178,8 @@ test("scoped D1: round-trips a workspace and decrypts the access token", async (
   assert.deepEqual(loaded.repoProviderLinks["acme/web"], ["vercel"])
   assert.equal(loaded.costAssignments["vercel:proj"], "team-a")
   assert.equal(loaded.githubRepos[0]?.fullName, "acme/web")
+  assert.deepEqual(loaded.alertSettings, { enabled: true, digest: "weekly" })
+  assert.equal(loaded.alertState?.sentKeys["2026-07:budget:80"], "2026-07-10T00:00:00.000Z")
 })
 
 test("scoped D1: writing one user never touches another user's rows", async () => {

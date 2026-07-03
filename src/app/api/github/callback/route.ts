@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createInstallationToken, listInstallationRepos } from "@/lib/githubClient"
 import { currentUserFromRequest } from "@/lib/localAuth"
 import { appendEvent, saveGitHubRepos, syncGitHubRepo, upsertConnection } from "@/lib/localStore"
+import { PlanLimitError } from "@/lib/plan"
 import { appUrl } from "@/lib/appUrl"
 
 export const runtime = "nodejs"
@@ -27,8 +28,27 @@ export async function GET(request: NextRequest) {
     const repos = await listInstallationRepos(token.token)
     const selected = repos[0]?.fullName ?? null
     await saveGitHubRepos(userId, repos, selected)
+    // Sync installed repos up to the plan's project limit; the rest stay
+    // available to sync later (or after an upgrade) instead of failing the
+    // whole installation callback.
+    let planLimitHit: PlanLimitError | null = null
     for (const repo of repos) {
-      await syncGitHubRepo(userId, repo.fullName)
+      try {
+        await syncGitHubRepo(userId, repo.fullName)
+      } catch (error) {
+        if (error instanceof PlanLimitError) {
+          planLimitHit = error
+          break
+        }
+        throw error
+      }
+    }
+    if (planLimitHit) {
+      await appendEvent(userId, {
+        provider: "github",
+        level: "warning",
+        message: `Some repositories were not synced: ${planLimitHit.message}`,
+      })
     }
     await upsertConnection(userId, {
       provider: "github",

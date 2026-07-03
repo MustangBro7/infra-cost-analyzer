@@ -41,6 +41,11 @@
       "database_id": "e52d3a7c-244b-4d06-8282-874c990ac392"
     }
   ],
+  // Cloudflare Email Service for alert/digest emails (src/lib/email.ts).
+  // One-time setup: `npx wrangler email sending enable ambrium.io` (adds the
+  // DKIM/SPF records). Intentionally NOT configured for env.staging — the
+  // staging replica clones production users and must never email them.
+  "send_email": [{ "name": "EMAIL" }],
   "hyperdrive": [
     {
       "binding": "ANALYTICS_DB",

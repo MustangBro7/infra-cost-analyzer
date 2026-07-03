@@ -413,7 +413,21 @@ export function devPreviewWorkspace(): WorkspaceStore {
     costAssignments: {},
     customProviders: {},
     customConnections: {},
-    billingSubscription: null,
+    // Indie so plan-gated surfaces (email alerts, unlimited repos) render in
+    // their unlocked state during preview.
+    billingSubscription: {
+      provider: "dodo",
+      plan: "indie",
+      status: "active",
+      customerId: "cus_devpreview",
+      subscriptionId: "sub_devpreview",
+      checkoutSessionId: null,
+      productId: "prod_devpreview",
+      currentPeriodEnd: null,
+      updatedAt: NOW.toISOString(),
+    },
+    alertSettings: { enabled: true, digest: "weekly" },
+    alertState: null,
     monthlyBudgetUsd: 300,
     dashboardLayout: undefined,
   }
