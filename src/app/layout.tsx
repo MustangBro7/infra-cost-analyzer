@@ -22,6 +22,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap"
             rel="stylesheet"
           />
+          {/* Apply the saved theme before first paint so dark mode never flashes
+              light. Falls back to the OS preference on first visit. */}
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `try{var t=localStorage.getItem("amb-theme");if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t}catch(e){}`,
+            }}
+          />
         </head>
         <body>{children}</body>
       </html>

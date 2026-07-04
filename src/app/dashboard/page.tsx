@@ -26,6 +26,8 @@ import { AlertsPanel } from "../AlertsPanel"
 import { OnboardingChecklist, type ChecklistState } from "../OnboardingChecklist"
 import { LinkSpinner } from "../LinkSpinner"
 import { RefreshButton } from "../RefreshButton"
+import { ThemeToggle } from "../ThemeToggle"
+import { SpendHero } from "./SpendHero"
 import { PLAN_LIMITS } from "@/lib/plan"
 import { RepoAccountPicker } from "../RepoAccountPicker"
 import { ProviderCostPanel } from "../ProviderCostPanel"
@@ -928,6 +930,7 @@ function Sidebar({
             <small>{email}</small>
           </span>
         </div>
+        <ThemeToggle />
         <SignOutButton />
       </div>
     </aside>
@@ -1718,55 +1721,60 @@ function RepositoryDashboard({
             </div>
           ) : null}
 
-          <div className="amb-kpi-grid">
-            <div className="amb-kpi">
-              <div className="amb-kpi-label">{rangeMode ? range.label : "Month to date"}</div>
-              <div className="amb-kpi-value">{money(rangeTotal)}</div>
-              <div className="amb-kpi-sub">
-                {rangeMode
-                  ? `${monthSpanLabel(range)} · ${range.months.length} ${range.months.length === 1 ? "month" : "months"}`
-                  : `across ${repos.length} ${repos.length === 1 ? "project" : "projects"} · ${forecast.elapsedDays} days in`}
-              </div>
-            </div>
-            {rangeMode && range.includesCurrentMonth ? (
+          {rangeMode ? (
+            <div className="amb-kpi-grid">
               <div className="amb-kpi">
-                <div className="amb-kpi-label">Projected ({range.label})</div>
-                <div className="amb-kpi-value">{money(rangeForecast.projected)}</div>
-                <div className="amb-kpi-sub">incl. {money(totalCost)} this month so far</div>
-              </div>
-            ) : rangeMode ? (
-              <div className="amb-kpi">
-                <div className="amb-kpi-label">Monthly average</div>
-                <div className="amb-kpi-value">{money(rangeTotal / Math.max(range.months.length, 1))}</div>
-                <div className="amb-kpi-sub">per calendar month</div>
-              </div>
-            ) : (
-              <div className="amb-kpi">
-                <div className="amb-kpi-label">Projected ({monthLabel(analysis.period).split(" ")[0]})</div>
-                <div className="amb-kpi-value">{money(forecast.projected)}</div>
-                <div className={pacePct > 0 ? "amb-kpi-sub up" : "amb-kpi-sub"}>
-                  {pacePct > 0 ? `▲ +${pacePct}% to month-end` : "at current run rate"}
+                <div className="amb-kpi-label">{range.label}</div>
+                <div className="amb-kpi-value">{money(rangeTotal)}</div>
+                <div className="amb-kpi-sub">
+                  {`${monthSpanLabel(range)} · ${range.months.length} ${range.months.length === 1 ? "month" : "months"}`}
                 </div>
               </div>
-            )}
-            <div className="amb-kpi">
-              <div className="amb-kpi-label">AI spend</div>
-              <div className="amb-kpi-value">{money(aiTotal)}</div>
-              <div className="amb-kpi-sub">
-                {aiShare}% of {rangeMode ? "spend in range" : "this month's spend"}
+              {range.includesCurrentMonth ? (
+                <div className="amb-kpi">
+                  <div className="amb-kpi-label">Projected ({range.label})</div>
+                  <div className="amb-kpi-value">{money(rangeForecast.projected)}</div>
+                  <div className="amb-kpi-sub">incl. {money(totalCost)} this month so far</div>
+                </div>
+              ) : (
+                <div className="amb-kpi">
+                  <div className="amb-kpi-label">Monthly average</div>
+                  <div className="amb-kpi-value">{money(rangeTotal / Math.max(range.months.length, 1))}</div>
+                  <div className="amb-kpi-sub">per calendar month</div>
+                </div>
+              )}
+              <div className="amb-kpi">
+                <div className="amb-kpi-label">AI spend</div>
+                <div className="amb-kpi-value">{money(aiTotal)}</div>
+                <div className="amb-kpi-sub">{aiShare}% of spend in range</div>
               </div>
+              <Link href="/dashboard?view=leaks" prefetch={false} className="amb-kpi action">
+                <div className="amb-kpi-action-head">
+                  <span>Recoverable</span>
+                  <em>&#8594;</em>
+                </div>
+                <div className="amb-kpi-value">{money(recoverable)}</div>
+                <div className="amb-kpi-sub">
+                  {leaks.length} {leaks.length === 1 ? "issue" : "issues"} · recoverable
+                </div>
+              </Link>
             </div>
-            <Link href="/dashboard?view=leaks" prefetch={false} className="amb-kpi action">
-              <div className="amb-kpi-action-head">
-                <span>Recoverable</span>
-                <em>&#8594;</em>
-              </div>
-              <div className="amb-kpi-value">{money(recoverable)}</div>
-              <div className="amb-kpi-sub">
-                {leaks.length} {leaks.length === 1 ? "issue" : "issues"} · recoverable
-              </div>
-            </Link>
-          </div>
+          ) : (
+            <SpendHero
+              monthName={monthLabel(analysis.period).split(" ")[0]}
+              totalCost={totalCost}
+              projected={forecast.projected}
+              dailyRate={forecast.dailyRate}
+              flatTotal={monthForecast.flatTotal}
+              elapsedDays={elapsedDays}
+              totalDays={totalDays}
+              budget={state.monthlyBudgetUsd ?? null}
+              projectCount={repos.length}
+              pacePct={pacePct}
+              recoverable={recoverable}
+              leakCount={leaks.length}
+            />
+          )}
 
           <ProjectsTable
             projects={projectVMs}

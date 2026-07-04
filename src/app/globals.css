@@ -2046,7 +2046,7 @@ th {
   text-decoration: none;
   border: 1px solid transparent;
   border-bottom: none;
-  border-radius: 0;
+  border-radius: 6px;
   margin-bottom: -1px;
 }
 
@@ -2128,7 +2128,7 @@ th {
 .plan-badge {
   margin-left: auto;
   padding: 2px 8px;
-  border-radius: 0;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--surface-2, rgba(255, 255, 255, 0.04));
   color: var(--muted);
@@ -2166,7 +2166,7 @@ th {
 
 .detected-chip {
   padding: 2px 8px;
-  border-radius: 0;
+  border-radius: 6px;
   border: 1px solid var(--ink);
   background: var(--ok-mid);
   font-size: 11px;
@@ -3072,7 +3072,7 @@ th {
   margin: 0 0 18px;
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: 6px;
   background: var(--panel);
   color: var(--muted);
   font-size: 0.85rem;
@@ -3089,7 +3089,7 @@ th {
   border: 1px solid var(--line);
   background: var(--panel-strong);
   color: var(--ink);
-  border-radius: 0;
+  border-radius: 6px;
   padding: 4px 10px;
   font: inherit;
   font-size: 0.8rem;
@@ -3404,7 +3404,7 @@ th {
   padding: 1px 6px;
   border: 1px solid var(--line);
   background: var(--panel-strong);
-  border-radius: 0;
+  border-radius: 6px;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -3730,7 +3730,7 @@ th {
 .free-tier-bar {
   position: relative;
   height: 8px;
-  border-radius: 0;
+  border-radius: 6px;
   background: var(--panel-strong);
   overflow: hidden;
 }
@@ -3738,7 +3738,7 @@ th {
 .free-tier-fill {
   display: block;
   height: 100%;
-  border-radius: 0;
+  border-radius: 6px;
   background: var(--green);
   transition: width 0.3s ease;
 }
@@ -3767,7 +3767,7 @@ th {
   width: 30px;
   height: 30px;
   border: 1px solid var(--ink);
-  border-radius: 0;
+  border-radius: 6px;
   flex-shrink: 0;
 }
 
@@ -3865,7 +3865,7 @@ th {
 /* Vercel OAuth guided setup */
 .vercel-oauth-setup {
   border: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: 6px;
   background: var(--panel);
   padding: 10px 12px;
 }
@@ -8287,10 +8287,11 @@ th {
   }
 }
 
-/* Theme rule: Ambrium is fully squared-off. This enforces no rounded corners
-   anywhere — including form controls and third-party (Clerk) widgets. */
-*,
-*::before,
-*::after {
-  border-radius: 0 !important;
+/* Theme rule: rounded corners everywhere (2026-07 redesign). Components carry
+   their own radii; this just softens native form controls to match. */
+input,
+select,
+textarea,
+button {
+  border-radius: 8px;
 }
