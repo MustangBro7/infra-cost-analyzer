@@ -23,6 +23,9 @@ import { AiSyncPanel } from "../AiSyncPanel"
 import { type AiToolData, type AiUsageLimit } from "../AiInsights"
 import { BudgetForecast } from "../BudgetForecast"
 import { AlertsPanel } from "../AlertsPanel"
+import { OnboardingChecklist, type ChecklistState } from "../OnboardingChecklist"
+import { LinkSpinner } from "../LinkSpinner"
+import { RefreshButton } from "../RefreshButton"
 import { PLAN_LIMITS } from "@/lib/plan"
 import { RepoAccountPicker } from "../RepoAccountPicker"
 import { ProviderCostPanel } from "../ProviderCostPanel"
@@ -855,11 +858,13 @@ function Sidebar({
   leakCount,
   email,
   updatedLabel,
+  plan,
 }: {
   view: ViewKey
   leakCount: number
   email: string
   updatedLabel: string
+  plan: "free" | "indie"
 }) {
   const name = displayNameFromEmail(email)
   const initial = (name.charAt(0) || "A").toUpperCase()
@@ -874,7 +879,7 @@ function Sidebar({
       <button type="button" className="amb-workspace">
         <span className="amb-workspace-avatar">{initial}</span>
         <span className="amb-workspace-name">My workspace</span>
-        <span className="amb-workspace-caret">&#9662;</span>
+        <ChevronDown className="amb-workspace-caret" aria-hidden />
       </button>
 
       <nav className="amb-nav" aria-label="Sections">
@@ -889,6 +894,7 @@ function Sidebar({
             {item.icon}
             <span className="amb-nav-label">{item.label}</span>
             {item.key === "leaks" && leakCount > 0 ? <span className="amb-nav-badge">{leakCount}</span> : null}
+            <LinkSpinner className="amb-nav-spin" />
           </Link>
         ))}
       </nav>
@@ -898,13 +904,23 @@ function Sidebar({
           <span className="amb-sync-dot" aria-hidden />
           {updatedLabel}
         </div>
-        <div className="amb-plan-card">
-          <div className="amb-plan-card-head">
-            <strong>Indie plan</strong>
-            <span>$5/mo</span>
+        {plan === "indie" ? (
+          <div className="amb-plan-card">
+            <div className="amb-plan-card-head">
+              <strong>Indie plan</strong>
+              <span>$5/mo</span>
+            </div>
+            <p>Unlimited projects, automatic refresh, alerts.</p>
           </div>
-          <p>Unlimited projects, daily refresh, alerts.</p>
-        </div>
+        ) : (
+          <Link href="/pricing" prefetch={false} className="amb-plan-card upgrade">
+            <div className="amb-plan-card-head">
+              <strong>Free plan</strong>
+              <span>Upgrade</span>
+            </div>
+            <p>2 projects · 2 providers. Indie unlocks unlimited + alerts.</p>
+          </Link>
+        )}
         <div className="amb-user">
           <span className="amb-user-avatar">{initial}</span>
           <span className="amb-user-id">
@@ -922,14 +938,14 @@ function AppHeader({
   view,
   range,
   rangeParams,
-  refreshHref,
+  repo,
 }: {
   view: ViewKey
   range: ResolvedDateRange
   // Params to preserve when switching ranges; null hides the picker (views
   // that always show current state: limits, leaks, AI, connect).
   rangeParams: Record<string, string> | null
-  refreshHref: string
+  repo: string | null
 }) {
   const meta = VIEW_META[view]
   return (
@@ -945,10 +961,7 @@ function AppHeader({
           ) : (
             <span className="amb-chip">{monthSpanLabel(currentMonthRange())}</span>
           )}
-          <a href={refreshHref} className="amb-btn-dark">
-            <RefreshCw aria-hidden width={14} height={14} />
-            Refresh
-          </a>
+          <RefreshButton repo={repo} />
         </div>
       </div>
     </header>
@@ -1393,7 +1406,16 @@ function RepositoryDashboard({
   // AI spend follows the range; token/limit detail is whatever the connections
   // last reported (metadata), which is inherently current.
   const aiTools = buildAiTools(rangeAnalysis, state)
-  const emptyWorkspace = repos.length === 0 && accounts.length === 0 && totalCost <= 0.005
+
+  // First-run checklist: pinned to the top of Projects until real data flows,
+  // then the card stops rendering entirely.
+  const checklist: ChecklistState = {
+    repos: state.connections.github?.status === "connected" && state.syncedRepoFullNames.length > 0,
+    provider: connectedBillingProviderCount(state) > 0,
+    refresh: analysis.liveSync.some((sync) => sync.status === "success" || sync.status === "empty"),
+    cost: analysis.costRows.length > 0 || analysis.freeTier.some((row) => (row.used ?? 0) > 0),
+  }
+  const checklistComplete = checklist.repos && checklist.provider && checklist.refresh && checklist.cost
 
   const aiTotal = aiTools.reduce((sum, tool) => sum + tool.totalCost, 0)
   const recoverable = leaks.reduce((sum, leak) => sum + (leak.amount ?? 0), 0)
@@ -1684,15 +1706,7 @@ function RepositoryDashboard({
     <>
       {view === "projects" ? (
         <>
-          {emptyWorkspace ? (
-            <div className="amb-banner amber">
-              <span className="amb-banner-dot" aria-hidden />
-              <span>No accounts connected yet — connect your providers to see your real numbers.</span>
-              <Link href="/dashboard?view=connect" prefetch={false} className="amb-banner-link">
-                Connect accounts
-              </Link>
-            </div>
-          ) : null}
+          {!checklistComplete ? <OnboardingChecklist steps={checklist} /> : null}
 
           {historyMissing ? (
             <div className="amb-banner amber">
@@ -2096,6 +2110,7 @@ function RepositoryDashboard({
                   <small>{tab.detail}</small>
                 </span>
                 {typeof tab.count === "number" ? <em>{tab.count}</em> : null}
+                <LinkSpinner />
               </Link>
             ))}
           </div>
@@ -2812,15 +2827,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     syncedRepoFullNames: state.syncedRepoFullNames,
     latestMs,
   }).length
-  const rangeSuffix = range.key === "this-month" ? "" : `range=${encodeURIComponent(String(range.key))}`
-  const refreshHref = requestedRepo
-    ? `/dashboard?repo=${encodeURIComponent(requestedRepo)}${rangeSuffix ? `&${rangeSuffix}` : ""}`
-    : view === "projects"
-      ? rangeSuffix
-        ? `/dashboard?${rangeSuffix}`
-        : "/dashboard"
-      : `/dashboard?view=${view}${rangeSuffix ? `&${rangeSuffix}` : ""}`
-
   // Real per-repo monthly history for the Projects sparklines. Only needed for
   // the Projects view; guarded so a disabled/unreachable analytics store yields
   // {} (no trend) instead of breaking the page.
@@ -2861,9 +2867,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   return (
     <main className="amb-app">
       <AnalysisRefresher repo={requestedRepo} computedAt={snapshot.computedAt} />
-      <Sidebar view={view} leakCount={leakCount} email={user.email} updatedLabel={`Updated ${shortAge(latestSyncVal)}`} />
+      <Sidebar
+        view={view}
+        leakCount={leakCount}
+        email={user.email}
+        updatedLabel={`Updated ${shortAge(latestSyncVal)}`}
+        plan={state.plan}
+      />
       <div className="amb-main">
-        <AppHeader view={view} range={range} rangeParams={rangeParams} refreshHref={refreshHref} />
+        <AppHeader view={view} range={range} rangeParams={rangeParams} repo={requestedRepo} />
         <div className="amb-content">
           {requestedRepo ? (
             <div className="amb-legacy" style={{ marginTop: 0 }}>

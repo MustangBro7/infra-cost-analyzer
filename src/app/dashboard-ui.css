@@ -187,7 +187,8 @@
 
 .amb-workspace-caret {
   color: #b4b4bc;
-  font-size: 11px;
+  width: 13px;
+  height: 13px;
 }
 
 .amb-nav {
@@ -848,15 +849,22 @@
   margin-top: 1px;
 }
 
+/* Standard expand chevron: the same 14px lucide ChevronDown used by the
+   Insights accordions, rotating 180° when open. */
 .amb-chev {
   display: flex;
   justify-content: flex-end;
-  color: #c4c4cc;
-  font-size: 13px;
-  transition: transform 0.15s;
+  align-items: center;
+  color: #9a968d;
 }
 
-.amb-chev.open {
+.amb-chev svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.18s ease;
+}
+
+.amb-chev.open svg {
   transform: rotate(180deg);
 }
 
@@ -2458,4 +2466,205 @@
 
 .amb-alerts-notice.error {
   color: #b3261e;
+}
+
+/* ---------- interaction feedback ---------- */
+
+/* Spinner shown inside a <Link> while its navigation is pending (LinkSpinner). */
+.amb-link-spin {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  animation: amb-rotate 0.8s linear infinite;
+}
+
+@keyframes amb-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Sidebar nav: pending spinner sits at the right edge of the item. */
+.amb-nav-item .amb-nav-spin {
+  margin-left: auto;
+  color: currentColor;
+}
+
+/* Connect tabs / range menu: spinner rides after the label. */
+.amb-connect-tab .amb-link-spin,
+.amb-range-item .amb-link-spin {
+  margin-left: 6px;
+}
+
+/* Pressed-state feedback on every button-like control. */
+.amb-btn-sm:active,
+.amb-btn-sm-dark:active,
+.amb-btn-dark:active,
+.amb-banner-link:active,
+.amb-nav-item:active,
+.amb-connect-tab:active,
+.amb-range-item:active {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  cursor: progress;
+}
+
+/* ---------- first-run checklist ---------- */
+
+.amb-checklist {
+  margin-bottom: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.amb-checklist-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.amb-checklist-title {
+  margin: 0;
+  font-weight: 650;
+  font-size: 15px;
+}
+
+.amb-checklist-sub {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--amb-muted, #6f6b62);
+}
+
+.amb-checklist-progress {
+  display: flex;
+  gap: 4px;
+  padding-top: 5px;
+}
+
+.amb-checklist-progress .seg {
+  width: 30px;
+  height: 5px;
+  background: var(--amb-line, #e3e1dc);
+}
+
+.amb-checklist-progress .seg.done {
+  background: #0f9d63;
+}
+
+.amb-checklist-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.amb-checklist-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 2px;
+  border-top: 1px solid var(--amb-line, #e3e1dc);
+}
+
+.amb-checklist-steps li.pending {
+  opacity: 0.55;
+}
+
+.amb-check-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1px solid var(--amb-line, #e3e1dc);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--amb-muted, #6f6b62);
+  background: var(--amb-card-2, #faf9f7);
+}
+
+.amb-checklist-steps li.done .amb-check-mark {
+  background: #0f9d63;
+  border-color: #0f9d63;
+  color: #fff;
+}
+
+.amb-checklist-steps li.active .amb-check-mark {
+  border-color: #1a1a18;
+  color: #1a1a18;
+}
+
+.amb-check-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.amb-check-body strong {
+  display: block;
+  font-size: 13.5px;
+}
+
+.amb-check-body span {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--amb-muted, #6f6b62);
+}
+
+.amb-check-error {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  font-style: normal;
+  color: #b3261e;
+}
+
+.amb-check-action {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.amb-check-action .amb-btn-sm-dark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.amb-check-done-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #0f9d63;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.amb-check-wait {
+  font-size: 12px;
+  color: var(--amb-muted, #6f6b62);
+}
+
+.amb-check-later {
+  color: #c4c4cc;
+}
+
+/* Sidebar plan card as an upgrade link on the free plan. */
+.amb-plan-card.upgrade {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.amb-plan-card.upgrade:hover {
+  border-color: #1a1a18;
+}
+
+.amb-plan-card.upgrade .amb-plan-card-head span {
+  color: var(--amb-accent-ink, #7a4d08);
+  font-weight: 650;
 }

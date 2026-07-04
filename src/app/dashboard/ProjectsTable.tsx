@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
+import { ChevronDown } from "lucide-react"
+import { LinkSpinner } from "../LinkSpinner"
 
 // View-model for one project row. Built server-side from real cost/usage data
 // (see buildIndieProjects) and passed in pre-formatted so this stays a thin,
@@ -182,7 +184,9 @@ export function ProjectsTable({
                     <small>{p.projDisplay}</small>
                   </div>
 
-                  <div className={`amb-chev${open ? " open" : ""}`}>&#9662;</div>
+                  <div className={`amb-chev${open ? " open" : ""}`}>
+                    <ChevronDown aria-hidden />
+                  </div>
                 </div>
 
                 {open ? (
@@ -212,10 +216,10 @@ export function ProjectsTable({
                       <div className="amb-expand-ev">{p.evidence}</div>
                       <div className="amb-btn-row">
                         <Link href={p.href} prefetch={false} className="amb-btn-sm-dark">
-                          Open project
+                          Open project <LinkSpinner />
                         </Link>
                         <Link href={`${p.href}#accounts`} prefetch={false} className="amb-btn-sm">
-                          Link accounts
+                          Link accounts <LinkSpinner />
                         </Link>
                       </div>
                     </div>

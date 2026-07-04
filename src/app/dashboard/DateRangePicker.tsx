@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { ChevronDown } from "lucide-react"
+import { LinkSpinner } from "../LinkSpinner"
 import { DATE_RANGE_PRESETS, type ResolvedDateRange } from "@/lib/dateRange"
 
 function monthShortLabel(key: string): string {
@@ -57,6 +58,7 @@ export function DateRangePicker({
             className={range.key === preset.key ? "amb-range-item active" : "amb-range-item"}
           >
             {preset.label}
+            <LinkSpinner />
           </Link>
         ))}
         <div className="amb-range-divider" aria-hidden />
@@ -69,6 +71,7 @@ export function DateRangePicker({
             className={range.key === month ? "amb-range-item active" : "amb-range-item"}
           >
             {monthShortLabel(month)}
+            <LinkSpinner />
           </Link>
         ))}
       </div>
