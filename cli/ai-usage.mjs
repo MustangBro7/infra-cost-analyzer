@@ -6,8 +6,9 @@
 // Pure Node built-ins; no deps. Cost figures are ESTIMATES at public API list
 // prices (the value of what you used), not what your flat subscription charges.
 
+import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
-import { homedir } from "node:os"
+import { homedir, platform } from "node:os"
 import { join } from "node:path"
 
 const HOME = homedir()
@@ -107,6 +108,161 @@ function normalizeRateLimits(rateLimits) {
   return Object.entries(rateLimits)
     .map(([key, value]) => normalizeLimitValue(value, key.replace(/_/g, " "), key))
     .filter(Boolean)
+}
+
+/**
+ * Maps Codex's actual rate_limits event shape (observed in
+ * ~/.codex/sessions rollout token_count events) to limit rows:
+ *   { primary:   { used_percent, window_minutes, resets_at },   ← 5h window
+ *     secondary: { used_percent, window_minutes, resets_at },   ← weekly
+ *     credits, plan_type }
+ * Percent-based windows are stored as used/100 "%" so the dashboard renders
+ * the same bars ChatGPT's Codex settings page shows.
+ */
+export function codexRateLimitRows(rateLimits) {
+  if (!rateLimits || typeof rateLimits !== "object") return []
+  const rows = []
+  const windowMeta = (minutes) => {
+    if (minutes === 300) return { label: "5-hour limit", period: "session" }
+    if (minutes === 10080) return { label: "Weekly limit", period: "weekly" }
+    if (minutes != null && minutes <= 24 * 60) return { label: `${Math.round(minutes / 60)}-hour limit`, period: "daily" }
+    return { label: "Usage limit", period: "weekly" }
+  }
+  for (const key of ["primary", "secondary"]) {
+    const win = rateLimits[key]
+    if (!win || typeof win !== "object" || !Number.isFinite(Number(win.used_percent))) continue
+    const meta = windowMeta(Number(win.window_minutes))
+    rows.push({
+      label: meta.label,
+      used: Number(win.used_percent),
+      limit: 100,
+      unit: "%",
+      period: meta.period,
+      resetsAt: Number.isFinite(Number(win.resets_at)) ? new Date(Number(win.resets_at) * 1000).toISOString() : null,
+    })
+  }
+  const credits = rateLimits.credits
+  if (credits && typeof credits === "object" && Number.isFinite(Number(credits.balance ?? credits.remaining))) {
+    rows.push({
+      label: "Credits remaining",
+      used: Number(credits.balance ?? credits.remaining),
+      limit: null,
+      unit: "credits",
+      period: "monthly",
+      resetsAt: null,
+    })
+  }
+  // Unknown shape: fall back to the generic used/limit normalizer.
+  return rows.length > 0 ? rows : normalizeRateLimits(rateLimits)
+}
+
+// ---- Claude plan limits (the claude.ai Settings → Usage numbers) ----
+
+/**
+ * Claude Code's OAuth credentials: ~/.claude/.credentials.json on Linux, the
+ * "Claude Code-credentials" keychain item on macOS. Returns null when absent
+ * or expired — limits are then simply omitted.
+ */
+export function readClaudeOAuthCreds() {
+  try {
+    const file = join(HOME, ".claude", ".credentials.json")
+    let raw = null
+    if (existsSync(file)) {
+      raw = readFileSync(file, "utf8")
+    } else if (platform() === "darwin") {
+      raw = execFileSync("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      })
+    }
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    const oauth = parsed.claudeAiOauth ?? parsed
+    if (!oauth?.accessToken) return null
+    if (Number.isFinite(Number(oauth.expiresAt)) && Number(oauth.expiresAt) < Date.now()) return null
+    return oauth
+  } catch {
+    return null
+  }
+}
+
+/** Pure mapper for the api.anthropic.com/api/oauth/usage response. */
+export function claudeLimitRows(usage) {
+  if (!usage || typeof usage !== "object") return []
+  const rows = []
+  if (Array.isArray(usage.limits)) {
+    for (const entry of usage.limits) {
+      if (!entry || typeof entry !== "object" || !Number.isFinite(Number(entry.percent))) continue
+      const scopeName = entry.scope?.model?.display_name ?? entry.scope?.surface ?? null
+      const label =
+        entry.kind === "session"
+          ? "Current session"
+          : entry.kind === "weekly_all"
+            ? "Weekly · all models"
+            : scopeName
+              ? `Weekly · ${scopeName}`
+              : String(entry.kind ?? "Usage").replace(/_/g, " ")
+      rows.push({
+        label,
+        used: Number(entry.percent),
+        limit: 100,
+        unit: "%",
+        period: entry.group === "session" ? "session" : "weekly",
+        resetsAt: typeof entry.resets_at === "string" ? entry.resets_at : null,
+      })
+    }
+  }
+  if (rows.length > 0) return rows
+  // Older shape: top-level five_hour / seven_day utilization.
+  const fallback = [
+    ["five_hour", "Current session", "session"],
+    ["seven_day", "Weekly · all models", "weekly"],
+  ]
+  for (const [key, label, period] of fallback) {
+    const win = usage[key]
+    if (!win || !Number.isFinite(Number(win.utilization))) continue
+    rows.push({
+      label,
+      used: Number(win.utilization),
+      limit: 100,
+      unit: "%",
+      period,
+      resetsAt: typeof win.resets_at === "string" ? win.resets_at : null,
+    })
+  }
+  return rows
+}
+
+/**
+ * Fetches the live plan-limit windows Claude shows under Settings → Usage
+ * (current session / weekly / per-model weekly) using the local Claude Code
+ * OAuth token. Returns { limits, planLabel } or null; never throws — a network
+ * or auth failure just omits limits from the push.
+ */
+export async function fetchClaudeLimits() {
+  const creds = readClaudeOAuthCreds()
+  if (!creds) return null
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 7000)
+    const response = await fetch("https://api.anthropic.com/api/oauth/usage", {
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "anthropic-beta": "oauth-2025-04-20",
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    })
+    clearTimeout(timer)
+    if (!response.ok) return null
+    const usage = await response.json()
+    const limits = claudeLimitRows(usage)
+    const subscription = typeof creds.subscriptionType === "string" ? creds.subscriptionType : null
+    const planLabel = subscription ? subscription.charAt(0).toUpperCase() + subscription.slice(1) : null
+    return limits.length > 0 ? { limits, planLabel } : null
+  } catch {
+    return null
+  }
 }
 
 // Recursively list files under dir (depth-limited), tolerating missing dirs.
@@ -223,7 +379,12 @@ export function readCodexUsage(month = currentMonth()) {
       if (payload.type === "token_count" && payload.info?.total_token_usage) {
         lastTotals = payload.info.total_token_usage
         if (payload.rate_limits?.plan_type) planType = payload.rate_limits.plan_type
-        if (payload.rate_limits) lastRateLimits = payload.rate_limits
+        // Keep the most recent snapshot across ALL session files, not the last
+        // file walked — resets/usage move between sessions.
+        if (payload.rate_limits) {
+          const at = typeof event.timestamp === "string" ? event.timestamp : ""
+          if (!lastRateLimits || at >= lastRateLimits.at) lastRateLimits = { at, value: payload.rate_limits }
+        }
       }
     }
     if (!lastTotals) continue
@@ -248,12 +409,24 @@ export function readCodexUsage(month = currentMonth()) {
     month,
     planLabel,
     subscriptionUsd: Number(planCost),
-    limits: normalizeRateLimits(lastRateLimits),
+    limits: codexRateLimitRows(lastRateLimits?.value ?? null),
     models,
   }
 }
 
-/** Returns one payload per AI tool that has local usage this month. */
-export function collectAiUsage(month = currentMonth()) {
-  return [readClaudeUsage(month), readCodexUsage(month)].filter(Boolean)
+/**
+ * Returns one payload per AI tool that has local usage this month. Claude's
+ * plan-limit windows come from a live OAuth call (Settings → Usage numbers),
+ * so this is async; a failed fetch just omits limits.
+ */
+export async function collectAiUsage(month = currentMonth()) {
+  const claude = readClaudeUsage(month)
+  if (claude) {
+    const live = await fetchClaudeLimits()
+    if (live) {
+      claude.limits = live.limits
+      if (!claude.planLabel && live.planLabel) claude.planLabel = live.planLabel
+    }
+  }
+  return [claude, readCodexUsage(month)].filter(Boolean)
 }

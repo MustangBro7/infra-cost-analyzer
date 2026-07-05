@@ -102,7 +102,7 @@ function readJsonFile(path) {
   }
 }
 
-function detectLocalEnvironment() {
+async function detectLocalEnvironment() {
   const awsVersion = tryRun("aws", ["--version"])
   const awsIdentity = awsVersion.ok ? tryRun("aws", ["sts", "get-caller-identity", "--output", "json"]) : { ok: false }
   const awsPayload = awsIdentity.ok ? JSON.parse(awsIdentity.output) : null
@@ -122,9 +122,9 @@ function detectLocalEnvironment() {
   const gitRoot = tryRun("git", ["rev-parse", "--show-toplevel"])
 
   const ambriumCreds = readJsonFile(CRED_PATH)
-  const aiUsage = (() => {
+  const aiUsage = await (async () => {
     try {
-      const payloads = collectAiUsage()
+      const payloads = await collectAiUsage()
       return {
         ok: payloads.length > 0,
         tools: payloads.map((payload) => ({
@@ -430,7 +430,7 @@ async function pushAiUsage(cliToken) {
   log(`\n◇ AI coding tools (local usage)`)
   let payloads = []
   try {
-    payloads = collectAiUsage()
+    payloads = await collectAiUsage()
   } catch (error) {
     log(`   • could not read local logs: ${error instanceof Error ? error.message : String(error)}`)
     return
@@ -469,7 +469,7 @@ async function printRemoteStatus({ pairIfNeeded = false } = {}) {
 }
 
 async function statusCommand() {
-  const detection = detectLocalEnvironment()
+  const detection = await detectLocalEnvironment()
   let remote = { paired: false, connections: {} }
   try {
     remote = await printRemoteStatus()
@@ -498,7 +498,7 @@ async function statusCommand() {
 }
 
 async function doctorCommand() {
-  const detection = detectLocalEnvironment()
+  const detection = await detectLocalEnvironment()
   let remote = { paired: false, connections: {} }
   try {
     remote = await printRemoteStatus()

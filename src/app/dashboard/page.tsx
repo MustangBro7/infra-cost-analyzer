@@ -266,6 +266,8 @@ function maybeMoney(value: number | null | undefined) {
 }
 
 function limitUsageLabel(limit: AiUsageLimit) {
+  // Percent windows (Claude / Codex plan limits) read as "58% used".
+  if (limit.unit === "%" && limit.used != null) return `${Math.round(limit.used)}% used`
   const used = limit.used == null ? "—" : quantity(limit.used)
   const cap = limit.limit == null ? "—" : quantity(limit.limit)
   return `${used} / ${cap} ${limit.unit}`

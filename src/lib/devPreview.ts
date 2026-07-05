@@ -176,9 +176,10 @@ const AI_LOCAL_USAGE = {
     planLabel: "Max",
     toolLabel: "Claude Code",
     limits: [
-      { label: "Session messages", used: 38, limit: 50, unit: "messages", period: "session", resetsAt: new Date(NOW.getTime() + 42 * 60_000).toISOString() },
-      { label: "Weekly messages", used: 312, limit: 500, unit: "messages", period: "weekly", resetsAt: new Date(NOW.getTime() + 3 * 86_400_000).toISOString() },
-      { label: "Monthly included value", used: 123.05, limit: 200, unit: "USD est.", period: "monthly", resetsAt: MONTH_END_RESET.toISOString() },
+      // Real shape: percent windows from api.anthropic.com/api/oauth/usage.
+      { label: "Current session", used: 58, limit: 100, unit: "%", period: "session", resetsAt: new Date(NOW.getTime() + 4.7 * 3_600_000).toISOString() },
+      { label: "Weekly · all models", used: 6, limit: 100, unit: "%", period: "weekly", resetsAt: new Date(NOW.getTime() + 6 * 86_400_000).toISOString() },
+      { label: "Weekly · Fable", used: 12, limit: 100, unit: "%", period: "weekly", resetsAt: new Date(NOW.getTime() + 6 * 86_400_000).toISOString() },
     ],
     models: [
       {
@@ -212,9 +213,9 @@ const AI_LOCAL_USAGE = {
     planLabel: "Pro",
     toolLabel: "Codex",
     limits: [
-      { label: "Session limit", used: 76, limit: 100, unit: "turns", period: "session", resetsAt: new Date(NOW.getTime() + 26 * 60_000).toISOString() },
-      { label: "Weekly limit", used: 584, limit: 1_000, unit: "turns", period: "weekly", resetsAt: new Date(NOW.getTime() + 5 * 86_400_000).toISOString() },
-      { label: "Monthly included value", used: 250.25, limit: 300, unit: "USD est.", period: "monthly", resetsAt: MONTH_END_RESET.toISOString() },
+      // Real shape: percent windows from Codex rollout rate_limits events.
+      { label: "5-hour limit", used: 3, limit: 100, unit: "%", period: "session", resetsAt: new Date(NOW.getTime() + 3 * 3_600_000).toISOString() },
+      { label: "Weekly limit", used: 16, limit: 100, unit: "%", period: "weekly", resetsAt: new Date(NOW.getTime() + 2 * 86_400_000).toISOString() },
     ],
     models: [
       {

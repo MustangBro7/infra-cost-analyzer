@@ -51,3 +51,55 @@ test("local AI usage records and surfaces a subscription cost + token usage", as
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("codexRateLimitRows maps primary/secondary percent windows", async () => {
+  const { codexRateLimitRows } = await import("../cli/ai-usage.mjs")
+  const rows = codexRateLimitRows({
+    limit_id: "codex",
+    primary: { used_percent: 3.0, window_minutes: 300, resets_at: 1783109310 },
+    secondary: { used_percent: 16.0, window_minutes: 10080, resets_at: 1783435000 },
+    credits: null,
+    plan_type: "plus",
+  })
+  assert.equal(rows.length, 2)
+  assert.deepEqual(rows[0], {
+    label: "5-hour limit",
+    used: 3,
+    limit: 100,
+    unit: "%",
+    period: "session",
+    resetsAt: new Date(1783109310 * 1000).toISOString(),
+  })
+  assert.equal(rows[1].label, "Weekly limit")
+  assert.equal(rows[1].period, "weekly")
+  assert.equal(rows[1].used, 16)
+  // Unknown shape falls back to the generic normalizer instead of dropping data.
+  const legacy = codexRateLimitRows({ weekly: { used: 584, limit: 1000, unit: "turns" } })
+  assert.equal(legacy[0].label, "Weekly limit")
+  assert.equal(legacy[0].limit, 1000)
+})
+
+test("claudeLimitRows maps the oauth usage limits array with model scopes", async () => {
+  const { claudeLimitRows } = await import("../cli/ai-usage.mjs")
+  const rows = claudeLimitRows({
+    limits: [
+      { kind: "session", group: "session", percent: 52, resets_at: "2026-07-05T09:30:00Z", scope: null, is_active: true },
+      { kind: "weekly_all", group: "weekly", percent: 6, resets_at: "2026-07-11T23:00:00Z", scope: null, is_active: false },
+      { kind: "weekly_scoped", group: "weekly", percent: 11, resets_at: "2026-07-11T23:00:00Z", scope: { model: { id: null, display_name: "Fable" } }, is_active: false },
+    ],
+  })
+  assert.deepEqual(rows.map((r: { label: string }) => r.label), ["Current session", "Weekly · all models", "Weekly · Fable"])
+  assert.deepEqual(rows.map((r: { used: number | null }) => r.used), [52, 6, 11])
+  assert.ok(rows.every((r: { unit: string; limit: number | null }) => r.unit === "%" && r.limit === 100))
+  assert.equal(rows[0].period, "session")
+  assert.equal(rows[2].period, "weekly")
+
+  // Older shape: top-level five_hour/seven_day utilization.
+  const fallback = claudeLimitRows({
+    five_hour: { utilization: 52, resets_at: "2026-07-05T09:30:00Z" },
+    seven_day: { utilization: 6, resets_at: "2026-07-11T23:00:00Z" },
+  })
+  assert.equal(fallback.length, 2)
+  assert.equal(fallback[0].label, "Current session")
+  assert.equal(fallback[1].used, 6)
+})
