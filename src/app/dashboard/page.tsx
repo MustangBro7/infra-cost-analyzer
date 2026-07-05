@@ -1592,6 +1592,20 @@ function RepositoryDashboard({
   const aiTopModel = aiTools
     .flatMap((tool) => tool.models.map((model) => ({ ...model, toolLabel: tool.label })))
     .sort((a, b) => b.totalTokens - a.totalTokens)[0] ?? null
+  const aiValueMultiple = aiTotal > 0 && aiApiValue > 0 ? aiApiValue / aiTotal : null
+  const aiPrimaryLimit = aiTools
+    .flatMap((tool) =>
+      tool.limits
+        .map((limit) => ({
+          tool: tool.label,
+          ...limit,
+          pct: limit.used != null && limit.limit && limit.limit > 0 ? Math.min(100, Math.round((limit.used / limit.limit) * 100)) : null,
+          reset: resetLabel(limit.resetsAt),
+        }))
+        .filter((limit) => limit.pct != null)
+    )
+    .sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0))[0] ?? null
+  const aiMainMixTotal = Math.max(aiSubscription + aiUsage, 0.01)
   const aiStack = aiTools
     .filter((tool) => tool.totalCost > 0)
     .map((tool) => {
@@ -1666,7 +1680,25 @@ function RepositoryDashboard({
       apiCost: money(tool.apiCost),
       apiValue: money(tool.apiValue),
       tokenTotal: compactNumber(tool.totalTokens),
+      inputTokens: compactNumber(tool.inputTokens),
+      cacheTokens: compactNumber(tool.cacheTokens),
+      outputTokens: compactNumber(tool.outputTokens),
+      inputPct: `${tool.totalTokens > 0 ? Math.max((tool.inputTokens / tool.totalTokens) * 100, tool.inputTokens > 0 ? 1 : 0) : 0}%`,
+      cachePct: `${tool.totalTokens > 0 ? Math.max((tool.cacheTokens / tool.totalTokens) * 100, tool.cacheTokens > 0 ? 1 : 0) : 0}%`,
+      outputPct: `${tool.totalTokens > 0 ? Math.max((tool.outputTokens / tool.totalTokens) * 100, tool.outputTokens > 0 ? 1 : 0) : 0}%`,
       valueMultiple: tool.totalCost > 0 && tool.apiValue > 0 ? `${(tool.apiValue / tool.totalCost).toFixed(1)}x` : "—",
+      readout:
+        tool.subscriptionCost > 0 && tool.apiValue > tool.totalCost
+          ? `${tool.totalTokens > 0 ? compactNumber(tool.totalTokens) : "Synced"} tokens, mostly ${
+              tool.cacheTokens >= tool.inputTokens && tool.cacheTokens >= tool.outputTokens
+                ? "cache reads"
+                : tool.outputTokens >= tool.inputTokens
+                  ? "output"
+                  : "input"
+            } — API-rate value is ${money(tool.apiValue)} against ${money(tool.totalCost)} paid.`
+          : tool.apiCost > 0.005
+            ? `${tool.label} is usage-based right now. Watch project attribution so spikes stay explainable.`
+            : `${tool.label} is mostly fixed subscription spend this period.`,
       inputValue: maybeMoney(inputValue),
       cacheValue: maybeMoney(cacheValue),
       outputValue: maybeMoney(outputValue),
@@ -1931,31 +1963,59 @@ function RepositoryDashboard({
       {view === "ai" ? (
         aiTools.length ? (
           <>
-            <DevicePullButton />
-            <div className="amb-ai-top">
-              <div className="amb-card">
-                <div className="amb-ai-headline">
-                  <span className="big">{money(aiTotal)}</span>
-                  <span>AI spend {rangeMode ? `· ${monthSpanLabel(range)}` : "this month"} · {aiShare}% of total</span>
-                </div>
-                <div className="amb-stack">
-                  {aiStack.map((seg, i) => (
-                    <div key={i} className="amb-stack-seg" style={{ width: seg.width, background: seg.color }} />
-                  ))}
-                </div>
-                <div className="amb-ai-legend">
-                  <span>Usage-based {money(aiUsage)}</span>
-                  <span>Subscriptions {money(aiSubscription)}</span>
-                </div>
-              </div>
-              <div className="amb-card amb-ai-share">
-                <div className="lbl">AI as share of total spend</div>
-                <div className="pct">{aiShare}%</div>
-                <div className="amb-ai-share-track">
-                  <div className="amb-ai-share-fill" style={{ width: `${aiShare}%` }} />
-                </div>
-              </div>
+            <div className="amb-ai-actions">
+              <DevicePullButton />
             </div>
+
+            {aiPrimaryLimit && aiPrimaryLimit.pct != null ? (
+              <div className={aiPrimaryLimit.pct >= 80 ? "amb-ai-limit-alert hot" : "amb-ai-limit-alert"}>
+                <span className="amb-ai-alert-mark" aria-hidden />
+                <strong>
+                  {aiPrimaryLimit.label} is at {aiPrimaryLimit.pct}%
+                </strong>
+                <span>
+                  {aiPrimaryLimit.tool} · {aiPrimaryLimit.reset}
+                </span>
+                <div className="amb-ai-alert-meter" aria-hidden>
+                  <i style={{ width: `${aiPrimaryLimit.pct}%` }} />
+                </div>
+                <em>{aiPrimaryLimit.pct}%</em>
+              </div>
+            ) : null}
+
+            <div className="amb-ai-hero">
+              <section className="amb-card amb-ai-spend-card" aria-label="AI spend summary">
+                <div className="amb-ai-card-kicker">AI spend · {rangeMode ? monthSpanLabel(range) : monthLabel(analysis.period).split(" ")[0]}</div>
+                <div className="amb-ai-spend-line">
+                  <strong>{money(aiTotal)}</strong>
+                  <span>{aiShare}% of total spend</span>
+                </div>
+                <p>
+                  {aiUsage > 0.005
+                    ? `${money(aiSubscription)} is subscriptions and ${money(aiUsage)} is usage-based charges.`
+                    : `All of it is flat subscriptions — ${money(aiUsage)} usage-based charges this period.`}
+                </p>
+                <div className="amb-ai-split-bar" aria-label="Subscription and usage split">
+                  <i style={{ width: `${Math.max((aiSubscription / aiMainMixTotal) * 100, aiSubscription > 0 ? 2 : 0)}%` }} />
+                  <b style={{ width: `${Math.max((aiUsage / aiMainMixTotal) * 100, aiUsage > 0 ? 2 : 0)}%` }} />
+                </div>
+                <div className="amb-ai-split-legend">
+                  <span><i /> Subscriptions {money(aiSubscription)}</span>
+                  <span><b /> Usage {money(aiUsage)}</span>
+                </div>
+              </section>
+
+              <section className="amb-card amb-ai-value-card" aria-label="AI value summary">
+                <div className="amb-ai-card-kicker">Was it worth it?</div>
+                <strong>{aiValueMultiple ? `${aiValueMultiple.toFixed(1)}x` : "—"}</strong>
+                <p>
+                  {aiValueMultiple
+                    ? `This period's tokens would cost ${money(aiApiValue)} at raw API rates. You paid ${money(aiTotal)}.`
+                    : `${money(aiApiValue)} API-rate value tracked so far.`}
+                </p>
+              </section>
+            </div>
+
             <div className="amb-ai-usage">
               <div className="amb-ai-usage-summary">
                 <article>
@@ -1979,118 +2039,114 @@ function RepositoryDashboard({
                   <small>{money(aiApiValue)} API-rate value tracked</small>
                 </article>
               </div>
-              <div className="amb-ai-usage-table">
-                <div className="amb-ai-usage-title">
-                  <strong>Usage detail</strong>
-                  <span>Tokens, API-rate value, limits, and model concentration by connected AI tool.</span>
-                </div>
-                <div className="amb-ai-usage-grid">
-                  <div className="amb-ai-usage-headrow">
-                    <div className="head">Tool</div>
-                    <div className="head">Tokens</div>
-                    <div className="head">Value / $</div>
-                    <div className="head">Top model</div>
-                    <div className="head" aria-hidden />
-                  </div>
-                  {aiDeepDiveVMs.map((tool) => (
-                    <details className="amb-ai-usage-row" key={tool.id}>
+
+              <div className="amb-ai-tool-list" aria-label="AI tools">
+                <div className="amb-ai-section-label">By tool</div>
+                {aiDeepDiveVMs.map((tool) => (
+                  <article className="amb-ai-tool-card" key={tool.id}>
+                    <header>
+                      <div className="amb-ai-tool-id">
+                        <span className="amb-mono-badge" style={{ background: tool.color }}>
+                          {tool.monogram}
+                        </span>
+                        <div>
+                          <strong>{tool.name}</strong>
+                          <span>{tool.source} · {tool.plan}</span>
+                        </div>
+                      </div>
+                      <div className="amb-ai-tool-total">
+                        <strong>{tool.totalCost}</strong>
+                        <span>{tool.valueMultiple} value</span>
+                      </div>
+                    </header>
+                    <p>{tool.readout}</p>
+                    <div className="amb-ai-token-mix-head">
+                      <strong>Token mix · {tool.tokenTotal}</strong>
+                      <span>worth {tool.apiValue} at API rates</span>
+                    </div>
+                    <div className="amb-ai-token-mix" aria-label={`${tool.name} token mix`}>
+                      <i style={{ width: tool.inputPct }} />
+                      <b style={{ width: tool.cachePct }} />
+                      <em style={{ width: tool.outputPct }} />
+                    </div>
+                    <div className="amb-ai-tool-facts">
+                      <span><i className="input" /> Input {tool.inputTokens} · {tool.inputValue}</span>
+                      <span><i className="cache" /> Cache {tool.cacheTokens} · {tool.cacheValue}</span>
+                      <span><i className="output" /> Output {tool.outputTokens} · {tool.outputValue}</span>
+                    </div>
+
+                    {tool.limits.length ? (
+                      <div className="amb-ai-compact-limits">
+                        {tool.limits.slice(0, 3).map((limit) => (
+                          <div className="amb-ai-limit-row" key={`${tool.id}-${limit.label}`}>
+                            <div>
+                              <strong>{limit.label}</strong>
+                              <small>{limit.usage} · {limit.reset}</small>
+                            </div>
+                            <span className="amb-ai-limit-track" aria-hidden>
+                              <i style={{ width: `${limit.pct ?? 0}%`, background: limit.pct != null && limit.pct >= 80 ? "var(--amb-warn)" : tool.color }} />
+                            </span>
+                            <em>{limit.pct == null ? "—" : `${limit.pct}%`}</em>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <details className="amb-ai-tool-details">
                       <summary>
-                        <span className="tool">
-                          <span className="amb-mono-badge" style={{ background: tool.color }}>
-                            {tool.monogram}
-                          </span>
-                          <span>
-                            <strong>{tool.name}</strong>
-                            <small>{tool.source}</small>
-                          </span>
-                        </span>
-                        <span className="amb-ai-token-cell">
-                          <span>
-                            <strong>{tool.tokens}</strong>
-                            <small>{tool.output} output</small>
-                          </span>
-                          <span className="amb-ai-token-track" aria-hidden>
-                            <i style={{ width: tool.tokenShare, background: tool.color }} />
-                          </span>
-                        </span>
-                        <span><strong>{tool.value}</strong><small>{tool.apiValue} API value</small></span>
-                        <span><strong>{tool.topModel}</strong><small>{tool.topModelShare}</small></span>
+                        <span>Model and cost detail</span>
                         <ChevronDown aria-hidden />
                       </summary>
                       <div className="amb-ai-provider-body">
-                    <div className="amb-ai-provider-metrics">
-                      <article><span>Total</span><strong>{tool.totalCost}</strong><small>subscription + API</small></article>
-                      <article><span>Subscription</span><strong>{tool.subscriptionCost}</strong><small>flat plan</small></article>
-                      <article><span>API spend</span><strong>{tool.apiCost}</strong><small>usage based</small></article>
-                      <article><span>API value</span><strong>{tool.totalModelValue}</strong><small>{tool.valueMultiple} value / spend</small></article>
-                      <article><span>Input value</span><strong>{tool.inputValue}</strong><small>priced separately</small></article>
-                      <article><span>Output value</span><strong>{tool.outputValue}</strong><small>priced separately</small></article>
-                    </div>
-                    <div className="amb-ai-provider-split">
-                      <strong>Cost split by token direction</strong>
-                      <div className="amb-ai-provider-split-grid">
-                        <span><i style={{ background: "#4d8cf0" }} /> Input {tool.inputValue}</span>
-                        <span><i style={{ background: "#b9a14a" }} /> Cache {tool.cacheValue}</span>
-                        <span><i style={{ background: "#46a37b" }} /> Output {tool.outputValue}</span>
-                      </div>
-                    </div>
-                    <div className="amb-ai-provider-section">
-                      <div className="amb-ai-provider-section-head">
-                        <strong>Limits</strong>
-                        <span>Session, weekly, monthly, or provider-reported usage windows.</span>
-                      </div>
-                      {tool.limits.length ? (
-                        <div className="amb-ai-limit-list">
-                          {tool.limits.map((limit) => (
-                            <div className="amb-ai-limit-row" key={`${tool.id}-${limit.label}`}>
-                              <div>
-                                <strong>{limit.label}</strong>
-                                <small>{limit.usage} · {limit.reset}</small>
-                              </div>
-                              <span className="amb-ai-limit-track" aria-hidden>
-                                <i style={{ width: `${limit.pct ?? 0}%`, background: limit.pct != null && limit.pct >= 80 ? "var(--amb-red)" : tool.color }} />
-                              </span>
-                              <em>{limit.pct == null ? "—" : `${limit.pct}%`}</em>
-                            </div>
-                          ))}
+                        <div className="amb-ai-provider-metrics">
+                          <article><span>Total</span><strong>{tool.totalCost}</strong><small>subscription + API</small></article>
+                          <article><span>Subscription</span><strong>{tool.subscriptionCost}</strong><small>flat plan</small></article>
+                          <article><span>API spend</span><strong>{tool.apiCost}</strong><small>usage based</small></article>
+                          <article><span>API value</span><strong>{tool.totalModelValue}</strong><small>{tool.valueMultiple} value / spend</small></article>
+                          <article><span>Input value</span><strong>{tool.inputValue}</strong><small>priced separately</small></article>
+                          <article><span>Output value</span><strong>{tool.outputValue}</strong><small>priced separately</small></article>
                         </div>
-                      ) : (
-                        <div className="amb-ai-provider-empty">No provider limit window was reported with this usage sync.</div>
-                      )}
-                    </div>
-                    <div className="amb-ai-provider-section">
-                      <div className="amb-ai-provider-section-head">
-                        <strong>Models</strong>
-                        <span>Input, cache, and output rates differ by model; total value uses the reported parts when available.</span>
-                      </div>
-                      {tool.modelRows.length ? (
-                        <div className="amb-ai-model-economics">
-                          <div className="head">Model</div>
-                          <div className="head">Tokens</div>
-                          <div className="head">Input</div>
-                          <div className="head">Cache</div>
-                          <div className="head">Output</div>
-                          <div className="head">Total</div>
-                          {tool.modelRows.map((model) => (
-                            <div className="amb-ai-model-economic-row" key={`${tool.id}-${model.name}`}>
-                              <div><strong>{model.name}</strong><small>{model.rates}</small></div>
-                              <div><strong>{model.tokens}</strong><small>{model.mix}</small></div>
-                              <div><strong>{model.inputCost}</strong><small>input</small></div>
-                              <div><strong>{model.cacheCost}</strong><small>cache</small></div>
-                              <div><strong>{model.outputCost}</strong><small>output</small></div>
-                              <div><strong>{model.totalValue}</strong><small>API-rate value</small></div>
-                            </div>
-                          ))}
+                        <div className="amb-ai-provider-split">
+                          <strong>Cost split by token direction</strong>
+                          <div className="amb-ai-provider-split-grid">
+                            <span><i style={{ background: "#4d8cf0" }} /> Input {tool.inputValue}</span>
+                            <span><i style={{ background: "#b9a14a" }} /> Cache {tool.cacheValue}</span>
+                            <span><i style={{ background: "#46a37b" }} /> Output {tool.outputValue}</span>
+                          </div>
                         </div>
-                      ) : (
-                        <div className="amb-ai-provider-empty">No model-level token rows have been synced yet.</div>
-                      )}
-                    </div>
-                  </div>
-                </details>
-              ))}
-            </div>
-            </div>
+                        <div className="amb-ai-provider-section">
+                          <div className="amb-ai-provider-section-head">
+                            <strong>Models</strong>
+                            <span>Input, cache, and output rates differ by model.</span>
+                          </div>
+                          {tool.modelRows.length ? (
+                            <div className="amb-ai-model-economics">
+                              <div className="head">Model</div>
+                              <div className="head">Tokens</div>
+                              <div className="head">Input</div>
+                              <div className="head">Cache</div>
+                              <div className="head">Output</div>
+                              <div className="head">Total</div>
+                              {tool.modelRows.map((model) => (
+                                <div className="amb-ai-model-economic-row" key={`${tool.id}-${model.name}`}>
+                                  <div><strong>{model.name}</strong><small>{model.rates}</small></div>
+                                  <div><strong>{model.tokens}</strong><small>{model.mix}</small></div>
+                                  <div><strong>{model.inputCost}</strong><small>input</small></div>
+                                  <div><strong>{model.cacheCost}</strong><small>cache</small></div>
+                                  <div><strong>{model.outputCost}</strong><small>output</small></div>
+                                  <div><strong>{model.totalValue}</strong><small>API-rate value</small></div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="amb-ai-provider-empty">No model-level token rows have been synced yet.</div>
+                          )}
+                        </div>
+                      </div>
+                    </details>
+                  </article>
+                ))}
+              </div>
             </div>
           </>
         ) : (
