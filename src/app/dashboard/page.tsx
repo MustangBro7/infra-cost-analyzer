@@ -1689,13 +1689,15 @@ function RepositoryDashboard({
       valueMultiple: tool.totalCost > 0 && tool.apiValue > 0 ? `${(tool.apiValue / tool.totalCost).toFixed(1)}x` : "—",
       readout:
         tool.subscriptionCost > 0 && tool.apiValue > tool.totalCost
-          ? `${tool.totalTokens > 0 ? compactNumber(tool.totalTokens) : "Synced"} tokens, mostly ${
-              tool.cacheTokens >= tool.inputTokens && tool.cacheTokens >= tool.outputTokens
-                ? "cache reads"
-                : tool.outputTokens >= tool.inputTokens
-                  ? "output"
-                  : "input"
-            } — API-rate value is ${money(tool.apiValue)} against ${money(tool.totalCost)} paid.`
+          ? tool.totalTokens > 0
+            ? `${compactNumber(tool.totalTokens)} tokens, mostly ${
+                tool.cacheTokens >= tool.inputTokens && tool.cacheTokens >= tool.outputTokens
+                  ? "cache reads"
+                  : tool.outputTokens >= tool.inputTokens
+                    ? "output"
+                    : "input"
+              } — API-rate value is ${money(tool.apiValue)} against ${money(tool.totalCost)} paid.`
+            : `${tool.label} has ${money(tool.apiValue)} of API-rate value tracked against ${money(tool.totalCost)} paid. Pull local usage to show the token mix.`
           : tool.apiCost > 0.005
             ? `${tool.label} is usage-based right now. Watch project attribution so spikes stay explainable.`
             : `${tool.label} is mostly fixed subscription spend this period.`,
