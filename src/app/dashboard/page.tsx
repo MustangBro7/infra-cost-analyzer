@@ -27,6 +27,7 @@ import { OnboardingChecklist, type ChecklistState } from "../OnboardingChecklist
 import { LinkSpinner } from "../LinkSpinner"
 import { RefreshButton } from "../RefreshButton"
 import { ThemeToggle } from "../ThemeToggle"
+import { DevicePullButton } from "../DevicePullButton"
 import { SpendHero } from "./SpendHero"
 import { PLAN_LIMITS } from "@/lib/plan"
 import { RepoAccountPicker } from "../RepoAccountPicker"
@@ -1930,6 +1931,7 @@ function RepositoryDashboard({
       {view === "ai" ? (
         aiTools.length ? (
           <>
+            <DevicePullButton />
             <div className="amb-ai-top">
               <div className="amb-card">
                 <div className="amb-ai-headline">
@@ -2094,7 +2096,8 @@ function RepositoryDashboard({
         ) : (
           <div className="amb-empty-card">
             <strong>No AI usage connected yet</strong>
-            <span>Link your AI tools to compare subscriptions, APIs, and gateways here.</span>
+            <span>Link your AI tools to compare subscriptions, APIs, and gateways here — or pull local Claude Code / Codex usage straight from this device.</span>
+            <DevicePullButton />
             <Link href="/dashboard?view=connect" prefetch={false} className="amb-btn-sm-dark">
               Connect AI tools
             </Link>

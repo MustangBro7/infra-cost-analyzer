@@ -51,3 +51,19 @@ every 6 hours), then `launchctl load ~/Library/LaunchAgents/io.ambrium.ai-usage.
 ```
 
 Re-pair (run the CLI once interactively) if the saved token expires after 30 days.
+
+## On-demand pulls from the dashboard ("Pull from this device")
+
+The AI page has a **Pull from this device** button. It talks to a small local
+agent on `127.0.0.1:41414` that reads your logs and pushes them with its saved
+pairing token — so a pull is one click instead of a terminal round-trip:
+
+```
+AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer serve
+```
+
+Keep it running (or swap the launchd/cron command above for `serve` with
+`KeepAlive`) and the button works whenever you're browsing from that machine.
+The agent binds loopback only, answers CORS only for the Ambrium origins, and
+never returns usage data to the browser — `POST /v1/refresh` makes the agent
+itself push to your account, identical to `--ai-only`.

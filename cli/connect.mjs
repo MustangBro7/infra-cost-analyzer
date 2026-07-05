@@ -19,6 +19,7 @@ import { createInterface } from "node:readline/promises"
 import { stdin, stdout } from "node:process"
 import { connectedProviderMap } from "./provider-state.mjs"
 import { collectAiUsage } from "./ai-usage.mjs"
+import { DEFAULT_AGENT_PORT, startUsageAgent } from "./usage-agent.mjs"
 
 const API_BASE = (process.env.AMBRIUM_API || "http://localhost:3000").replace(/\/+$/, "")
 const args = process.argv.slice(2)
@@ -556,6 +557,8 @@ Usage:
   ambrium-connect doctor          Diagnose local setup and missing provider prerequisites
   ambrium-connect spec            Print the agent-readable setup prompt/spec summary
   ambrium-connect --ai-only       Push local Claude Code / Codex usage only
+  ambrium-connect serve           Run the local usage agent (enables the AI
+                                  page's "Pull from this device" button)
 
 Options:
   --json                          Machine-readable output for status/doctor/spec
@@ -653,6 +656,31 @@ async function connectCommand() {
   }
 }
 
+/**
+ * Local usage agent: keeps a loopback server running so the dashboard's
+ * "Pull from this device" button can trigger an on-demand local usage +
+ * plan-limits push. Pairs first if no saved token exists.
+ */
+async function serveCommand() {
+  const cliToken = (await loadToken()) ?? (await getToken())
+  if (!cliToken) throw new Error("Pairing is required before serving. Run ambrium-connect once.")
+  const port = Number(process.env.AMBRIUM_AGENT_PORT || DEFAULT_AGENT_PORT)
+  const server = startUsageAgent({
+    port,
+    apiBase: API_BASE,
+    push: (payload) => api("/api/cli/ai-usage", { method: "POST", token: cliToken, body: payload }),
+    log,
+  })
+  await new Promise((resolve, reject) => {
+    server.on("listening", resolve)
+    server.on("error", reject)
+  })
+  log(`◇ Ambrium usage agent listening on http://127.0.0.1:${port}`)
+  log(`   The dashboard's "Pull from this device" button (AI page) now works from this machine.`)
+  log(`   Ctrl-C to stop.`)
+  await new Promise(() => {})
+}
+
 async function main() {
   if (command === "help" || args.includes("--help") || args.includes("-h")) {
     helpCommand()
@@ -668,6 +696,10 @@ async function main() {
   }
   if (command === "spec") {
     await specCommand()
+    return
+  }
+  if (command === "serve" || args.includes("--serve")) {
+    await serveCommand()
     return
   }
   if (command !== "connect") {
