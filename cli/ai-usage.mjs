@@ -8,6 +8,7 @@
 
 import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { request as httpsRequest } from "node:https"
 import { homedir, platform } from "node:os"
 import { join } from "node:path"
 
@@ -119,19 +120,20 @@ function normalizeRateLimits(rateLimits) {
  * Percent-based windows are stored as used/100 "%" so the dashboard renders
  * the same bars ChatGPT's Codex settings page shows.
  */
+function codexWindowMeta(minutes) {
+  if (minutes === 300) return { label: "5-hour limit", period: "session" }
+  if (minutes === 10080) return { label: "Weekly limit", period: "weekly" }
+  if (minutes != null && minutes <= 24 * 60) return { label: `${Math.round(minutes / 60)}-hour limit`, period: "daily" }
+  return { label: "Usage limit", period: "weekly" }
+}
+
 export function codexRateLimitRows(rateLimits) {
   if (!rateLimits || typeof rateLimits !== "object") return []
   const rows = []
-  const windowMeta = (minutes) => {
-    if (minutes === 300) return { label: "5-hour limit", period: "session" }
-    if (minutes === 10080) return { label: "Weekly limit", period: "weekly" }
-    if (minutes != null && minutes <= 24 * 60) return { label: `${Math.round(minutes / 60)}-hour limit`, period: "daily" }
-    return { label: "Usage limit", period: "weekly" }
-  }
   for (const key of ["primary", "secondary"]) {
     const win = rateLimits[key]
     if (!win || typeof win !== "object" || !Number.isFinite(Number(win.used_percent))) continue
-    const meta = windowMeta(Number(win.window_minutes))
+    const meta = codexWindowMeta(Number(win.window_minutes))
     rows.push({
       label: meta.label,
       used: Number(win.used_percent),
@@ -154,6 +156,123 @@ export function codexRateLimitRows(rateLimits) {
   }
   // Unknown shape: fall back to the generic used/limit normalizer.
   return rows.length > 0 ? rows : normalizeRateLimits(rateLimits)
+}
+
+// ---- Codex plan limits, LIVE (the chatgpt.com/codex/settings/usage numbers) ----
+
+/**
+ * Pure mapper for the chatgpt.com/backend-api/codex/usage response (the same
+ * endpoint the Codex CLI's /status uses):
+ *   { plan_type, rate_limit: { primary_window:   { used_percent, limit_window_seconds, reset_at },
+ *                              secondary_window: { used_percent, limit_window_seconds, reset_at } },
+ *     credits: { balance, has_credits } }
+ */
+export function codexUsageLimitRows(usage) {
+  if (!usage || typeof usage !== "object") return []
+  const rateLimit = usage.rate_limit
+  if (!rateLimit || typeof rateLimit !== "object") return []
+  const rows = []
+  for (const key of ["primary_window", "secondary_window"]) {
+    const win = rateLimit[key]
+    if (!win || typeof win !== "object" || !Number.isFinite(Number(win.used_percent))) continue
+    const seconds = Number(win.limit_window_seconds)
+    const meta = codexWindowMeta(Number.isFinite(seconds) ? seconds / 60 : null)
+    rows.push({
+      label: meta.label,
+      used: Number(win.used_percent),
+      limit: 100,
+      unit: "%",
+      period: meta.period,
+      resetsAt: Number.isFinite(Number(win.reset_at)) ? new Date(Number(win.reset_at) * 1000).toISOString() : null,
+    })
+  }
+  const credits = usage.credits
+  if (credits && typeof credits === "object" && Number(credits.balance) > 0) {
+    rows.push({
+      label: "Credits remaining",
+      used: Number(credits.balance),
+      limit: null,
+      unit: "credits",
+      period: "monthly",
+      resetsAt: null,
+    })
+  }
+  return rows
+}
+
+/**
+ * Codex CLI's ChatGPT OAuth credentials (~/.codex/auth.json). Returns null when
+ * absent or API-key-only — limits are then read from rollout snapshots instead.
+ */
+export function readCodexAuth() {
+  try {
+    const file = join(HOME, ".codex", "auth.json")
+    if (!existsSync(file)) return null
+    const parsed = JSON.parse(readFileSync(file, "utf8"))
+    const tokens = parsed.tokens
+    if (!tokens?.access_token) return null
+    return {
+      accessToken: tokens.access_token,
+      accountId: typeof tokens.account_id === "string" ? tokens.account_id : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+// GET a JSON body over plain node:https. chatgpt.com's edge intermittently
+// 403-challenges undici (global fetch) and HTTP/2 clients, while the classic
+// Node https stack passes consistently — so this request must NOT use fetch.
+// Resolves null on any non-200/parse/network/timeout failure; never rejects.
+function httpsGetJson(url, headers, timeoutMs = 7000) {
+  return new Promise((resolve) => {
+    const req = httpsRequest(url, { headers }, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume()
+        resolve(null)
+        return
+      }
+      let body = ""
+      response.setEncoding("utf8")
+      response.on("data", (chunk) => {
+        body += chunk
+      })
+      response.on("end", () => {
+        try {
+          resolve(JSON.parse(body))
+        } catch {
+          resolve(null)
+        }
+      })
+    })
+    req.setTimeout(timeoutMs, () => req.destroy())
+    req.on("error", () => resolve(null))
+    req.end()
+  })
+}
+
+/**
+ * Fetches the CURRENT Codex plan-limit windows from the ChatGPT backend using
+ * the local Codex OAuth token. Rollout-file snapshots are only as fresh as the
+ * last Codex session, so a device pull must ask the API for live numbers (same
+ * split as Claude: logs for tokens, live call for limits). Returns
+ * { limits, planLabel } or null; never throws.
+ */
+export async function fetchCodexLimits() {
+  const auth = readCodexAuth()
+  if (!auth) return null
+  const usage = await httpsGetJson("https://chatgpt.com/backend-api/codex/usage", {
+    Authorization: `Bearer ${auth.accessToken}`,
+    ...(auth.accountId ? { "chatgpt-account-id": auth.accountId } : {}),
+    Accept: "application/json",
+    // chatgpt.com's edge 403s Node's default "node" user-agent.
+    "User-Agent": "ambrium-connect/0.0.1",
+  })
+  if (!usage) return null
+  const limits = codexUsageLimitRows(usage)
+  const planType = typeof usage.plan_type === "string" ? usage.plan_type : null
+  const planLabel = planType ? planType.charAt(0).toUpperCase() + planType.slice(1) : null
+  return limits.length > 0 ? { limits, planLabel } : null
 }
 
 // ---- Claude plan limits (the claude.ai Settings → Usage numbers) ----
@@ -376,11 +495,13 @@ export function readCodexUsage(month = currentMonth()) {
       const payload = event.payload || {}
       if (typeof payload.model === "string") model = payload.model
       else if (typeof event.model === "string") model = event.model
-      if (payload.type === "token_count" && payload.info?.total_token_usage) {
-        lastTotals = payload.info.total_token_usage
+      if (payload.type === "token_count") {
+        if (payload.info?.total_token_usage) lastTotals = payload.info.total_token_usage
         if (payload.rate_limits?.plan_type) planType = payload.rate_limits.plan_type
         // Keep the most recent snapshot across ALL session files, not the last
-        // file walked — resets/usage move between sessions.
+        // file walked — resets/usage move between sessions. token_count events
+        // can carry rate_limits with info=null (e.g. at session start), so this
+        // must not be gated on total_token_usage.
         if (payload.rate_limits) {
           const at = typeof event.timestamp === "string" ? event.timestamp : ""
           if (!lastRateLimits || at >= lastRateLimits.at) lastRateLimits = { at, value: payload.rate_limits }
@@ -415,9 +536,11 @@ export function readCodexUsage(month = currentMonth()) {
 }
 
 /**
- * Returns one payload per AI tool that has local usage this month. Claude's
- * plan-limit windows come from a live OAuth call (Settings → Usage numbers),
- * so this is async; a failed fetch just omits limits.
+ * Returns one payload per AI tool that has local usage this month. Plan-limit
+ * windows come from live API calls with each tool's local OAuth token (the
+ * Settings → Usage numbers) — local logs only say where limits stood the last
+ * time the tool ran, which is exactly the staleness a device pull must beat.
+ * A failed fetch falls back to the log snapshot (Codex) or omits limits.
  */
 export async function collectAiUsage(month = currentMonth()) {
   const claude = readClaudeUsage(month)
@@ -428,5 +551,13 @@ export async function collectAiUsage(month = currentMonth()) {
       if (!claude.planLabel && live.planLabel) claude.planLabel = live.planLabel
     }
   }
-  return [claude, readCodexUsage(month)].filter(Boolean)
+  const codex = readCodexUsage(month)
+  if (codex) {
+    const live = await fetchCodexLimits()
+    if (live) {
+      codex.limits = live.limits
+      if (!codex.planLabel && live.planLabel) codex.planLabel = live.planLabel
+    }
+  }
+  return [claude, codex].filter(Boolean)
 }

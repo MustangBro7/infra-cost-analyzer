@@ -9,6 +9,9 @@ export interface AiLimitRow {
 }
 
 export function codexRateLimitRows(rateLimits: unknown): AiLimitRow[]
+export function codexUsageLimitRows(usage: unknown): AiLimitRow[]
+export function readCodexAuth(): { accessToken: string; accountId: string | null } | null
+export function fetchCodexLimits(): Promise<{ limits: AiLimitRow[]; planLabel: string | null } | null>
 export function claudeLimitRows(usage: unknown): AiLimitRow[]
 export function readClaudeOAuthCreds(): { accessToken: string; subscriptionType?: string } | null
 export function fetchClaudeLimits(): Promise<{ limits: AiLimitRow[]; planLabel: string | null } | null>

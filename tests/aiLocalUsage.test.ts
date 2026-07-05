@@ -79,6 +79,45 @@ test("codexRateLimitRows maps primary/secondary percent windows", async () => {
   assert.equal(legacy[0].limit, 1000)
 })
 
+test("codexUsageLimitRows maps the live backend-api/codex/usage response", async () => {
+  const { codexUsageLimitRows } = await import("../cli/ai-usage.mjs")
+  const rows = codexUsageLimitRows({
+    plan_type: "plus",
+    rate_limit: {
+      allowed: true,
+      limit_reached: false,
+      primary_window: { used_percent: 1, limit_window_seconds: 18000, reset_after_seconds: 18000, reset_at: 1783291672 },
+      secondary_window: { used_percent: 24, limit_window_seconds: 604800, reset_after_seconds: 161329, reset_at: 1783435001 },
+    },
+    credits: { has_credits: false, unlimited: false, balance: "0" },
+  })
+  assert.equal(rows.length, 2)
+  assert.deepEqual(rows[0], {
+    label: "5-hour limit",
+    used: 1,
+    limit: 100,
+    unit: "%",
+    period: "session",
+    resetsAt: new Date(1783291672 * 1000).toISOString(),
+  })
+  assert.equal(rows[1].label, "Weekly limit")
+  assert.equal(rows[1].period, "weekly")
+  assert.equal(rows[1].used, 24)
+
+  // A positive credit balance surfaces as its own row; zero balance does not.
+  const withCredits = codexUsageLimitRows({
+    rate_limit: { primary_window: { used_percent: 5, limit_window_seconds: 18000, reset_at: 1783291672 } },
+    credits: { has_credits: true, balance: "250" },
+  })
+  assert.equal(withCredits.length, 2)
+  assert.equal(withCredits[1].label, "Credits remaining")
+  assert.equal(withCredits[1].used, 250)
+
+  // Missing/garbage input yields no rows instead of throwing.
+  assert.deepEqual(codexUsageLimitRows(null), [])
+  assert.deepEqual(codexUsageLimitRows({ detail: "Unauthorized" }), [])
+})
+
 test("claudeLimitRows maps the oauth usage limits array with model scopes", async () => {
   const { claudeLimitRows } = await import("../cli/ai-usage.mjs")
   const rows = claudeLimitRows({
