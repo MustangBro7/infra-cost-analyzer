@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { ChevronDown } from "lucide-react"
 import { LinkSpinner } from "../LinkSpinner"
+import { DetailsAutoClose } from "./DetailsAutoClose"
 import { DATE_RANGE_PRESETS, type ResolvedDateRange } from "@/lib/dateRange"
 
 function monthShortLabel(key: string): string {
@@ -44,6 +45,7 @@ export function DateRangePicker({
 
   return (
     <details className="amb-range">
+      <DetailsAutoClose />
       <summary className="amb-chip amb-range-summary" aria-label="Change date range">
         <span>{range.label}</span>
         <ChevronDown aria-hidden width={13} height={13} />

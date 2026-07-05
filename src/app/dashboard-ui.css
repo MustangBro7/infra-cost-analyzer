@@ -482,7 +482,13 @@
 }
 
 .amb-btn-dark:hover {
-  background: #000;
+  /* Slightly deepen the ink fill — works for light-on-dark AND the dark
+     theme's inverted (light) fill, unlike the old hardcoded #000. */
+  filter: brightness(0.92);
+}
+
+.amb-btn-dark:disabled {
+  opacity: 0.75;
 }
 
 .amb-content {
