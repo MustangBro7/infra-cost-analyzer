@@ -807,7 +807,9 @@ a {
 }
 
 .command-button:hover {
-  background: #000;
+  /* Deepen the ink fill in a theme-safe way — works for light-on-dark AND the
+     dark theme's inverted (light) fill, unlike a hardcoded #000. */
+  filter: brightness(0.92);
 }
 
 .ghost-button {

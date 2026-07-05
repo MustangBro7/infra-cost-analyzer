@@ -2388,8 +2388,8 @@
 }
 
 .amb-connect-tab.active em {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
+  background: color-mix(in srgb, var(--amb-on-ink) 14%, transparent);
+  color: var(--amb-on-ink);
 }
 
 .amb-connect-tab-panel {
@@ -2399,7 +2399,7 @@
 
 .amb-agent-card {
   border: 1px solid var(--amb-line);
-  background: linear-gradient(180deg, var(--amb-card-2), #fff);
+  background: linear-gradient(180deg, var(--amb-card-2), var(--amb-card));
   border-radius: 14px;
   padding: 20px;
   margin-bottom: 26px;
@@ -3044,11 +3044,11 @@
 }
 
 .amb-alerts-notice.ok {
-  color: #1b6e3c;
+  color: var(--amb-green);
 }
 
 .amb-alerts-notice.error {
-  color: #b3261e;
+  color: var(--amb-red);
 }
 
 /* ---------- interaction feedback ---------- */
@@ -3135,7 +3135,7 @@ button:disabled {
 }
 
 .amb-checklist-progress .seg.done {
-  background: #0f9d63;
+  background: var(--amb-green);
 }
 
 .amb-checklist-steps {
@@ -3173,8 +3173,8 @@ button:disabled {
 }
 
 .amb-checklist-steps li.done .amb-check-mark {
-  background: #0f9d63;
-  border-color: #0f9d63;
+  background: var(--amb-green);
+  border-color: var(--amb-green);
   color: #fff;
 }
 
@@ -3205,7 +3205,7 @@ button:disabled {
   margin-top: 3px;
   font-size: 12px;
   font-style: normal;
-  color: #b3261e;
+  color: var(--amb-red);
 }
 
 .amb-check-action {
@@ -3223,7 +3223,7 @@ button:disabled {
 .amb-check-done-label {
   font-size: 11.5px;
   font-weight: 600;
-  color: #0f9d63;
+  color: var(--amb-green);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -3534,6 +3534,64 @@ button:disabled {
   --grid-line: rgba(255, 255, 255, 0.04);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   --blue: #6ea8fe;
+}
+
+/* Component-level dark fixes for pieces that carry literal light-theme colors
+   or intentionally invert (--amb-ink flips light in dark, so "ink-filled"
+   terminal blocks would render as bright bars without these). */
+
+/* Terminal / command blocks stay dark terminals in the dark theme. */
+[data-theme="dark"] .amb-app .amb-cmd:not(.light) {
+  background: #0e0e11;
+  border: 1px solid var(--amb-line);
+}
+
+[data-theme="dark"] .amb-app .amb-cmd:not(.light) code {
+  color: var(--amb-ink-2);
+}
+
+[data-theme="dark"] .amb-app .amb-cmd:not(.light) button {
+  border-color: var(--amb-line);
+  background: var(--amb-card-2);
+  color: var(--amb-text-2);
+}
+
+/* Legacy credential-panel command blocks (.cli-command uses --ink as its fill). */
+[data-theme="dark"] .amb-app .cli-command:not(.secondary) {
+  background: #0e0e11;
+  border-color: var(--amb-line);
+  color: var(--amb-ink-2);
+}
+
+[data-theme="dark"] .amb-app .agent-prompt {
+  border-color: var(--amb-line);
+}
+
+/* Banners: light pastel borders / deep green text don't survive on dark. */
+[data-theme="dark"] .amb-app .amb-banner.green {
+  border-color: var(--ok-mid);
+}
+
+[data-theme="dark"] .amb-app .amb-banner.green strong {
+  color: var(--amb-green);
+}
+
+[data-theme="dark"] .amb-app .amb-banner.green span {
+  color: #85a893;
+}
+
+[data-theme="dark"] .amb-app .amb-banner.amber {
+  border-color: var(--warn-mid);
+}
+
+/* Skeleton shimmer: full-strength white flash is blinding on dark cards. */
+[data-theme="dark"] .amb-app .amb-skel::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.07),
+    transparent
+  );
 }
 
 html[data-theme="dark"] {
