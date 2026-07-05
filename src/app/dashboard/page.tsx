@@ -1060,7 +1060,7 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
     const rows = analysis.costRows.filter((row) => row.provider === provider)
     const subscriptionCost = rows.filter((row) => /subscription/i.test(row.serviceName)).reduce((s, r) => s + r.cost, 0)
     const apiCost = rows.filter((row) => /\(API\)/.test(row.serviceName)).reduce((s, r) => s + r.cost, 0)
-    const apiValue = analysis.freeTier.find((row) => row.provider === provider && row.service === "Value at API rates")?.used ?? 0
+    const measuredApiValue = analysis.freeTier.find((row) => row.provider === provider && row.service === "Value at API rates")?.used ?? 0
 
     const apiUsage = (service: RegExp) =>
       analysis.freeTier.filter((row) => row.provider === provider && service.test(row.service)).reduce((s, r) => s + (r.used ?? 0), 0)
@@ -1085,6 +1085,8 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
         rates: model.rates,
       }
     })
+    const localModelApiValue = models.reduce((sum, model) => sum + model.estimatedApiUsd, 0)
+    const apiValue = localModelApiValue > 0 ? localModelApiValue : measuredApiValue
 
     const planLabel = meta.planLabelOverride ?? meta.localUsage?.planLabel ?? null
     // The card already shows the plan as a badge and the source as a tag, so
