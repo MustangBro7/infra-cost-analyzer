@@ -19,10 +19,17 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deploy target"
+        type: choice
+        options: [production, staging]
+        default: production
 
-# Never let two deploys race; queue them instead of cancelling a publish midway.
+# Never let two deploys of the same target race; queue them instead of
+# cancelling a publish midway. Staging and production may run concurrently.
 concurrency:
-  group: deploy-cloudflare
+  group: deploy-cloudflare-${{ inputs.environment || 'production' }}
   cancel-in-progress: false
 
 jobs:
@@ -69,6 +76,13 @@ jobs:
           echo "::warning::CLOUDFLARE_API_TOKEN is not set — skipping deploy."
           echo "Add it under Settings → Secrets and variables → Actions, then re-run."
 
+      # Pushes always deploy production; "Run workflow" can target staging
+      # (the key-gated workers.dev replica) via the environment input.
       - name: Build & deploy to Cloudflare Workers
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
-        run: npm run deploy
+        run: |
+          if [ "${{ inputs.environment || 'production' }}" = "staging" ]; then
+            npm run deploy:staging
+          else
+            npm run deploy
+          fi
