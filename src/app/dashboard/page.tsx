@@ -161,9 +161,9 @@ function provMono(provider: Provider, label?: string) {
 }
 
 const CONF_CHIP: Record<IndieProjectRow["confidence"], { label: string; color: string }> = {
-  verified: { label: "Verified", color: "#0F9D63" },
-  confirmed: { label: "Confirmed", color: "#C77B0A" },
-  inferred: { label: "Inferred", color: "#9B9BA6" },
+  verified: { label: "Verified", color: "var(--amb-green)" },
+  confirmed: { label: "Confirmed", color: "var(--amb-warn)" },
+  inferred: { label: "Inferred", color: "var(--amb-muted-2)" },
 }
 
 // Builds the design's 60×18 sparkline polyline from a real value series. Returns
@@ -889,7 +889,6 @@ function Sidebar({
           <Link
             key={item.key}
             href={item.href}
-            prefetch={false}
             className={view === item.key ? "amb-nav-item active" : "amb-nav-item"}
             aria-current={view === item.key ? "page" : undefined}
           >
@@ -1475,7 +1474,7 @@ function RepositoryDashboard({
     let runwayLabel = "On free tier"
     let runwayPctLabel = ""
     let runwayFill = "0%"
-    let runwayColor = "#0F9D63"
+    let runwayColor = "var(--amb-green)"
     if (free) {
       let best: FreeTierUsageRow | undefined
       for (const prov of p.stackProviders) {
@@ -1487,7 +1486,7 @@ function RepositoryDashboard({
         runwayLabel = `${providerName(best.provider)} · ${best.service}`
         runwayPctLabel = `${pct}%`
         runwayFill = `${Math.max(pct, 2)}%`
-        runwayColor = pct >= 80 ? "#DC2B3F" : pct >= 55 ? "#C77B0A" : "#0F9D63"
+        runwayColor = pct >= 80 ? "var(--amb-red)" : pct >= 55 ? "var(--amb-warn)" : "var(--amb-green)"
       }
     }
     const breakdown = p.breakdown.map((b) => {
@@ -1524,7 +1523,7 @@ function RepositoryDashboard({
       free,
       mtdValue: p.cost,
       mtdLabel: free ? (rangeMode ? "No spend" : "Free tier") : money(p.cost),
-      mtdColor: free ? "#0F9D63" : "#19191D",
+      mtdColor: free ? "var(--amb-green)" : "var(--amb-ink)",
       projDisplay,
       confLabel: conf.label,
       confColor: conf.color,
@@ -1532,7 +1531,7 @@ function RepositoryDashboard({
       segments,
       projMarker: `${Math.min((p.projected / projectScale) * 100, 100).toFixed(2)}%`,
       sparkPoints,
-      sparkColor: sparkUp ? "#C77B0A" : "#0F9D63",
+      sparkColor: sparkUp ? "var(--amb-warn)" : "var(--amb-green)",
       runwayLabel,
       runwayPctLabel,
       runwayFill,
@@ -1553,7 +1552,7 @@ function RepositoryDashboard({
 
   // --- Leaks view-model ----------------------------------------------------
   const leakVMs = leaks.map((leak) => {
-    const sev = leak.severity === "crit" ? "#DC2B3F" : leak.severity === "warn" ? "#C77B0A" : "#9B9BA6"
+    const sev = leak.severity === "crit" ? "var(--amb-red)" : leak.severity === "warn" ? "var(--amb-warn)" : "var(--amb-muted-2)"
     const tag = leak.severity === "crit" ? "High" : leak.severity === "warn" ? "Medium" : "Info"
     const t = leak.title.toLowerCase()
     const action = /shut down|safe to shut|inactive|no traffic/.test(t)
@@ -1806,7 +1805,7 @@ function RepositoryDashboard({
             <div className="amb-grid-2">
               {limitRows.map((row) => {
                 const pct = Math.round(row.percentUsed ?? 0)
-                const color = pct >= 80 ? "#DC2B3F" : pct >= 55 ? "#C77B0A" : "#0F9D63"
+                const color = pct >= 80 ? "var(--amb-red)" : pct >= 55 ? "var(--amb-warn)" : "var(--amb-green)"
                 const d = provMono(row.provider, row.customLabel)
                 const note = pct >= 80 ? "Watch closely" : pct >= 55 ? "Monitor weekly" : "Comfortable"
                 const project = singleRepoFor(row.provider)
@@ -2045,7 +2044,7 @@ function RepositoryDashboard({
                                 <small>{limit.usage} · {limit.reset}</small>
                               </div>
                               <span className="amb-ai-limit-track" aria-hidden>
-                                <i style={{ width: `${limit.pct ?? 0}%`, background: limit.pct != null && limit.pct >= 80 ? "#DC2B3F" : tool.color }} />
+                                <i style={{ width: `${limit.pct ?? 0}%`, background: limit.pct != null && limit.pct >= 80 ? "var(--amb-red)" : tool.color }} />
                               </span>
                               <em>{limit.pct == null ? "—" : `${limit.pct}%`}</em>
                             </div>
@@ -2108,7 +2107,6 @@ function RepositoryDashboard({
               <Link
                 key={tab.key}
                 href={tab.key === "setup" ? "/dashboard?view=connect" : `/dashboard?view=connect&connectTab=${tab.key}`}
-                prefetch={false}
                 role="tab"
                 aria-selected={connectTab === tab.key}
                 className={connectTab === tab.key ? "amb-connect-tab active" : "amb-connect-tab"}
@@ -2164,8 +2162,8 @@ function RepositoryDashboard({
                         <strong>{c.name}</strong>
                         <small>{c.detail}</small>
                       </div>
-                      <div className="amb-conn-status" style={{ color: c.warn ? "#C77B0A" : "#0F9D63" }}>
-                        <span className="dot" style={{ background: c.warn ? "#C77B0A" : "#0F9D63" }} />
+                      <div className="amb-conn-status" style={{ color: c.warn ? "var(--amb-warn)" : "var(--amb-green)" }}>
+                        <span className="dot" style={{ background: c.warn ? "var(--amb-warn)" : "var(--amb-green)" }} />
                         {c.warn ? "Needs attention" : "Connected"}
                       </div>
                     </div>
