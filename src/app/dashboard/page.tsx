@@ -1637,7 +1637,11 @@ function RepositoryDashboard({
         return {
           name: model.model,
           tokens: compactNumber(model.totalTokens),
+          tokenShare: `${percentOf(model.totalTokens, tool.totalTokens)} of tokens`,
           mix: `${compactNumber(model.inputTokens)} in · ${compactNumber(model.cacheTokens)} cache · ${compactNumber(model.outputTokens)} out`,
+          inputTokens: compactNumber(model.inputTokens),
+          cacheTokens: compactNumber(model.cacheTokens),
+          outputTokens: compactNumber(model.outputTokens),
           inputCost: maybeMoney(parts.input),
           cacheCost: maybeMoney(parts.cache),
           outputCost: maybeMoney(parts.output),
@@ -2094,58 +2098,44 @@ function RepositoryDashboard({
                       </div>
                     ) : null}
 
-                    <details className="amb-ai-tool-details">
-                      <summary>
-                        <span>Model and cost detail</span>
-                        <ChevronDown aria-hidden />
-                      </summary>
-                      <div className="amb-ai-provider-body">
-                        <div className="amb-ai-provider-metrics">
-                          <article><span>Total</span><strong>{tool.totalCost}</strong><small>subscription + API</small></article>
-                          <article><span>Subscription</span><strong>{tool.subscriptionCost}</strong><small>flat plan</small></article>
-                          <article><span>API spend</span><strong>{tool.apiCost}</strong><small>usage based</small></article>
-                          <article><span>API value</span><strong>{tool.totalModelValue}</strong><small>{tool.valueMultiple} value / spend</small></article>
-                          <article><span>Input value</span><strong>{tool.inputValue}</strong><small>priced separately</small></article>
-                          <article><span>Output value</span><strong>{tool.outputValue}</strong><small>priced separately</small></article>
-                        </div>
-                        <div className="amb-ai-provider-split">
-                          <strong>Cost split by token direction</strong>
-                          <div className="amb-ai-provider-split-grid">
-                            <span><i style={{ background: "#4d8cf0" }} /> Input {tool.inputValue}</span>
-                            <span><i style={{ background: "#b9a14a" }} /> Cache {tool.cacheValue}</span>
-                            <span><i style={{ background: "#46a37b" }} /> Output {tool.outputValue}</span>
-                          </div>
-                        </div>
-                        <div className="amb-ai-provider-section">
-                          <div className="amb-ai-provider-section-head">
-                            <strong>Models</strong>
-                            <span>Input, cache, and output rates differ by model.</span>
-                          </div>
-                          {tool.modelRows.length ? (
-                            <div className="amb-ai-model-economics">
-                              <div className="head">Model</div>
-                              <div className="head">Tokens</div>
-                              <div className="head">Input</div>
-                              <div className="head">Cache</div>
-                              <div className="head">Output</div>
-                              <div className="head">Total</div>
-                              {tool.modelRows.map((model) => (
-                                <div className="amb-ai-model-economic-row" key={`${tool.id}-${model.name}`}>
-                                  <div><strong>{model.name}</strong><small>{model.rates}</small></div>
-                                  <div><strong>{model.tokens}</strong><small>{model.mix}</small></div>
-                                  <div><strong>{model.inputCost}</strong><small>input</small></div>
-                                  <div><strong>{model.cacheCost}</strong><small>cache</small></div>
-                                  <div><strong>{model.outputCost}</strong><small>output</small></div>
-                                  <div><strong>{model.totalValue}</strong><small>API-rate value</small></div>
-                                </div>
-                              ))}
+                    {tool.modelRows.length ? (
+                      <div className="amb-ai-model-drawers" aria-label={`${tool.name} models`}>
+                        {tool.modelRows.map((model) => (
+                          <details className="amb-ai-model-drawer" key={`${tool.id}-${model.name}`}>
+                            <summary>
+                              <span className="amb-ai-model-drawer-name">
+                                <strong>{model.name}</strong>
+                                <small>{model.tokenShare}</small>
+                              </span>
+                              <span className="amb-ai-model-drawer-total">
+                                <small>{model.tokens}</small>
+                                <strong>{model.totalValue}</strong>
+                              </span>
+                              <ChevronDown aria-hidden />
+                            </summary>
+                            <div className="amb-ai-model-drawer-body">
+                              <article>
+                                <span>Input</span>
+                                <strong>{model.inputCost}</strong>
+                                <small>{model.inputTokens} tokens</small>
+                              </article>
+                              <article>
+                                <span>Cache</span>
+                                <strong>{model.cacheCost}</strong>
+                                <small>{model.cacheTokens} tokens</small>
+                              </article>
+                              <article>
+                                <span>Output</span>
+                                <strong>{model.outputCost}</strong>
+                                <small>{model.outputTokens} tokens</small>
+                              </article>
                             </div>
-                          ) : (
-                            <div className="amb-ai-provider-empty">No model-level token rows have been synced yet.</div>
-                          )}
-                        </div>
+                          </details>
+                        ))}
                       </div>
-                    </details>
+                    ) : (
+                      <div className="amb-ai-provider-empty">No model-level token rows have been synced yet.</div>
+                    )}
                   </article>
                 ))}
               </div>
