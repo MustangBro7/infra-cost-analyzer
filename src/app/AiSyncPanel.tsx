@@ -2,8 +2,9 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { ArrowUpRight, Clock, ClipboardCopy, Loader2, Play, RefreshCw, TerminalSquare } from "lucide-react"
+import { ArrowUpRight, Clock, ClipboardCopy, Loader2, Play, RefreshCw } from "lucide-react"
 import type { Provider } from "@/lib/types"
+import { aiAgentCommands } from "@/lib/aiAgentSetup"
 import { ProviderLogo } from "./ProviderLogo"
 
 const USAGE_URL: Partial<Record<Provider, string>> = {
@@ -104,35 +105,7 @@ export function AiSyncPanel({ initialState }: { initialState: PublicState }) {
   }
 
   const connectCmd = `AMBRIUM_API=${origin} npx --yes github:MustangBro7/infra-cost-analyzer --ai-only`
-  const macInstall = `NPX="$(command -v npx)"; ND="$(dirname "$(command -v node)")"; P="$HOME/Library/LaunchAgents/io.ambrium.ai-usage.plist"; mkdir -p "$HOME/Library/LaunchAgents"; cat > "$P" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>io.ambrium.ai-usage</string>
-<key>EnvironmentVariables</key><dict><key>AMBRIUM_API</key><string>${origin}</string><key>PATH</key><string>$ND:/usr/bin:/bin</string></dict>
-<key>ProgramArguments</key><array><string>$NPX</string><string>--yes</string><string>github:MustangBro7/infra-cost-analyzer</string><string>serve</string></array>
-<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>
-<key>StandardOutPath</key><string>/tmp/ambrium-ai-usage.log</string><key>StandardErrorPath</key><string>/tmp/ambrium-ai-usage.log</string>
-</dict></plist>
-EOF
-launchctl unload "$P" 2>/dev/null; launchctl load "$P" && echo "Ambrium continuous AI sync installed"`
-  const linuxInstall = `NPX="$(command -v npx)"; ND="$(dirname "$(command -v node)")"; P="$HOME/.config/systemd/user/ambrium-ai-usage.service"; mkdir -p "$HOME/.config/systemd/user"; cat > "$P" <<EOF
-[Unit]
-Description=Ambrium continuous AI usage sync
-After=network-online.target
-
-[Service]
-Type=simple
-Environment=AMBRIUM_API=${origin}
-Environment=PATH=$ND:/usr/local/bin:/usr/bin:/bin
-ExecStart=$NPX --yes github:MustangBro7/infra-cost-analyzer serve
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-EOF
-systemctl --user daemon-reload && systemctl --user enable --now ambrium-ai-usage.service && echo "Ambrium continuous AI sync installed"`
+  const installCmd = aiAgentCommands(origin).install
 
   function copy(key: string, text: string) {
     navigator.clipboard.writeText(text).then(() => {
@@ -297,22 +270,19 @@ systemctl --user daemon-reload && systemctl --user enable --now ambrium-ai-usage
             <small>Installs an always-on background agent that checks every minute and pushes only when data changes.</small>
           </div>
           <div className="cli-command">
-            <span>macOS — paste &amp; run</span>
-            <code>{macInstall}</code>
+            <span>macOS or Linux — paste &amp; run</span>
+            <code>{installCmd}</code>
           </div>
           <div className="custom-agent-actions">
-            <button type="button" className="ghost-button" onClick={() => copy("mac", macInstall)}>
-              <ClipboardCopy aria-hidden /> {copied === "mac" ? "Copied" : "Copy macOS installer"}
-            </button>
-            <button type="button" className="ghost-button" onClick={() => copy("linux", linuxInstall)}>
-              <TerminalSquare aria-hidden /> {copied === "linux" ? "Copied" : "Copy Linux (systemd)"}
+            <button type="button" className="ghost-button" onClick={() => copy("install", installCmd)}>
+              <ClipboardCopy aria-hidden /> {copied === "install" ? "Copied" : "Copy verified installer"}
             </button>
           </div>
         </li>
       </ol>
 
       <p className="ai-sync-foot">
-        To stop it later: <code>launchctl unload ~/Library/LaunchAgents/io.ambrium.ai-usage.plist</code> (macOS) or run
+        To stop it later: <code>launchctl bootout gui/$(id -u)/io.ambrium.ai-usage</code> (macOS) or run
         <code> systemctl --user disable --now ambrium-ai-usage.service</code> (Linux).
       </p>
 

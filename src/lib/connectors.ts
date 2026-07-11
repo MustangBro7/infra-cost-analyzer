@@ -197,6 +197,32 @@ export interface AiLocalUsagePayload {
   }
 }
 
+const LIMIT_WITHOUT_RESET_GRACE_MS = 15 * 60 * 1000
+
+/**
+ * Missing limits means the optional live vendor request failed (often a 429),
+ * not that the user's plan has no limits. Retain only windows that are still
+ * valid; once their reset passes they disappear until a fresh fetch succeeds.
+ */
+export function retainCurrentAiLimits(
+  incoming: AiLocalUsagePayload["limits"],
+  previous: AiLocalUsagePayload["limits"],
+  previousUpdatedAt: string | null | undefined,
+  now = Date.now()
+): AiLocalUsagePayload["limits"] | undefined {
+  if (incoming !== undefined) return incoming
+  if (!previous?.length) return undefined
+  const previousAt = previousUpdatedAt ? Date.parse(previousUpdatedAt) : Number.NaN
+  const rows = previous.filter((row) => {
+    if (row.resetsAt) {
+      const resetAt = Date.parse(row.resetsAt)
+      return Number.isFinite(resetAt) && resetAt > now
+    }
+    return Number.isFinite(previousAt) && previousAt + LIMIT_WITHOUT_RESET_GRACE_MS > now
+  })
+  return rows.length > 0 ? rows : undefined
+}
+
 /**
  * Records AI usage read from LOCAL Claude Code / Codex logs by the companion CLI,
  * for users on flat personal subscriptions (Claude Pro, ChatGPT Plus, …) whose
@@ -214,6 +240,16 @@ export async function recordAiLocalUsage(
   // Preserve an already-connected org API key (and its showApi/override settings)
   // so the local-subscription view and the live-API view can coexist.
   const hasKey = Boolean(existing?.accessToken && existing.accessToken !== "local")
+  const existingMetadata = (existing?.metadata ?? {}) as Record<string, unknown>
+  const previousUsage = existingMetadata.localUsage as AiLocalUsagePayload | undefined
+  const retainedLimits =
+    previousUsage?.month === payload.month
+      ? retainCurrentAiLimits(payload.limits, previousUsage.limits, existingMetadata.updatedAt as string | undefined)
+      : payload.limits
+  const mergedPayload: AiLocalUsagePayload = {
+    ...payload,
+    ...(retainedLimits !== undefined ? { limits: retainedLimits } : {}),
+  }
   const toolLabel = payload.toolLabel ?? (provider === "anthropic" ? "Claude Code" : provider === "openai" ? "Codex" : "Cursor")
   const accountLabel = `${toolLabel} (local)${payload.planLabel ? ` · ${payload.planLabel}` : ""}`
   await upsertConnection(userId, {
@@ -225,9 +261,9 @@ export async function recordAiLocalUsage(
     lastVerifiedAt: new Date().toISOString(),
     lastError: null,
     metadata: {
-      ...(existing?.metadata ?? {}),
+      ...existingMetadata,
       source: hasKey ? "both" : "local",
-      localUsage: payload,
+      localUsage: mergedPayload,
       updatedAt: new Date().toISOString(),
     },
   })

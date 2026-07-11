@@ -20,6 +20,7 @@ import { stdin, stdout } from "node:process"
 import { connectedProviderMap } from "./provider-state.mjs"
 import { collectAiUsage } from "./ai-usage.mjs"
 import { DEFAULT_AGENT_PORT, startUsageAgent } from "./usage-agent.mjs"
+import { installUsageAgent } from "./agent-install.mjs"
 
 const API_BASE = (process.env.AMBRIUM_API || "http://localhost:3000").replace(/\/+$/, "")
 const args = process.argv.slice(2)
@@ -557,6 +558,7 @@ Usage:
   ambrium-connect doctor          Diagnose local setup and missing provider prerequisites
   ambrium-connect spec            Print the agent-readable setup prompt/spec summary
   ambrium-connect --ai-only       Push local Claude Code / Codex usage only
+  ambrium-connect install-agent   Install or repair continuous background sync
   ambrium-connect serve           Continuously sync local AI usage when it
                                   changes (default check: every 60 seconds)
 
@@ -686,6 +688,14 @@ async function serveCommand() {
   await new Promise(() => {})
 }
 
+function installAgentCommand() {
+  log(`Ambrium background agent → ${API_BASE}`)
+  const installed = installUsageAgent({ apiBase: API_BASE })
+  log(`   ✓ ${installed.platform} job installed and verified`)
+  log(`   ${installed.path}`)
+  log(`   Logs: /tmp/ambrium-ai-usage.log`)
+}
+
 async function main() {
   if (command === "help" || args.includes("--help") || args.includes("-h")) {
     helpCommand()
@@ -705,6 +715,10 @@ async function main() {
   }
   if (command === "serve" || args.includes("--serve")) {
     await serveCommand()
+    return
+  }
+  if (command === "install-agent") {
+    installAgentCommand()
     return
   }
   if (command !== "connect") {

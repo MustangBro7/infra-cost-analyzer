@@ -226,14 +226,9 @@ export function DevicePullButton({
             </div>
           ) : null}
           <div className="amb-device-pull-cmd">
-            <span>{recovery.showPairCommand ? "2 · macOS job" : "macOS job"}</span>
-            <code>{commands.macInstall}</code>
-            <CopyButton text={commands.macInstall} copyLabel="Copy setup" copiedLabel="Copied" />
-          </div>
-          <div className="amb-device-pull-cmd">
-            <span>{recovery.showPairCommand ? "2 · Linux job" : "Linux job"}</span>
-            <code>{commands.linuxInstall}</code>
-            <CopyButton text={commands.linuxInstall} copyLabel="Copy setup" copiedLabel="Copied" />
+            <span>{recovery.showPairCommand ? "2 · Repair job" : "Install / repair"}</span>
+            <code>{commands.install}</code>
+            <CopyButton text={commands.install} copyLabel="Copy setup" copiedLabel="Copied" />
           </div>
           <details className="amb-device-pull-manual">
             <summary><TerminalSquare size={13} aria-hidden /> Run without installing a job</summary>

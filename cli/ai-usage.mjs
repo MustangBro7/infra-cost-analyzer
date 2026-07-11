@@ -52,7 +52,7 @@ function openAiPrice(model) {
   return OPENAI_PRICES.find((p) => p.match.test(model)) ?? OPENAI_DEFAULT
 }
 
-function pricedModel(model, tokens, price) {
+export function pricedModel(model, tokens, price) {
   const inputUsd = (tokens.input * price.in) / M
   const cacheUsd = ((tokens.cacheCreate ?? tokens.cached ?? 0) * (price.cacheWrite ?? price.cachedIn ?? 0) + (tokens.cacheRead ?? 0) * (price.cacheRead ?? 0)) / M
   const outputUsd = (tokens.output * price.out) / M
@@ -524,13 +524,14 @@ export function readCodexUsage(month = currentMonth()) {
   })
   const planLabel = planType ? planType.charAt(0).toUpperCase() + planType.slice(1) : null
   const planCost = process.env.AMBRIUM_PLAN_COST ?? (planType === "pro" ? 200 : 20)
+  const limits = codexRateLimitRows(lastRateLimits?.value ?? null)
   return {
     provider: "openai",
     toolLabel: "Codex",
     month,
     planLabel,
     subscriptionUsd: Number(planCost),
-    limits: codexRateLimitRows(lastRateLimits?.value ?? null),
+    ...(limits.length > 0 ? { limits } : {}),
     models,
   }
 }
@@ -540,7 +541,10 @@ export function readCodexUsage(month = currentMonth()) {
  * windows come from live API calls with each tool's local OAuth token (the
  * Settings → Usage numbers) — local logs only say where limits stood the last
  * time the tool ran, which is exactly the staleness a device pull must beat.
- * A failed fetch falls back to the log snapshot (Codex) or omits limits.
+ * A failed fetch falls back to the log snapshot (Codex) or omits the `limits`
+ * field entirely. That distinction lets the server retain still-current limit
+ * windows during transient 429/network failures instead of treating the miss
+ * as a successful empty response and erasing them from the dashboard.
  */
 export async function collectAiUsage(month = currentMonth()) {
   const claude = readClaudeUsage(month)

@@ -8,6 +8,21 @@ export interface AiLimitRow {
   resetsAt: string | null
 }
 
+export function pricedModel(
+  model: string,
+  tokens: { input: number; displayInput?: number; cacheCreate?: number; cacheRead?: number; cached?: number; output: number },
+  price: { in: number; cacheWrite?: number; cacheRead?: number; cachedIn?: number; out: number }
+): {
+  model: string
+  inputTokens: number
+  cacheTokens: number
+  outputTokens: number
+  inputUsd: number
+  cacheUsd: number
+  outputUsd: number
+  estimatedApiUsd: number
+}
+
 export function codexRateLimitRows(rateLimits: unknown): AiLimitRow[]
 export function codexUsageLimitRows(usage: unknown): AiLimitRow[]
 export function readCodexAuth(): { accessToken: string; accountId: string | null } | null

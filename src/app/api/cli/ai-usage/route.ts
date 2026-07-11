@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "provider must be anthropic, openai, or cursor." }, { status: 400 })
     }
     const models = Array.isArray(body.models) ? (body.models as Array<Record<string, unknown>>) : []
-    const limits = Array.isArray(body.limits) ? (body.limits as Array<Record<string, unknown>>) : []
+    const limits = Array.isArray(body.limits) ? (body.limits as Array<Record<string, unknown>>) : null
     const normalizedModels = models.map((model) => ({
       model: String(model.model ?? "unknown"),
       inputTokens: num(model.inputTokens),
@@ -63,14 +63,18 @@ export async function POST(request: NextRequest) {
       subscriptionUsd: num(body.subscriptionUsd),
       planLabel: typeof body.planLabel === "string" ? body.planLabel : null,
       toolLabel: typeof body.toolLabel === "string" ? body.toolLabel : undefined,
-      limits: limits.map((limit) => ({
-        label: String(limit.label ?? "Usage limit"),
-        used: limit.used == null ? null : num(limit.used),
-        limit: limit.limit == null ? null : num(limit.limit),
-        unit: typeof limit.unit === "string" && limit.unit.trim() ? limit.unit : "units",
-        period: typeof limit.period === "string" && limit.period.trim() ? limit.period : "period",
-        resetsAt: typeof limit.resetsAt === "string" ? limit.resetsAt : null,
-      })),
+      ...(limits
+        ? {
+            limits: limits.map((limit) => ({
+              label: String(limit.label ?? "Usage limit"),
+              used: limit.used == null ? null : num(limit.used),
+              limit: limit.limit == null ? null : num(limit.limit),
+              unit: typeof limit.unit === "string" && limit.unit.trim() ? limit.unit : "units",
+              period: typeof limit.period === "string" && limit.period.trim() ? limit.period : "period",
+              resetsAt: typeof limit.resetsAt === "string" ? limit.resetsAt : null,
+            })),
+          }
+        : {}),
       models: normalizedModels,
       totals,
     }

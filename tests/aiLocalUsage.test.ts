@@ -6,6 +6,18 @@ import path from "node:path"
 
 const repo = { owner: "acme", name: "repo", path: "/tmp/repo", remoteUrl: null, scannedAt: new Date().toISOString() }
 
+test("AI model pricing executes independently of rate-limit snapshots", async () => {
+  const { pricedModel } = await import("../cli/ai-usage.mjs")
+  const model = pricedModel(
+    "claude-test",
+    { input: 1_000_000, cacheCreate: 100_000, cacheRead: 200_000, output: 10_000 },
+    { in: 3, cacheWrite: 3.75, cacheRead: 0.3, out: 15 }
+  )
+  assert.equal(model.inputUsd, 3)
+  assert.equal(model.cacheTokens, 300_000)
+  assert.equal(model.outputUsd, 0.15)
+})
+
 // Locally-pushed AI usage (no org API) renders as a flat subscription cost row
 // plus token + estimated-value usage, without any network call.
 test("local AI usage records and surfaces a subscription cost + token usage", async () => {
@@ -141,4 +153,16 @@ test("claudeLimitRows maps the oauth usage limits array with model scopes", asyn
   assert.equal(fallback.length, 2)
   assert.equal(fallback[0].label, "Current session")
   assert.equal(fallback[1].used, 6)
+})
+
+test("transient limit-fetch misses retain only not-yet-reset windows", async () => {
+  const { retainCurrentAiLimits } = await import("../src/lib/connectors")
+  const now = Date.parse("2026-07-11T12:00:00Z")
+  const previous = [
+    { label: "Current session", used: 72, limit: 100, unit: "%", period: "session", resetsAt: "2026-07-11T11:00:00Z" },
+    { label: "Weekly · all models", used: 31, limit: 100, unit: "%", period: "weekly", resetsAt: "2026-07-15T00:00:00Z" },
+  ]
+  const retained = retainCurrentAiLimits(undefined, previous, "2026-07-11T11:59:00Z", now)
+  assert.deepEqual(retained?.map((row) => row.label), ["Weekly · all models"])
+  assert.deepEqual(retainCurrentAiLimits([], previous, "2026-07-11T11:59:00Z", now), [])
 })

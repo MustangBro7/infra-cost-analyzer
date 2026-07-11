@@ -54,35 +54,7 @@ export function aiAgentCommands(origin: string) {
   const runner = "npx --yes github:MustangBro7/infra-cost-analyzer"
   const pair = `AMBRIUM_API=${origin} ${runner} --ai-only`
   const serve = `AMBRIUM_API=${origin} ${runner} serve`
-  const macInstall = `NPX="$(command -v npx)"; ND="$(dirname "$(command -v node)")"; P="$HOME/Library/LaunchAgents/io.ambrium.ai-usage.plist"; mkdir -p "$HOME/Library/LaunchAgents"; cat > "$P" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>io.ambrium.ai-usage</string>
-<key>EnvironmentVariables</key><dict><key>AMBRIUM_API</key><string>${origin}</string><key>PATH</key><string>$ND:/usr/bin:/bin</string></dict>
-<key>ProgramArguments</key><array><string>$NPX</string><string>--yes</string><string>github:MustangBro7/infra-cost-analyzer</string><string>serve</string></array>
-<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>
-<key>StandardOutPath</key><string>/tmp/ambrium-ai-usage.log</string><key>StandardErrorPath</key><string>/tmp/ambrium-ai-usage.log</string>
-</dict></plist>
-EOF
-launchctl unload "$P" 2>/dev/null || true; launchctl load "$P" && echo "Ambrium continuous AI sync installed"`
-  const linuxInstall = `NPX="$(command -v npx)"; ND="$(dirname "$(command -v node)")"; P="$HOME/.config/systemd/user/ambrium-ai-usage.service"; mkdir -p "$HOME/.config/systemd/user"; cat > "$P" <<EOF
-[Unit]
-Description=Ambrium continuous AI usage sync
-After=network-online.target
+  const install = `AMBRIUM_API=${origin} ${runner} install-agent`
 
-[Service]
-Type=simple
-Environment=AMBRIUM_API=${origin}
-Environment=PATH=$ND:/usr/local/bin:/usr/bin:/bin
-ExecStart=$NPX --yes github:MustangBro7/infra-cost-analyzer serve
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-EOF
-systemctl --user daemon-reload && systemctl --user enable --now ambrium-ai-usage.service && echo "Ambrium continuous AI sync installed"`
-
-  return { pair, serve, macInstall, linuxInstall }
+  return { pair, serve, install }
 }

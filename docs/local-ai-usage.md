@@ -26,14 +26,17 @@ so the first screen does not wait for the next one-minute check.
 If that check fails, the AI page probes the agent status and explains whether
 the background job is not responding, continuous mode is off, the saved pairing
 was rejected, or the upload itself failed. The recovery card repeats complete
-copy-paste macOS launchd and Linux systemd installers, plus a re-pair command
+copy-paste installer that detects macOS launchd or Linux systemd, validates the
+generated job, starts it, and verifies it before reporting success, plus a re-pair command
 when the credential is the problem. Commands use the current dashboard origin,
 so staging recovery stays pointed at staging.
 
 ## Schedule it on macOS (launchd)
 
-Save as `~/Library/LaunchAgents/io.ambrium.ai-usage.plist` (runs at login and is
-kept alive), then `launchctl load ~/Library/LaunchAgents/io.ambrium.ai-usage.plist`:
+The verified installer above writes
+`~/Library/LaunchAgents/io.ambrium.ai-usage.plist`, validates it with `plutil`,
+then uses `launchctl bootstrap` and `kickstart` in the current GUI domain. The
+job runs at login and is kept alive. Its generated plist is equivalent to:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -65,6 +68,17 @@ that runs the `serve` command above, set `Restart=always`, then enable it with
 generates a copy-paste installer with the correct `npx` and Node paths.
 
 Re-pair (run the CLI once interactively) if the saved token expires after 30 days.
+
+The recommended installer/repair command is:
+
+```
+AMBRIUM_API=https://ambrium.io npx --yes github:MustangBro7/infra-cost-analyzer install-agent
+```
+
+Claude limits are fetched separately from token logs and Anthropic can
+occasionally rate-limit that request. A token sync with no fresh limit response
+keeps the last valid windows until each reset time rather than blanking the
+dashboard; expired windows are never carried forward.
 
 ## On-demand pulls from the dashboard ("Pull from this device")
 
