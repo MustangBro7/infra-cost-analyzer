@@ -25,7 +25,6 @@ import { BudgetForecast } from "../BudgetForecast"
 import { AlertsPanel } from "../AlertsPanel"
 import { OnboardingChecklist, type ChecklistState } from "../OnboardingChecklist"
 import { LinkSpinner } from "../LinkSpinner"
-import { RefreshButton } from "../RefreshButton"
 import { ThemeToggle } from "../ThemeToggle"
 import { DevicePullButton } from "../DevicePullButton"
 import { SpendHero } from "./SpendHero"
@@ -944,6 +943,7 @@ function AppHeader({
   range,
   rangeParams,
   repo,
+  computedAt,
 }: {
   view: ViewKey
   range: ResolvedDateRange
@@ -951,6 +951,7 @@ function AppHeader({
   // that always show current state: limits, leaks, AI, connect).
   rangeParams: Record<string, string> | null
   repo: string | null
+  computedAt: string | null
 }) {
   const meta = VIEW_META[view]
   return (
@@ -966,7 +967,7 @@ function AppHeader({
           ) : (
             <span className="amb-chip">{monthSpanLabel(currentMonthRange())}</span>
           )}
-          <RefreshButton repo={repo} />
+          <AnalysisRefresher repo={repo} computedAt={computedAt} />
           <div className="amb-mobile-theme">
             <ThemeToggle />
           </div>
@@ -2962,7 +2963,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
 
   return (
     <main className="amb-app">
-      <AnalysisRefresher repo={requestedRepo} computedAt={snapshot.computedAt} />
       <Sidebar
         view={view}
         leakCount={leakCount}
@@ -2971,7 +2971,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
         plan={state.plan}
       />
       <div className="amb-main">
-        <AppHeader view={view} range={range} rangeParams={rangeParams} repo={requestedRepo} />
+        <AppHeader
+          view={view}
+          range={range}
+          rangeParams={rangeParams}
+          repo={requestedRepo}
+          computedAt={snapshot.computedAt}
+        />
         <div className="amb-content">
           {requestedRepo ? (
             <div className="amb-legacy" style={{ marginTop: 0 }}>

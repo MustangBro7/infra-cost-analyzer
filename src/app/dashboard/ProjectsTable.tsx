@@ -106,9 +106,9 @@ export function ProjectsTable({
           sorted.map((p) => {
             const open = expanded === p.id
             return (
-              <div key={p.repo}>
+              <div key={p.repo} className="amb-project-entry">
                 <div
-                  className={`${COLS} body${open ? " open" : ""}`}
+                  className={`${COLS} body${p.free ? " free" : ""}${open ? " open" : ""}`}
                   onClick={() => setExpanded(open ? null : p.id)}
                   role="button"
                   tabIndex={0}

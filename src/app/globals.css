@@ -3076,16 +3076,19 @@ th {
 
 /* ---- Live refresh indicator ---- */
 .analysis-refresher {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  margin: 0 0 18px;
-  padding: 10px 14px;
+  gap: 9px;
+  min-height: 40px;
+  margin: 0;
+  padding: 6px 10px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--panel);
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
 }
 
 .analysis-refresher svg {
@@ -3094,20 +3097,40 @@ th {
   flex-shrink: 0;
 }
 
-.refresher-retry {
-  margin-left: auto;
-  border: 1px solid var(--line);
-  background: var(--panel-strong);
-  color: var(--ink);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
+.analysis-refresher-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
 }
 
-.refresher-retry:hover {
+.analysis-refresher-copy strong {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.15;
+}
+
+.analysis-refresher-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 450;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-refresher:hover:not(:disabled) {
   border-color: var(--ink);
+}
+
+.analysis-refresher:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.analysis-refresher.error {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--line));
+  color: var(--red);
 }
 
 /* ---- Free tier usage ---- */

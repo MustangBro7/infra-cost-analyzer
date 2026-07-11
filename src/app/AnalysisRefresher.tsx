@@ -84,30 +84,36 @@ export function AnalysisRefresher({
     }
   }, [computedAt, runRefresh])
 
+  const label = status === "refreshing" ? "Updating" : status === "error" ? "Retry" : "Refresh"
+  const detail =
+    status === "refreshing"
+      ? "Pulling latest usage"
+      : status === "error"
+        ? "Live update failed"
+        : `Costs synced ${relativeTime(lastSynced)}`
+
   return (
-    <div className="analysis-refresher" role="status">
+    <button
+      type="button"
+      className={`analysis-refresher ${status}`}
+      disabled={status === "refreshing"}
+      onClick={() => void runRefresh()}
+      aria-label={status === "error" ? `Live update failed: ${error}. Retry refresh` : `${label}. ${detail}`}
+      title={status === "error" ? `Live update failed: ${error}` : "Pull live costs and usage now"}
+    >
       {status === "refreshing" ? (
-        <>
-          <Loader2 className="spin" aria-hidden />
-          <span>Updating live costs…</span>
-        </>
+        <Loader2 className="spin" aria-hidden />
       ) : status === "error" ? (
-        <>
-          <AlertTriangle aria-hidden />
-          <span>Live update failed: {error}</span>
-          <button type="button" className="refresher-retry" onClick={() => void runRefresh()}>
-            Retry
-          </button>
-        </>
+        <AlertTriangle aria-hidden />
+      ) : status === "done" ? (
+        <Check aria-hidden />
       ) : (
-        <>
-          {status === "done" ? <Check aria-hidden /> : <RefreshCw aria-hidden />}
-          <span>Live costs synced {relativeTime(lastSynced)}</span>
-          <button type="button" className="refresher-retry" onClick={() => void runRefresh()}>
-            Refresh now
-          </button>
-        </>
+        <RefreshCw aria-hidden />
       )}
-    </div>
+      <span className="analysis-refresher-copy">
+        <strong>{label}</strong>
+        <small aria-live="polite">{detail}</small>
+      </span>
+    </button>
   )
 }
