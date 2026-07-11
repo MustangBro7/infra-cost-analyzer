@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { CheckCircle2, Loader2, TerminalSquare } from "lucide-react"
+import { ThemeToggle } from "../ThemeToggle"
 
 // Device-code approval page. The companion CLI prints a userCode; the signed-in
 // user lands here (Clerk-protected by middleware) and approves it, binding the
@@ -37,6 +38,9 @@ export default function PairPage() {
 
   return (
     <main className="pair-page">
+      <div className="theme-toggle-floating">
+        <ThemeToggle />
+      </div>
       <section className="panel pair-panel" aria-label="Approve CLI pairing">
         <div className="section-heading">
           <div>

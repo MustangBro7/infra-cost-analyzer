@@ -967,8 +967,24 @@ function AppHeader({
             <span className="amb-chip">{monthSpanLabel(currentMonthRange())}</span>
           )}
           <RefreshButton repo={repo} />
+          <div className="amb-mobile-theme">
+            <ThemeToggle />
+          </div>
         </div>
       </div>
+      <nav className="amb-mobile-nav" aria-label="Dashboard sections">
+        {NAV_ITEMS.map((item) => (
+          <Link
+            key={item.key}
+            href={item.href}
+            className={view === item.key ? "active" : undefined}
+            aria-current={view === item.key ? "page" : undefined}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </Link>
+        ))}
+      </nav>
     </header>
   )
 }

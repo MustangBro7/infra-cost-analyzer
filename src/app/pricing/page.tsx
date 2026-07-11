@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { ArrowRight, CheckCircle2, CloudCog } from "lucide-react"
 import { BillingCheckoutButton } from "../BillingCheckoutButton"
+import { ThemeToggle } from "../ThemeToggle"
 
 export const runtime = "nodejs"
 
@@ -30,6 +31,7 @@ export default function PricingPage() {
           <strong>Ambrium</strong>
         </Link>
         <nav className="landing-nav-actions">
+          <ThemeToggle />
           <Link href="/dashboard" className="link-button">
             Dashboard
           </Link>

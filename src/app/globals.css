@@ -30,6 +30,7 @@
   --amb-red: #dc2b3f;
   --amb-warn: #c77b0a;
   --amb-anthropic: #cc785c;
+  --amb-on-ink: #ffffff;
 
   /* Fonts (loaded globally in layout.tsx) */
   --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -117,6 +118,13 @@ a {
   top: 18px;
   right: 18px;
   z-index: 10;
+}
+
+.theme-toggle-floating .amb-theme-toggle {
+  width: auto;
+  min-height: 40px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
 }
 
 .signin-panel {
@@ -227,7 +235,7 @@ a {
   border: 1px solid var(--amb-ink);
   border-radius: 8px;
   background: var(--amb-ink);
-  color: #fff;
+  color: var(--amb-on-ink);
   font-weight: 600;
 }
 
@@ -4225,6 +4233,69 @@ th {
   .landing-hero,
   .landing-steps {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .landing,
+  .pricing-page {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .landing-nav {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-bottom: 18px;
+  }
+
+  .landing-nav-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+    gap: 8px;
+  }
+
+  .landing-nav-actions .link-button,
+  .landing-nav-actions .command-button {
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 10px;
+  }
+
+  .landing-nav-actions .amb-theme-toggle {
+    width: 40px;
+    min-height: 40px;
+    justify-content: center;
+    justify-self: end;
+    background: var(--surface);
+  }
+
+  .landing-nav-actions .amb-theme-toggle span {
+    display: none;
+  }
+
+  .landing-hero {
+    gap: 26px;
+    padding: 20px 0 40px;
+  }
+
+  .landing-hero h1,
+  .pricing-hero h1 {
+    font-size: clamp(34px, 11vw, 48px);
+  }
+
+  .landing-cta > a {
+    flex: 1 1 100%;
+  }
+
+  .cost-card {
+    padding: 16px;
+  }
+
+  .cost-bar-row {
+    grid-template-columns: 76px 1fr;
   }
 }
 

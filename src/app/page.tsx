@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   TerminalSquare,
 } from "lucide-react"
+import { ThemeToggle } from "./ThemeToggle"
 
 export const runtime = "nodejs"
 
@@ -51,6 +52,7 @@ export default function Landing() {
           <strong>Ambrium</strong>
         </div>
         <nav className="landing-nav-actions">
+          <ThemeToggle />
           <Link href="/pricing" className="link-button">
             Pricing
           </Link>

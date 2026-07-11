@@ -77,7 +77,7 @@ export const authAppearance = {
       minHeight: "44px",
       border: "1px solid var(--ink)",
       background: "var(--ink)",
-      color: "#ffffff",
+      color: "var(--amb-on-ink)",
       boxShadow: "none",
       fontSize: "0.8125rem",
       fontWeight: "600",

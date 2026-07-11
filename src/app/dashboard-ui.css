@@ -395,6 +395,11 @@
   flex-shrink: 0;
 }
 
+.amb-mobile-nav,
+.amb-mobile-theme {
+  display: none;
+}
+
 .amb-chip {
   display: flex;
   align-items: center;
@@ -2408,6 +2413,8 @@
 
 .amb-connect-tab-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 0;
 }
 
@@ -2474,12 +2481,13 @@
 
 .amb-conn-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 26px;
 }
 
 .amb-conn {
+  min-width: 0;
   border: 1px solid var(--amb-line);
   background: var(--amb-card);
   border-radius: 14px;
@@ -2735,14 +2743,101 @@
 }
 
 @media (max-width: 720px) {
+  .amb-app {
+    height: 100svh;
+    min-height: 0;
+  }
+
   .amb-sidebar {
     display: none;
   }
   .amb-content {
+    zoom: 1;
     padding: 18px 16px 48px;
   }
   .amb-header {
     padding: 14px 16px;
+  }
+
+  .amb-header-inner {
+    zoom: 1;
+    display: grid;
+    align-items: start;
+    gap: 12px;
+  }
+
+  .amb-header-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    width: 100%;
+  }
+
+  .amb-header-actions > .amb-chip,
+  .amb-header-actions > .amb-range,
+  .amb-header-actions > .amb-range .amb-chip {
+    min-width: 0;
+  }
+
+  .amb-header-actions > .amb-chip,
+  .amb-header-actions > .amb-range .amb-chip {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .amb-mobile-theme {
+    display: block;
+  }
+
+  .amb-mobile-theme .amb-theme-toggle {
+    width: 40px;
+    height: 40px;
+    justify-content: center;
+    padding: 0;
+    background: var(--amb-card);
+  }
+
+  .amb-mobile-theme .amb-theme-toggle span {
+    display: none;
+  }
+
+  .amb-mobile-nav {
+    display: flex;
+    gap: 6px;
+    max-width: 100%;
+    margin-top: 12px;
+    padding-bottom: 2px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .amb-mobile-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .amb-mobile-nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 7px 10px;
+    border: 1px solid var(--amb-line);
+    border-radius: 8px;
+    background: var(--amb-card);
+    color: var(--amb-text-2);
+    font: 550 12px var(--amb-font);
+  }
+
+  .amb-mobile-nav a.active {
+    border-color: color-mix(in srgb, var(--amb-accent) 45%, var(--amb-line));
+    background: var(--amb-accent-soft);
+    color: var(--amb-accent-ink);
+  }
+
+  .amb-mobile-nav svg {
+    width: 14px;
+    height: 14px;
   }
   .amb-connect-tabs {
     display: flex;
@@ -2752,9 +2847,19 @@
   .amb-connect-tab {
     flex: 0 0 190px;
   }
+
+  .amb-hero-chart-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .amb-hero-legend {
+    flex-wrap: wrap;
+  }
+
   .amb-conn-grid,
   .amb-stat-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     flex-direction: column;
   }
 
@@ -3517,6 +3622,7 @@ button:disabled {
    Every component reads the token set, so retinting the tokens retints the
    whole shell — including the legacy globals.css panels via the remap above. */
 
+html[data-theme="dark"],
 [data-theme="dark"] .amb-app {
   color-scheme: dark;
   --amb-bg: #131316;

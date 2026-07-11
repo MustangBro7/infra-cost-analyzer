@@ -1,10 +1,14 @@
 import { SignUp } from "@clerk/nextjs"
 import { CloudCog } from "lucide-react"
 import { authAppearance } from "@/app/authAppearance"
+import { ThemeToggle } from "@/app/ThemeToggle"
 
 export default function SignUpPage() {
   return (
     <main className="signin-shell">
+      <div className="theme-toggle-floating">
+        <ThemeToggle />
+      </div>
       <section className="signin-panel">
         <div className="signin-intro">
           <div className="signin-mark">
