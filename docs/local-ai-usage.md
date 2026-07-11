@@ -23,6 +23,13 @@ Two halves keep it current:
 Opening the AI page also asks a reachable loopback agent for an immediate sync,
 so the first screen does not wait for the next one-minute check.
 
+If that check fails, the AI page probes the agent status and explains whether
+the background job is not responding, continuous mode is off, the saved pairing
+was rejected, or the upload itself failed. The recovery card repeats complete
+copy-paste macOS launchd and Linux systemd installers, plus a re-pair command
+when the credential is the problem. Commands use the current dashboard origin,
+so staging recovery stays pointed at staging.
+
 ## Schedule it on macOS (launchd)
 
 Save as `~/Library/LaunchAgents/io.ambrium.ai-usage.plist` (runs at login and is

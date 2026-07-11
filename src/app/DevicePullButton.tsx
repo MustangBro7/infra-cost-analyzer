@@ -2,13 +2,17 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Check, Cloud, HardDriveDownload, Loader2, Radio, TerminalSquare, X } from "lucide-react"
+import { AlertTriangle, Check, Cloud, HardDriveDownload, Loader2, Radio, TerminalSquare, X } from "lucide-react"
+import { aiAgentCommands, diagnoseAiAgent, type AiAgentRecovery } from "@/lib/aiAgentSetup"
 import { CopyButton } from "./dashboard/CopyButton"
 
 const AGENT_URL = "http://127.0.0.1:41414"
-const REMOTE_BASE = "https://ambrium.io"
-const RUNNER = "npx --yes github:MustangBro7/infra-cost-analyzer"
 const SERVER_POLL_MS = 15_000
+
+interface LocalAgentStatus {
+  autoSync?: boolean
+  lastSync?: { error?: string } | null
+}
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "waiting for first sync"
@@ -39,10 +43,34 @@ export function DevicePullButton({
   const router = useRouter()
   const [state, setState] = React.useState<"idle" | "pulling" | "done" | "empty" | "agent-missing" | "failed">("idle")
   const [detail, setDetail] = React.useState<string | null>(null)
+  const [recovery, setRecovery] = React.useState<AiAgentRecovery | null>(null)
+  const [origin, setOrigin] = React.useState("https://ambrium.io")
   const [serverUpdatedAt, setServerUpdatedAt] = React.useState<string | null>(initialServerUpdatedAt)
   const [serverState, setServerState] = React.useState<"live" | "checking" | "offline">("checking")
   const revisionRef = React.useRef<string | null>(null)
   const pulledOnArrivalRef = React.useRef(false)
+  const commands = React.useMemo(() => aiAgentCommands(origin), [origin])
+
+  React.useEffect(() => setOrigin(window.location.origin), [])
+
+  async function localAgentRequest(path: string, method: "GET" | "POST") {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 8_000)
+    const request: RequestInit = { method, signal: controller.signal, cache: "no-store" }
+    try {
+      try {
+        return await fetch(`${AGENT_URL}${path}`, request)
+      } catch (firstError) {
+        if (!(firstError instanceof TypeError)) throw firstError
+        return await fetch(`${AGENT_URL}${path}`, {
+          ...request,
+          ...({ targetAddressSpace: "loopback" } as RequestInit),
+        })
+      }
+    } finally {
+      window.clearTimeout(timer)
+    }
+  }
 
   const pollServer = React.useCallback(async () => {
     if (document.visibilityState !== "visible") return
@@ -70,25 +98,21 @@ export function DevicePullButton({
   async function pull() {
     setState("pulling")
     setDetail(null)
+    setRecovery(null)
     try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 20_000)
-      const request: RequestInit = { method: "POST", signal: controller.signal }
-      let response: Response
+      let agentStatus: LocalAgentStatus | null = null
       try {
-        response = await fetch(`${AGENT_URL}/v1/refresh`, request)
-      } catch (firstError) {
-        if (!(firstError instanceof TypeError)) throw firstError
-        // Chrome Local Network Access: an https page needs the loopback hint
-        // (and may show a one-time permission prompt). Plain fetch is tried
-        // first because the hint itself hard-fails on browsers/pages where the
-        // request is already same-space (e.g. localhost dev).
-        response = await fetch(`${AGENT_URL}/v1/refresh`, {
-          ...request,
-          ...({ targetAddressSpace: "loopback" } as RequestInit),
-        })
+        const statusResponse = await localAgentRequest("/v1/status", "GET")
+        if (statusResponse.ok) {
+          agentStatus = (await statusResponse.json().catch(() => ({}))) as LocalAgentStatus
+        }
+      } catch {
+        setState("agent-missing")
+        setRecovery(diagnoseAiAgent({ reachable: false }))
+        return
       }
-      clearTimeout(timer)
+
+      const response = await localAgentRequest("/v1/refresh", "POST")
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean
         pushed?: Array<{ label: string; limits: number }>
@@ -96,14 +120,20 @@ export function DevicePullButton({
         note?: string
         error?: string
       }
-      if (!response.ok && !payload.ok) throw Object.assign(new Error(payload.error ?? "Agent refresh failed."), { agent: true })
+      if (!response.ok && !payload.ok) {
+        const reason = payload.error ?? payload.errors?.map((entry) => entry.error).filter(Boolean).join(" · ") ?? `Agent refresh failed (${response.status}).`
+        setRecovery(diagnoseAiAgent({ reachable: true, autoSync: agentStatus?.autoSync, error: reason }))
+        throw new Error(reason)
+      }
       if ((payload.pushed?.length ?? 0) === 0) {
         setState("empty")
         setDetail(payload.note ?? payload.errors?.[0]?.error ?? "Nothing to push from this device.")
+        setRecovery(diagnoseAiAgent({ reachable: true, autoSync: agentStatus?.autoSync, error: agentStatus?.lastSync?.error }))
         return
       }
       setState("done")
       setDetail(payload.pushed!.map((tool) => tool.label).join(" + "))
+      setRecovery(diagnoseAiAgent({ reachable: true, autoSync: agentStatus?.autoSync }))
       await pollServer()
       router.refresh()
     } catch (error) {
@@ -111,9 +141,11 @@ export function DevicePullButton({
       // this device isn't running the agent. Anything else is a real error.
       if (error instanceof TypeError || (error instanceof DOMException && error.name === "AbortError")) {
         setState("agent-missing")
+        setRecovery(diagnoseAiAgent({ reachable: false }))
       } else {
         setState("failed")
         setDetail(error instanceof Error ? error.message : "Pull failed.")
+        setRecovery((current) => current ?? diagnoseAiAgent({ reachable: true, error: error instanceof Error ? error.message : "Pull failed." }))
       }
     }
   }
@@ -133,14 +165,16 @@ export function DevicePullButton({
 
   React.useEffect(() => {
     if (!autoPull || pulledOnArrivalRef.current) return
-    pulledOnArrivalRef.current = true
     const lastUpdate = initialServerUpdatedAt ? new Date(initialServerUpdatedAt).getTime() : 0
     // A just-finished agent push is already current. Otherwise ask the local
     // loopback agent immediately, so opening the page does not wait for its next
     // one-minute scheduled pass.
     if (Number.isFinite(lastUpdate) && Date.now() - lastUpdate < SERVER_POLL_MS) return
     const timeout = window.setTimeout(() => {
-      if (document.visibilityState === "visible") void pull()
+      if (document.visibilityState === "visible" && !pulledOnArrivalRef.current) {
+        pulledOnArrivalRef.current = true
+        void pull()
+      }
     }, 350)
     return () => window.clearTimeout(timeout)
     // pull deliberately runs once per mount; its dependencies are stable page state.
@@ -172,30 +206,43 @@ export function DevicePullButton({
             <Check size={12} aria-hidden /> Synced {detail} to the server
           </span>
         ) : null}
-        {state === "empty" || state === "failed" ? (
+        {state === "empty" || (state === "failed" && !recovery) ? (
           <span className="amb-device-pull-note err">
             <X size={12} aria-hidden /> {detail}
           </span>
         ) : null}
       </div>
 
-      {state === "agent-missing" ? (
-        <div className="amb-device-pull-help">
+      {recovery ? (
+        <div className={`amb-device-pull-help ${recovery.kind}`} role="alert">
           <p>
-            <TerminalSquare size={13} aria-hidden /> <strong>No Ambrium agent is running on this device.</strong> Local
-            Claude Code / Codex usage only exists on the machine it was created on. Start the continuous agent there;
-            it checks for changes every minute and the page picks them up automatically:
+            <AlertTriangle size={14} aria-hidden /> <strong>{recovery.title}</strong> {recovery.detail}
           </p>
+          {recovery.showPairCommand ? (
+            <div className="amb-device-pull-cmd">
+              <span>1 · Pair again</span>
+              <code>{commands.pair}</code>
+              <CopyButton text={commands.pair} copyLabel="Copy" />
+            </div>
+          ) : null}
           <div className="amb-device-pull-cmd">
-            <span>Continuous sync</span>
-            <code>{`AMBRIUM_API=${REMOTE_BASE} ${RUNNER} serve`}</code>
-            <CopyButton text={`AMBRIUM_API=${REMOTE_BASE} ${RUNNER} serve`} />
+            <span>{recovery.showPairCommand ? "2 · macOS job" : "macOS job"}</span>
+            <code>{commands.macInstall}</code>
+            <CopyButton text={commands.macInstall} copyLabel="Copy setup" copiedLabel="Copied" />
           </div>
           <div className="amb-device-pull-cmd">
-            <span>One-off push</span>
-            <code>{`AMBRIUM_API=${REMOTE_BASE} ${RUNNER} --ai-only`}</code>
-            <CopyButton text={`AMBRIUM_API=${REMOTE_BASE} ${RUNNER} --ai-only`} />
+            <span>{recovery.showPairCommand ? "2 · Linux job" : "Linux job"}</span>
+            <code>{commands.linuxInstall}</code>
+            <CopyButton text={commands.linuxInstall} copyLabel="Copy setup" copiedLabel="Copied" />
           </div>
+          <details className="amb-device-pull-manual">
+            <summary><TerminalSquare size={13} aria-hidden /> Run without installing a job</summary>
+            <div className="amb-device-pull-cmd">
+              <span>Foreground</span>
+              <code>{commands.serve}</code>
+              <CopyButton text={commands.serve} />
+            </div>
+          </details>
         </div>
       ) : null}
     </div>
