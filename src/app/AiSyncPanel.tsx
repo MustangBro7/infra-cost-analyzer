@@ -110,13 +110,29 @@ export function AiSyncPanel({ initialState }: { initialState: PublicState }) {
 <plist version="1.0"><dict>
 <key>Label</key><string>io.ambrium.ai-usage</string>
 <key>EnvironmentVariables</key><dict><key>AMBRIUM_API</key><string>${origin}</string><key>PATH</key><string>$ND:/usr/bin:/bin</string></dict>
-<key>ProgramArguments</key><array><string>$NPX</string><string>--yes</string><string>github:MustangBro7/infra-cost-analyzer</string><string>--ai-only</string></array>
-<key>RunAtLoad</key><true/><key>StartInterval</key><integer>21600</integer>
+<key>ProgramArguments</key><array><string>$NPX</string><string>--yes</string><string>github:MustangBro7/infra-cost-analyzer</string><string>serve</string></array>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>
 <key>StandardOutPath</key><string>/tmp/ambrium-ai-usage.log</string><key>StandardErrorPath</key><string>/tmp/ambrium-ai-usage.log</string>
 </dict></plist>
 EOF
-launchctl unload "$P" 2>/dev/null; launchctl load "$P" && echo "Ambrium auto-sync installed (every 6h)"`
-  const linuxInstall = `( crontab -l 2>/dev/null | grep -v ambrium-ai-usage; echo "0 */6 * * * AMBRIUM_API=${origin} \\$(command -v npx) --yes github:MustangBro7/infra-cost-analyzer --ai-only >> /tmp/ambrium-ai-usage.log 2>&1 # ambrium-ai-usage" ) | crontab - && echo "Ambrium auto-sync installed (every 6h)"`
+launchctl unload "$P" 2>/dev/null; launchctl load "$P" && echo "Ambrium continuous AI sync installed"`
+  const linuxInstall = `NPX="$(command -v npx)"; ND="$(dirname "$(command -v node)")"; P="$HOME/.config/systemd/user/ambrium-ai-usage.service"; mkdir -p "$HOME/.config/systemd/user"; cat > "$P" <<EOF
+[Unit]
+Description=Ambrium continuous AI usage sync
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=AMBRIUM_API=${origin}
+Environment=PATH=$ND:/usr/local/bin:/usr/bin:/bin
+ExecStart=$NPX --yes github:MustangBro7/infra-cost-analyzer serve
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user daemon-reload && systemctl --user enable --now ambrium-ai-usage.service && echo "Ambrium continuous AI sync installed"`
 
   function copy(key: string, text: string) {
     navigator.clipboard.writeText(text).then(() => {
@@ -218,8 +234,8 @@ launchctl unload "$P" 2>/dev/null; launchctl load "$P" && echo "Ambrium auto-syn
         Codex logs. Set the monthly plan price above (e.g. $200 for Max/Pro). If you also have an API org, use the
         <strong> Add organization API cost &amp; usage</strong> form on its provider card and enable live API usage to add
         your real pay-per-use spend too. The
-        dashboard re-renders your last push every ~6h; picking up <strong>new</strong> usage needs a quick job on your
-        machine — set it up once, it runs browser-free after the first pairing.
+        AI page checks the server every 15 seconds. Picking up <strong>new</strong> local usage needs the companion agent
+        on your machine — set it up once and it checks every minute, browser-free after the first pairing.
       </p>
 
       <div className="ai-manual-sync">
@@ -278,7 +294,7 @@ launchctl unload "$P" 2>/dev/null; launchctl load "$P" && echo "Ambrium auto-syn
           <div className="ai-sync-step-head">
             <span className="ai-sync-num">2</span>
             <strong>Turn on auto-sync</strong>
-            <small>Installs a background job that re-reads &amp; pushes your usage every 6 hours.</small>
+            <small>Installs an always-on background agent that checks every minute and pushes only when data changes.</small>
           </div>
           <div className="cli-command">
             <span>macOS — paste &amp; run</span>
@@ -289,15 +305,15 @@ launchctl unload "$P" 2>/dev/null; launchctl load "$P" && echo "Ambrium auto-syn
               <ClipboardCopy aria-hidden /> {copied === "mac" ? "Copied" : "Copy macOS installer"}
             </button>
             <button type="button" className="ghost-button" onClick={() => copy("linux", linuxInstall)}>
-              <TerminalSquare aria-hidden /> {copied === "linux" ? "Copied" : "Copy Linux (cron)"}
+              <TerminalSquare aria-hidden /> {copied === "linux" ? "Copied" : "Copy Linux (systemd)"}
             </button>
           </div>
         </li>
       </ol>
 
       <p className="ai-sync-foot">
-        To stop it later: <code>launchctl unload ~/Library/LaunchAgents/io.ambrium.ai-usage.plist</code> (macOS) or remove
-        the <code>ambrium-ai-usage</code> crontab line (Linux).
+        To stop it later: <code>launchctl unload ~/Library/LaunchAgents/io.ambrium.ai-usage.plist</code> (macOS) or run
+        <code> systemctl --user disable --now ambrium-ai-usage.service</code> (Linux).
       </p>
 
       {message ? <div className="flow-message success">{message}</div> : null}

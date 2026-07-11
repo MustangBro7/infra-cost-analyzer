@@ -8,7 +8,11 @@ function baseUrl(server: Server) {
   return `http://127.0.0.1:${address.port}`
 }
 
-async function startAgent(overrides: { push?: (payload: unknown) => Promise<void>; collect?: () => Promise<Array<Record<string, unknown>>> } = {}) {
+async function startAgent(overrides: {
+  push?: (payload: unknown) => Promise<void>
+  collect?: () => Promise<Array<Record<string, unknown>>>
+  autoSyncMs?: number
+} = {}) {
   const { startUsageAgent } = await import("../cli/usage-agent.mjs")
   const pushed: unknown[] = []
   const server = startUsageAgent({
@@ -21,9 +25,18 @@ async function startAgent(overrides: { push?: (payload: unknown) => Promise<void
         { provider: "anthropic", toolLabel: "Claude Code", models: [{}], limits: [{}, {}] },
         { provider: "openai", toolLabel: "Codex", models: [{}, {}], limits: [{}] },
       ]),
+    autoSyncMs: overrides.autoSyncMs,
   })
   await new Promise((resolve) => server.on("listening", resolve))
   return { server, pushed, url: baseUrl(server) }
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 500) {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  assert.equal(predicate(), true, "condition was not reached before timeout")
 }
 
 test("usage agent allows dashboard origins and refuses others", async () => {
@@ -82,6 +95,47 @@ test("usage agent surfaces push failures without crashing", async () => {
     const body = (await response.json()) as { ok: boolean; errors: Array<{ error: string }> }
     assert.equal(body.ok, false)
     assert.equal(body.errors[0].error, "token expired")
+  } finally {
+    server.close()
+  }
+})
+
+test("continuous agent pushes at startup and deduplicates unchanged scheduled checks", async () => {
+  let collectCount = 0
+  const { server, pushed, url } = await startAgent({
+    autoSyncMs: 15,
+    collect: async () => {
+      collectCount += 1
+      return [{ provider: "openai", toolLabel: "Codex", models: [{ total: 10 }], limits: [] }]
+    },
+  })
+  try {
+    await waitFor(() => collectCount >= 3)
+    assert.equal(pushed.length, 1, "identical scheduled payloads should only be uploaded once")
+
+    const status = (await (await fetch(`${url}/v1/status`)).json()) as {
+      autoSync: boolean
+      intervalMs: number
+      lastSync: { unchanged: boolean }
+    }
+    assert.equal(status.autoSync, true)
+    assert.equal(status.intervalMs, 15)
+    assert.equal(status.lastSync.unchanged, true)
+  } finally {
+    server.close()
+  }
+})
+
+test("continuous agent uploads a new snapshot when local usage changes", async () => {
+  let version = 1
+  const { server, pushed } = await startAgent({
+    autoSyncMs: 15,
+    collect: async () => [{ provider: "openai", toolLabel: "Codex", models: [{ total: version }], limits: [] }],
+  })
+  try {
+    await waitFor(() => pushed.length === 1)
+    version = 2
+    await waitFor(() => pushed.length === 2)
   } finally {
     server.close()
   }

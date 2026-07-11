@@ -1034,6 +1034,7 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
     const meta = (conn.metadata ?? {}) as {
       source?: "local" | "api" | "both"
       localUsage?: {
+        subscriptionUsd?: number
         planLabel?: string | null
         totals?: { inputTokens?: number; cacheTokens?: number; outputTokens?: number }
         limits?: AiUsageLimit[]
@@ -1058,7 +1059,20 @@ function buildAiTools(analysis: AnalysisResult, state: Awaited<ReturnType<typeof
       planLabelOverride?: string
     }
     const rows = analysis.costRows.filter((row) => row.provider === provider)
-    const subscriptionCost = rows.filter((row) => /subscription/i.test(row.serviceName)).reduce((s, r) => s + r.cost, 0)
+    const snapshotSubscriptionCost = rows.filter((row) => /subscription/i.test(row.serviceName)).reduce((s, r) => s + r.cost, 0)
+    const currentMonth = new Date().toISOString().slice(0, 7)
+    const isLiveMonth = analysis.period.from.slice(0, 7) === currentMonth && analysis.period.to.slice(0, 7) === currentMonth
+    const localSubscriptionCost = meta.localUsage
+      ? meta.subscriptionUsdOverride ?? meta.localUsage.subscriptionUsd
+      : undefined
+    // Local pushes update connection metadata immediately; the persisted
+    // analysis snapshot can lag until its next provider refresh. For the live
+    // month, render the subscription price directly from that fresh metadata so
+    // the UI poll reflects the completed push without waiting for cron.
+    const subscriptionCost =
+      isLiveMonth && typeof localSubscriptionCost === "number" && Number.isFinite(localSubscriptionCost)
+        ? localSubscriptionCost
+        : snapshotSubscriptionCost
     const apiCost = rows.filter((row) => /\(API\)/.test(row.serviceName)).reduce((s, r) => s + r.cost, 0)
     const measuredApiValue = analysis.freeTier.find((row) => row.provider === provider && row.service === "Value at API rates")?.used ?? 0
 
@@ -1413,6 +1427,11 @@ function RepositoryDashboard({
   // AI spend follows the range; token/limit detail is whatever the connections
   // last reported (metadata), which is inherently current.
   const aiTools = buildAiTools(rangeAnalysis, state)
+  const aiLiveUpdatedAt = AI_PROVIDERS
+    .map((provider) => state.connections[provider]?.lastVerifiedAt ?? null)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1) ?? null
 
   // First-run checklist: pinned to the top of Projects until real data flows,
   // then the card stops rendering entirely.
@@ -1972,7 +1991,7 @@ function RepositoryDashboard({
         aiTools.length ? (
           <>
             <div className="amb-ai-actions">
-              <DevicePullButton />
+              <DevicePullButton initialServerUpdatedAt={aiLiveUpdatedAt} autoPull />
             </div>
 
             {aiPrimaryLimit && aiPrimaryLimit.pct != null ? (
@@ -2147,7 +2166,7 @@ function RepositoryDashboard({
           <div className="amb-empty-card">
             <strong>No AI usage connected yet</strong>
             <span>Link your AI tools to compare subscriptions, APIs, and gateways here — or pull local Claude Code / Codex usage straight from this device.</span>
-            <DevicePullButton />
+            <DevicePullButton initialServerUpdatedAt={aiLiveUpdatedAt} autoPull />
             <Link href="/dashboard?view=connect" prefetch={false} className="amb-btn-sm-dark">
               Connect AI tools
             </Link>

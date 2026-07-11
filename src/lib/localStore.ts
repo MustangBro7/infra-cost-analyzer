@@ -1366,6 +1366,62 @@ export async function readWorkspace(userId: string): Promise<WorkspaceStore> {
   return normalizeWorkspace(store.workspaces[userId])
 }
 
+const AI_SYNC_PROVIDERS = new Set<Provider>(["anthropic", "openai", "cursor"])
+
+export interface AiSyncState {
+  revision: string
+  updatedAt: string | null
+  providers: Array<{ provider: Provider; updatedAt: string | null }>
+}
+
+/**
+ * Lightweight revision read for the AI page's client poller. In D1 this only
+ * reads the three AI connection timestamps and avoids loading/decrypting the
+ * full workspace every 15 seconds. A local AI push always advances
+ * lastVerifiedAt, so the timestamp tuple is a sufficient change token.
+ */
+export async function readAiSyncState(userId: string): Promise<AiSyncState> {
+  let providers: AiSyncState["providers"]
+  if (isDevPreview()) {
+    const workspace = normalizeWorkspace(devPreviewWorkspace())
+    providers = Object.values(workspace.connections)
+      .filter((connection): connection is StoredConnection => Boolean(connection && AI_SYNC_PROVIDERS.has(connection.provider)))
+      .map((connection) => ({ provider: connection.provider, updatedAt: connection.lastVerifiedAt ?? null }))
+  } else {
+    const db = await d1Binding()
+    if (db) {
+      const rows =
+        (await db
+          .prepare("SELECT provider, last_verified_at FROM app_provider_connections WHERE user_id = ?1")
+          .bind(userId)
+          .all<Record<string, string | null>>()).results ?? []
+      providers = rows
+        .filter((row) => AI_SYNC_PROVIDERS.has(String(row.provider) as Provider))
+        .map((row) => ({
+          provider: String(row.provider) as Provider,
+          updatedAt: row.last_verified_at ? String(row.last_verified_at) : null,
+        }))
+    } else {
+      const workspace = await readWorkspace(userId)
+      providers = Object.values(workspace.connections)
+        .filter((connection): connection is StoredConnection => Boolean(connection && AI_SYNC_PROVIDERS.has(connection.provider)))
+        .map((connection) => ({ provider: connection.provider, updatedAt: connection.lastVerifiedAt ?? null }))
+    }
+  }
+
+  providers.sort((a, b) => a.provider.localeCompare(b.provider))
+  const updatedAt = providers
+    .map((provider) => provider.updatedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1) ?? null
+  return {
+    revision: providers.map((provider) => `${provider.provider}:${provider.updatedAt ?? "never"}`).join("|"),
+    updatedAt,
+    providers,
+  }
+}
+
 async function writeWorkspace(userId: string, workspace: WorkspaceStore) {
   // Fast path: rewrite only this user's rows (atomic per-user) instead of
   // deleting and reinserting every table for every user on each mutation.

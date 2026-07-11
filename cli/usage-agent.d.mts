@@ -10,4 +10,5 @@ export function startUsageAgent(options: {
   push: (payload: unknown) => Promise<void>
   collect?: () => Promise<Array<Record<string, unknown>>>
   log?: (line: string) => void
+  autoSyncMs?: number
 }): Server

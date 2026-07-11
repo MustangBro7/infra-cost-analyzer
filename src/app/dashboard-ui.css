@@ -1250,8 +1250,22 @@
 
 .amb-ai-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: stretch;
   margin: -4px 0 14px;
+}
+
+.amb-ai-actions .amb-device-pull {
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--amb-line);
+  border-radius: 11px;
+  background: var(--amb-card);
+}
+
+.amb-ai-actions .amb-device-pull-help {
+  grid-column: 1 / -1;
 }
 
 .amb-ai-limit-alert {
@@ -2754,6 +2768,14 @@
     width: 100%;
   }
 
+  .amb-ai-actions .amb-device-pull {
+    grid-template-columns: 1fr;
+  }
+
+  .amb-ai-actions .amb-device-pull-row {
+    justify-content: stretch;
+  }
+
   .amb-ai-limit-alert {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 10px 12px;
@@ -3633,6 +3655,79 @@ html[data-theme="dark"] body {
   display: grid;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.amb-live-sync-state {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.amb-live-sync-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--amb-green) 12%, transparent);
+  color: var(--amb-green);
+}
+
+.amb-live-sync-icon::after {
+  content: "";
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid var(--amb-card);
+  border-radius: 50%;
+  background: var(--amb-green);
+}
+
+.amb-live-sync-state.checking .amb-live-sync-icon {
+  background: var(--amb-card-2);
+  color: var(--amb-muted);
+}
+
+.amb-live-sync-state.checking .amb-live-sync-icon::after {
+  background: var(--amb-muted);
+}
+
+.amb-live-sync-state.offline .amb-live-sync-icon {
+  background: color-mix(in srgb, var(--amb-warn) 13%, transparent);
+  color: var(--amb-warn);
+}
+
+.amb-live-sync-state.offline .amb-live-sync-icon::after {
+  background: var(--amb-warn);
+}
+
+.amb-live-sync-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.amb-live-sync-state > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.amb-live-sync-state strong {
+  color: var(--amb-ink);
+  font: 650 12.5px var(--amb-font);
+}
+
+.amb-live-sync-state small {
+  overflow: hidden;
+  color: var(--amb-muted-2);
+  font: 400 11.5px var(--amb-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .amb-device-pull-row {

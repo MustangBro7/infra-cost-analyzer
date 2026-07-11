@@ -557,8 +557,8 @@ Usage:
   ambrium-connect doctor          Diagnose local setup and missing provider prerequisites
   ambrium-connect spec            Print the agent-readable setup prompt/spec summary
   ambrium-connect --ai-only       Push local Claude Code / Codex usage only
-  ambrium-connect serve           Run the local usage agent (enables the AI
-                                  page's "Pull from this device" button)
+  ambrium-connect serve           Continuously sync local AI usage when it
+                                  changes (default check: every 60 seconds)
 
 Options:
   --json                          Machine-readable output for status/doctor/spec
@@ -568,6 +568,7 @@ Environment:
   AMBRIUM_API                     Ambrium base URL, defaults to http://localhost:3000
   CLOUDFLARE_API_TOKEN            Optional Cloudflare token for non-interactive connect
   MOTHERDUCK_DATABASE_URL         Optional MotherDuck PostgreSQL endpoint
+  AMBRIUM_AI_SYNC_INTERVAL_SECONDS Continuous-agent check interval (min 15s)
 
 `)
 }
@@ -665,18 +666,22 @@ async function serveCommand() {
   const cliToken = (await loadToken()) ?? (await getToken())
   if (!cliToken) throw new Error("Pairing is required before serving. Run ambrium-connect once.")
   const port = Number(process.env.AMBRIUM_AGENT_PORT || DEFAULT_AGENT_PORT)
+  const requestedInterval = Number(process.env.AMBRIUM_AI_SYNC_INTERVAL_SECONDS ?? 60)
+  const intervalSeconds = Number.isFinite(requestedInterval) ? Math.max(Math.round(requestedInterval), 15) : 60
   const server = startUsageAgent({
     port,
     apiBase: API_BASE,
     push: (payload) => api("/api/cli/ai-usage", { method: "POST", token: cliToken, body: payload }),
     log,
+    autoSyncMs: intervalSeconds * 1000,
   })
   await new Promise((resolve, reject) => {
     server.on("listening", resolve)
     server.on("error", reject)
   })
   log(`◇ Ambrium usage agent listening on http://127.0.0.1:${port}`)
-  log(`   The dashboard's "Pull from this device" button (AI page) now works from this machine.`)
+  log(`   Local Claude Code / Codex usage is checked every ${intervalSeconds}s and pushed when it changes.`)
+  log(`   The AI page also checks the server every 15s and can request an immediate device sync.`)
   log(`   Ctrl-C to stop.`)
   await new Promise(() => {})
 }
